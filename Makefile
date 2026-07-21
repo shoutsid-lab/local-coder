@@ -1,15 +1,27 @@
-.PHONY: health test lint verify metrics clean-aider
+PYTHON := .venv/bin/python
+FILES := calculator.py test_calculator.py test_pipeline_contract.py
+
+.PHONY: health format format-check lint test verify metrics context-benchmark
 
 health:
 	@curl -fsS http://127.0.0.1:8080/health | jq
 
-test:
-	python -m pytest -q
+format:
+	$(PYTHON) -m black $(FILES)
+
+format-check:
+	$(PYTHON) -m black --check $(FILES)
 
 lint:
-	python -m flake8 calculator.py test_calculator.py test_pipeline_contract.py
+	$(PYTHON) -m flake8 $(FILES)
 
-verify: lint test
+test:
+	$(PYTHON) -m pytest -q --tb=short
+
+context-benchmark:
+	$(PYTHON) benchmarks/context_benchmark.py
+
+verify: format-check lint test
 	git diff --check
 
 metrics:
@@ -18,14 +30,3 @@ metrics:
 
 clean-aider:
 	rm -f aider
-
-.PHONY: format format-check health test lint verify metrics clean-aider
-
-format:
-	python -m black calculator.py test_calculator.py test_pipeline_contract.py
-
-format-check:
-	python -m black --check calculator.py test_calculator.py test_pipeline_contract.py
-
-verify: format-check lint test
-	git diff --check

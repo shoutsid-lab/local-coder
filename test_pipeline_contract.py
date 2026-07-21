@@ -6,10 +6,7 @@ import pytest
 
 from calculator import divide
 
-
-EXPECTED_DOCSTRING = (
-    "Return a divided by b, raising ValueError when b is zero."
-)
+EXPECTED_DOCSTRING = "Return a divided by b, raising ValueError when b is zero."
 
 EXPECTED_TEST_NAMES = [
     "test_positive_integer_division",
@@ -58,8 +55,7 @@ def test_editable_test_file_has_expected_tests() -> None:
     names = [
         node.name
         for node in tree.body
-        if isinstance(node, ast.FunctionDef)
-        and node.name.startswith("test_")
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
     ]
 
     assert names == EXPECTED_TEST_NAMES
