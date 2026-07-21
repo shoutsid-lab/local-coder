@@ -118,6 +118,7 @@ def handle_status(_: argparse.Namespace) -> int:
 def handle_repair(args: argparse.Namespace) -> int:
     return run_command(
         [
+            sys.executable,
             "./run-editor.py",
             args.instruction,
             *args.files,
@@ -125,32 +126,12 @@ def handle_repair(args: argparse.Namespace) -> int:
     )
 
 
-def handle_plan(_: argparse.Namespace) -> int:
-    status = run_command(["./create-plan.py"])
-    if status != 0:
-        return status
-    candidate = ROOT / "PLAN.candidate.json"
-    if not candidate.is_file():
-        print(
-            "create-plan.py succeeded but PLAN.candidate.json was not created.",
-            file=sys.stderr,
-        )
-        return 1
-    print()
-    print(candidate.read_text(encoding="utf-8"), end="")
-    return 0
-
-
-def handle_execute(_: argparse.Namespace) -> int:
-    return run_command(["./run-plan.py"])
-
-
 def handle_verify(_: argparse.Namespace) -> int:
     return run_command(["make", "verify"])
 
 
-def handle_review(_: argparse.Namespace) -> int:
-    return run_command(["./review-diff.py"])
+def handle_review(args: argparse.Namespace) -> int:
+    return run_command([sys.executable, "./review-diff.py", "--task", str(args.task)])
 
 
 def handle_run(args: argparse.Namespace) -> int:
@@ -252,22 +233,17 @@ def build_parser() -> argparse.ArgumentParser:
     repair_parser.add_argument("files", nargs="+", help="Approved files to edit.")
     repair_parser.set_defaults(handler=handle_repair)
 
-    plan_parser = subparsers.add_parser(
-        "plan", help="Generate and display an unapproved plan."
-    )
-    plan_parser.set_defaults(handler=handle_plan)
-
-    execute_parser = subparsers.add_parser(
-        "execute", help="Execute the approved PLAN.json."
-    )
-    execute_parser.set_defaults(handler=handle_execute)
-
     verify_parser = subparsers.add_parser(
         "verify", help="Run deterministic verification."
     )
     verify_parser.set_defaults(handler=handle_verify)
 
     review_parser = subparsers.add_parser("review", help="Review the current Git diff.")
+    review_parser.add_argument(
+        "task",
+        type=Path,
+        help="Authoritative task file for the diff under review.",
+    )
     review_parser.set_defaults(handler=handle_review)
 
     return parser

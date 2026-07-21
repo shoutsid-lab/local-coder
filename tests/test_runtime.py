@@ -23,7 +23,7 @@ from runtime.tools import (
     remove_worktree,
 )
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 CLI_SPEC = importlib.util.spec_from_file_location(
     "local_coder_cli", ROOT / "local-coder.py"
 )
@@ -36,6 +36,12 @@ REVIEW_SPEC = importlib.util.spec_from_file_location(
 assert REVIEW_SPEC is not None and REVIEW_SPEC.loader is not None
 review_diff_cli = importlib.util.module_from_spec(REVIEW_SPEC)
 REVIEW_SPEC.loader.exec_module(review_diff_cli)
+EDITOR_SPEC = importlib.util.spec_from_file_location(
+    "run_editor_cli", ROOT / "run-editor.py"
+)
+assert EDITOR_SPEC is not None and EDITOR_SPEC.loader is not None
+run_editor_cli = importlib.util.module_from_spec(EDITOR_SPEC)
+EDITOR_SPEC.loader.exec_module(run_editor_cli)
 
 
 def test_direct_cli_reenters_symlinked_project_virtualenv(tmp_path: Path) -> None:
@@ -60,6 +66,44 @@ def test_direct_cli_reenters_symlinked_project_virtualenv(tmp_path: Path) -> Non
         local_coder.ensure_project_python()
 
     execve.assert_called_once()
+
+
+def test_direct_editor_uses_instruction_when_task_file_is_omitted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    arguments = SimpleNamespace(
+        instruction="Replace one exact README sentence.",
+        files=["README.md"],
+        task=None,
+    )
+    with (
+        patch.object(run_editor_cli, "parse_args", return_value=arguments),
+        patch.object(
+            run_editor_cli,
+            "request_and_apply",
+            return_value=["README.md"],
+        ) as request_and_apply,
+    ):
+        assert run_editor_cli.main() == 0
+
+    assert capsys.readouterr().out == "Changed files: README.md\n"
+    assert request_and_apply.call_args.kwargs["task"] == (
+        "# Atomic Task\n\nReplace one exact README sentence.\n"
+    )
+    assert request_and_apply.call_args.kwargs["protected_files"] == set()
+
+
+def test_cli_review_uses_project_python() -> None:
+    arguments = SimpleNamespace(task=Path("task.md"))
+    with patch.object(local_coder, "run_command", return_value=0) as run_command:
+        assert local_coder.handle_review(arguments) == 0
+
+    assert run_command.call_args.args[0] == [
+        local_coder.sys.executable,
+        "./review-diff.py",
+        "--task",
+        "task.md",
+    ]
 
 
 def test_reviewer_accepts_fenced_valid_json() -> None:
@@ -245,12 +289,14 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
         repository=ROOT,
         base_branch="main",
     )
+    task_file = tmp_path / "TASK.md"
+    task_file.write_text("# Task\n\nInspect README.md.\n", encoding="utf-8")
     context = ToolContext(
         root=ROOT,
         worktree=Worktree(ROOT, "agent/test", "main"),
         run_id=run_id,
         state=store,
-        task_file=ROOT / "TASK.md",
+        task_file=task_file,
     )
     bundle = build_agent_bundle(
         skills=discover_skills(ROOT / ".local-coder" / "skills"),
@@ -278,12 +324,12 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
         "generate",
         return_value=SimpleNamespace(content="evidence summary"),
     ) as generate:
-        assert explorer("Inspect calculator.py", {"request": "context"}) == (
+        assert explorer("Inspect README.md", {"request": "context"}) == (
             "evidence summary"
         )
     messages = generate.call_args.args[0]
     assert "You have no tools" in messages[0]["content"]
-    assert "def divide" in messages[1]["content"]
+    assert "# local-coder" in messages[1]["content"]
     assert generate.call_args.kwargs["tools_to_call_from"] is None
     details = store.run_details(run_id)
     assert details is not None
@@ -722,6 +768,9 @@ def test_staged_empty_files_are_included_in_diff(tmp_path: Path) -> None:
 def test_codex_handoff_documents_exist() -> None:
     assert (ROOT / "AGENTS.md").is_file()
     assert (ROOT / "HANDOFF.md").is_file()
+    assert (ROOT / "docs" / "ARCHITECTURE.md").is_file()
+    assert (ROOT / "docs" / "PIPELINE.md").is_file()
+    assert (ROOT / "docs" / "CONVENTIONS.md").is_file()
 
 
 def test_create_worktree_shares_virtualenv(tmp_path: Path) -> None:

@@ -15,12 +15,12 @@ machine used to build this repository.
 - **SQLite** records runs, agents, tool calls, artifacts, verification, and metrics.
 - **Black, Flake8, pytest, protected tests, and `git diff --check`** remain authoritative.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete design.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the complete design and
+[HANDOFF.md](HANDOFF.md) for the recursive-improvement roadmap.
 
 ## Install the agent runtime
 
-The existing calculator/pipeline environment remains unchanged. Add the orchestrator
-dependency to the repository virtual environment:
+Install the orchestrator dependency in the repository virtual environment:
 
 ```bash
 make agent-install
@@ -54,27 +54,25 @@ Inspect the audit trail:
 
 Then review the preserved worktree manually before committing or merging.
 
-## Existing fallback commands
+## Focused fallback commands
 
 The proven lower-level commands remain available:
 
 ```bash
 ./local-coder.py repair "ATOMIC INSTRUCTION" FILE [FILE ...]
-./local-coder.py plan
-./local-coder.py execute
 ./local-coder.py verify
-./local-coder.py review
+./local-coder.py review TASK_FILE
 ```
 
 ## Upstream alignment
 
-`UPSTREAM.json` records the GitHub repository, commit, and verified blob SHAs used as the
+`docs/UPSTREAM.json` records the GitHub repository, commit, and verified blob SHAs used as the
 baseline before the agent-runtime changes were applied.
 
 ## Codex handoff
 
-Codex should read `AGENTS.md` first, then `HANDOFF.md`, `ARCHITECTURE.md`, and
-`PIPELINE.md`. Unit verification is service-independent:
+Codex should read `AGENTS.md` first, then `HANDOFF.md`, `docs/ARCHITECTURE.md`, and
+`docs/PIPELINE.md`. Unit verification is service-independent:
 
 ```bash
 make verify

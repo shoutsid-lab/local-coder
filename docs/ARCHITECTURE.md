@@ -51,8 +51,14 @@ logical LiteLLM aliases. The future `local-deep` profile is disabled and intende
 model loaded on demand rather than concurrently. Stable aliases allow the physical model
 behind planning or review to change without changing the harness.
 
-## Existing utilities
+## Trusted improvement boundary
 
-The earlier planner, plan executor, reviewer, and direct repair CLI remain available as
-fallback and debugging utilities. They use the same native editor boundary as the agent
+Recursive improvement is generational rather than online self-modification. A future
+trusted evaluator will run outside candidate worktrees, compare immutable baseline and
+candidate generations, and produce a recommendation only. Candidates must not control
+their evaluator, contracts, holdout cases, or promotion policy. A human remains the sole
+authority for commits, merges, pushes, and promotion.
+
+The direct reviewer and native repair CLI remain available as focused debugging
+utilities. They use the same read-only review and native editor boundaries as the agent
 runtime.

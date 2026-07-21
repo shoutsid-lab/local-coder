@@ -1,194 +1,225 @@
-# Codex Handoff
+# Recursive Improvement Handoff
 
-## Current state
+## Direction
 
-The repository baseline is GitHub `shoutsid-lab/local-coder` `main` at commit
-`8f12ea1f78fd692017797591cf1ee1948b8d7b1d`. `UPSTREAM.json` records the verified
-baseline blob IDs. The agent-runtime upgrade is designed to be committed as one coherent
-change on top of that baseline.
+The next phase is an evidence-gated recursive improvement loop for the local coding
+harness. The target is a system that can diagnose its own failures, propose one bounded
+improvement, build and test a candidate, and recommend promotion. It must never authorize
+its own promotion.
 
-The surrounding local architecture remains fixed; the user explicitly authorized
-replacing the flaky editing worker:
+Recursive improvement applies to the scaffold—skills, context selection, tool protocols,
+control flow, and eventually logical route selection—not to autonomous foundation-model
+training on this hardware.
+
+## Current architecture
 
 ```text
-Codex or developer
+Developer
    ↓
 local-coder role-separated harness
-   ├── focused skills
-   ├── managed explorer/planner/implementer/repairer/reviewer agents
-   ├── narrow tools
-   ├── Git worktree isolation
-   └── SQLite trajectory logging
+   ├── explorer and planner       → read-only evidence → local-plan
+   ├── implementer and repairer   → native exact edits → local-fast
+   └── reviewer                   → fixed read-only adapter → local-review
         ↓
-LiteLLM logical routes
+Git worktree isolation + SQLite audit
         ↓
-llama.cpp local inference
+LiteLLM stable logical routes
+        ↓
+llama.cpp + Qwen2.5-Coder-3B Q4_K_M
 ```
 
-The native editor in `runtime/editor.py` is the implementation worker. It asks
-`local-fast` for strict JSON exact replacements, validates the complete batch before
-writing, and never stages or commits. Deterministic verification remains authoritative.
+The architecture remains local-first and hardware-adjusted. `runtime/editor.py` is the
+only source-editing worker during local agent runs. Deterministic verification and human
+approval remain authoritative.
 
-## Verified before handoff
+Supporting documentation:
 
-- GitHub baseline alignment recorded in `UPSTREAM.json`.
-- Python formatting, linting, compilation, JSON validation, and unit tests pass.
-- Five skills load with their expected model and tool boundaries.
-- The smolagents CodeAgent manager, two read-only evidence adapters, one fixed
-  read-only review adapter, and two code-action managed workers instantiate with
-  version 1.26.
-- Worktree creation shares the base repository virtual environment.
-- Tracked, staged, and untracked worktree changes are included in final diff review.
-- The native editor rejects protected or unapproved paths, ambiguous and missing exact
-  matches, no-op edits, non-UTF-8 files, and oversized context before writing.
-- Direct `./local-coder.py` execution re-enters `.venv`, preventing a false
-  `smolagents NOT INSTALLED` result.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- [`docs/PIPELINE.md`](docs/PIPELINE.md)
+- [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md)
+- [`docs/VALIDATION_HISTORY.md`](docs/VALIDATION_HISTORY.md)
 
-## Bounded live validation
+## Current evidence
 
-The first live end-to-end task completed successfully against the local llama-server and
-LiteLLM services. Because the upgrade was still uncommitted and the runtime correctly
-rejects a dirty base repository, the exact working-tree diff was committed only inside a
-disposable validation clone. The source repository and validation worktree remained
-uncommitted.
+The existing runtime has proven:
 
-The earlier task replaced one exact sentence in `README.md`. Its trajectory included
-explorer and planner reads, one source edit, diff inspection, deterministic verification,
-and read-only semantic review. Only `README.md` changed; all 25 tests passed; the review
-verdict was `pass`; and the run ended as `awaiting_approval`.
+- complete fail-before-write validation of exact edit batches;
+- protected and approved path enforcement;
+- tracked, staged, untracked, and symbolic-link diff visibility;
+- isolated Git worktrees with preserved uncommitted changes;
+- deterministic verification independent of model judgement;
+- fixed read-only review with fresh verdict state;
+- conservative `needs_attention` handling for rejected edits, scope violations, and
+  unavailable review;
+- SQLite records for runs, roles, tool calls, artifacts, and verification.
 
-Follow-up regression exposed prompt-example leakage in the former editing worker: it
-repeatedly created and staged `mathweb/flask/app.py`, then hid that staged empty file from
-the original diff collector. The runtime correctly detected the scope violation after a
-new postcondition was added, but the worker remained too flaky. At the user's direction,
-it has been removed entirely. The replacement has no prompt examples, Git integration,
-or ability to create paths; its response schema enumerates the only approved files.
+The current audit corpus is small and heterogeneous. It exposes process failures but is
+not yet a fitness dataset. Model-metric and step tables exist but are not populated or
+fully returned by run inspection.
 
-The same regression also hardened diff collection to compare against `HEAD`, so staged
-changes cannot escape review, and made recorded scope violations deterministically force
-`needs_attention` even if semantic review returns `pass`.
+## Main gap
 
-The replacement editor then completed a fresh bounded end-to-end regression from a
-committed disposable clone. Run `d3720aea52f0` replaced one exact standalone line in
-`README.md`. The native editor returned one fenced JSON edit, the parser normalized the
-fence, and the path-enumerated schema plus exact-match validator applied only that edit.
-All 34 tests passed in the worktree, the fixed read-only reviewer returned `pass`, and the
-run ended as `awaiting_approval`. The final worktree contained only the unstaged
-one-line `README.md` diff. SQLite recorded six agents, fourteen successful tool calls,
-and four verification results with no failed tool calls.
+The repository can safely execute and record one bounded run. It cannot yet:
 
-A post-commit bounded regression exposed one more small-model boundary: the managed
-reviewer attempted unavailable write operations after inspecting the diff. The reviewer
-is now a fixed read-only adapter with no code executor. It deterministically gathers the
-diff and verification evidence and invokes the existing semantic reviewer, so write
-operations cannot be generated or attempted by that role.
+- normalize outcomes across runs;
+- define a trustworthy fitness function;
+- compare baseline and candidate generations;
+- enforce campaign-wide time, token, process, or disk budgets;
+- separate development cases from candidate-inaccessible holdout oracles;
+- record candidate lineage, environment identity, or promotion decisions;
+- turn repeated failures into bounded improvement briefs.
 
-The first committed-source regression then completed from a clean disposable clone of
-`cc3668b`. Run `43bc88984ee8` made one literal sentence replacement in `README.md`,
-ended as `awaiting_approval`, and received a `pass` verdict from the fixed reviewer. The
-preserved worktree contained only the requested unstaged one-line diff, with no staged or
-untracked files. All 35 tests passed. SQLite recorded six agents, twelve successful tool
-calls, and four passing verification results with no failed tool calls.
+Adding more agent autonomy before this control plane exists would optimize against noisy,
+candidate-controlled evidence.
 
-A deterministic multi-edit regression now exercises the runtime's `request_and_apply`
-entrypoint with a valid first replacement and an invalid second replacement across two
-approved files. The complete batch fails validation before the write loop, and both files
-remain unchanged. This directly proves the fail-before-write boundary for generated
-multi-edit batches; all 36 tests pass.
+## Target loop
 
-Semantic-review explanations are now hardened without relaxing verdict validation. The
-review prompt requires all four fields and a concrete, verification-grounded summary;
-the parser rejects unknown verdicts, blank or oversized explanations, and invalid list
-items. A verdict-only small-model response remains compatible but receives a deterministic
-fallback naming the changed files and verification result. A live `local-review` call
-returned `pass` with a concrete behavioral explanation, and all 38 tests pass.
+```text
+Promoted generation G(n)
+        ↓
+real tasks + frozen benchmark
+        ↓
+trusted trajectory evaluator
+        ↓
+failure clusters → one bounded improvement brief
+        ↓
+candidate in an isolated worktree
+        ↓
+paired baseline/candidate evaluation
+        ↓
+hard gates + scorecard
+        ↓
+human promotes or rejects
+        ↓
+Promoted generation G(n+1)
+```
 
-A second committed-source trajectory, run `9bf491ef79c7`, requested two literal
-`README.md` replacements in one edit batch. The manager instead split the work into two
-delegations. The first implementer applied both replacements through two successful editor
-calls; the redundant second delegation then accumulated seven safely rejected exact-match
-attempts. Five verification runs and semantic review passed, and the final source diff was
-correct, but the old status logic returned `awaiting_approval`. Inspection also found the
-shared `.venv` directory symlink as an untracked path that the diff renderer had skipped.
-This trajectory reinforces the current 3B decomposition boundary and does not justify a
-deeper route or broader integration yet.
+The evaluator must execute from a trusted baseline checkout. Candidate code must not
+control evaluation contracts, holdout cases, oracle answers, promotion policy, or their
+hashes.
 
-The runtime is now hardened from that evidence. Any rejected `apply_atomic_edit` call
-forces `needs_attention` even when verification and semantic review pass, and the result
-reports the rejected-attempt count. The expected `.venv` symlink is ignored cleanly, while
-any other untracked symbolic link is rendered explicitly for review. Deterministic tests
-cover both postconditions; all 40 tests pass.
+## Non-negotiable boundaries
 
-Post-commit run `9affc7dd61b0` repeated the same task and model trajectory. The worktree
-contained only the two-line `README.md` diff, with no staged or untracked `.venv` path.
-Seven rejected editor attempts were reported and correctly forced `needs_attention`; all
-five verification runs passed. The repeat also exposed stale reviewer state: a final
-review parse failure left the earlier successful `pass` artifact and verdict visible.
-Reviewer invocations now clear prior artifact and verdict state first, accept only a fresh
-valid verdict artifact, and record missing or malformed output as a failed tool call with
-no verdict. Deterministic coverage passes with all 41 tests.
+- Keep llama.cpp, LiteLLM, and logical routes `local-fast`, `local-plan`, and
+  `local-review`.
+- Keep the native atomic editor as the only agent source-editing boundary.
+- Keep Git worktrees as the isolation boundary and SQLite as the audit store.
+- Never add automatic commit, merge, push, promotion, or destructive cleanup.
+- Never let a candidate edit trusted evaluator code, contracts, holdout manifests,
+  oracles, or promotion policy.
+- Never accept candidate-owned `make verify` as the sole oracle.
+- Treat stored tasks, model responses, and tool output as untrusted data; pass only
+  allowlisted structured facts into improvement prompts.
+- Run one bounded candidate at a time on the current hardware.
+- Do not download a larger model or change a hardware profile without explicit user
+  authorization and benchmark evidence.
 
-Post-commit atomic run `031fb5dac244` applied exactly one requested `README.md` edit with
-no rejected editor attempts or unrelated paths. Fresh review state worked: malformed
-review output never reused a verdict. However, the fixed reviewer adapter propagated that
-failure into the manager, which retried it through every remaining step; the run recorded
-thirteen failed review calls and fifteen passing verification results before the final
-review exception incorrectly produced status `failed` and `verification_passed: false`.
-Review unavailability is now bounded in both layers. The adapter returns one explicit
-failure report instead of triggering manager retries, and the authoritative orchestrator
-preserves deterministic verification, clears the verdict, and returns `needs_attention`.
-All 43 deterministic tests pass.
+## Working roadmap
 
-Post-commit run `b3d35207a6b1` confirmed that control flow from clean commit `65351e0`.
-The native editor made the requested one-line `README.md` replacement after one rejected
-structured response, and the preserved worktree contains only that unstaged diff. All four
-verification runs passed with 43 tests. The managed reviewer and authoritative final review
-each made one bounded semantic-review attempt; both rejected malformed output without a
-retry storm. The final summary reports `needs_attention`, `verification_passed: true`, and
-`review_verdict: null`, with one explicit review-unavailable report and no stale verdict.
+### 1. Trusted measurement layer
 
-This proves the native bounded exact-edit path. It does not prove broad autonomous
-decomposition. The 3B model still requires atomic tasks with explicit file paths and
-literal before/after text where practical.
+Add a read-only `evaluation/` package and CLI reporting commands. Normalize every run into
+a structured outcome containing:
 
-## First local validation after committing
+- baseline commit and task, suite, diff, model, route, skill, and configuration hashes;
+- expected and actual changed paths;
+- verification, oracle, review, and policy results;
+- tool, editor, reviewer, scope, and budget failures;
+- wall time, tokens, model calls, verification count, and unknown metrics.
+
+Use additive, versioned SQLite migrations. Wire the existing `steps` and `model_metrics`
+tables before creating overlapping storage. The first slice must work without model
+services and must not mutate a repository or create a worktree.
+
+### 2. Frozen paired evaluator
+
+Create a small development suite and a separate candidate-inaccessible holdout suite.
+Cover exact edits, multi-edit atomicity, missing and ambiguous matches, scope leakage,
+malformed editor and reviewer output, verification failure, and complete diff capture.
+
+Run baseline and candidate sequentially against the same service configuration. Record
+manifest and oracle hashes, repetitions, environment identity, budgets, and per-case
+results. Trusted base-owned contracts must run against the candidate in addition to the
+candidate's own verification command.
+
+### 3. Failure miner and improvement brief
+
+Cluster normalized failures and emit exactly one strict improvement brief with:
+
+- evidence run IDs and baseline commit;
+- one failure class and falsifiable hypothesis;
+- allowed and forbidden files;
+- predeclared acceptance metrics and suite hash;
+- hard budget and rollback condition.
+
+Initially a human approves every brief. New cases derived from real failures enter the
+visible development suite first; only a human can promote them to holdout.
+
+### 4. Candidate experiments
+
+Start with low-risk improvement surfaces:
+
+1. structured planner-to-implementer handoff;
+2. editor and reviewer structured-output reliability;
+3. duplicate verification and review for identical diff hashes;
+4. evidence selection and context compression;
+5. skill prompt and step-budget variants.
+
+Prefer in-memory overlays for prompt and skill experiments. Source candidates use the
+existing native editor and remain uncommitted until human review. A human-created
+experiment commit is required before full generational comparison under the current
+no-automatic-commit policy.
+
+### 5. Promotion scorecard
+
+Promotion is lexicographic, never a scalar tradeoff:
+
+1. **Safety:** zero protected-path, scope, staged/untracked, or control violations.
+2. **Correctness:** trusted oracle and deterministic verification pass.
+3. **Regression:** no holdout case becomes worse.
+4. **Control:** zero rejected edits, bounded retries, and fresh independent review.
+5. **Improvement:** the predeclared target improves across repeated paired trials.
+6. **Efficiency:** time, tokens, model calls, and tool calls remain within budget.
+7. **Authority:** a human explicitly commits and promotes the candidate.
+
+### 6. Bounded recursion
+
+Begin with one proposal and one candidate per campaign. Increase to a maximum of three
+iterations only after at least ten clean campaigns with zero safety regressions. Archive
+lineage, patches, hypotheses, scorecards, and human decisions. Do not retain unlimited
+active worktrees or allow an unbounded daemon loop.
+
+## First implementation slice
+
+Build only the read-only measurement and comparison substrate:
+
+- `evaluation/outcomes.py` — normalized outcomes and failure taxonomy;
+- `evaluation/supervisor.py` — trusted baseline/candidate command runner with hard limits;
+- `evaluation/suites/atomic-v1.json` — visible development cases;
+- additive state methods and schema versioning in `runtime/state.py`;
+- read-only `analyze-runs` and `evaluate` CLI commands;
+- protected `tests/test_evaluation_contract.py` and deterministic unit tests.
+
+Acceptance criteria:
+
+- existing SQLite data migrates without loss;
+- existing historical runs normalize deterministically;
+- missing model metrics remain `unknown`, not zero;
+- candidate test tampering cannot replace base-owned contracts;
+- manifest and environment mismatches fail closed;
+- timeouts and nonzero process exits are recorded, not retried indefinitely;
+- no command edits, commits, merges, pushes, promotes, or deletes anything;
+- `make verify`, `make agent-smoke`, and clean-tree `make handoff-check` pass.
+
+## Current operating procedure
 
 ```bash
 make verify
 make agent-smoke
 ./local-coder.py status
-make handoff-check
+./local-coder.py run "Implement one atomic task with explicit files and acceptance criteria"
 ```
 
-`make handoff-check` intentionally requires a clean working tree, so run it only after
-committing the upgrade.
-
-For a post-commit regression, exercise another real, bounded task:
-
-```bash
-./local-coder.py status
-./local-coder.py run "Implement one narrowly scoped task with clear acceptance criteria"
-```
-
-If either service is down, start the existing llama-server on port 8080 and LiteLLM
-proxy on port 4000 first, then rerun the status check.
-
-Inspect the returned worktree, run record, diff, verification output, and review verdict.
-Do not merge automatically.
-
-## Current model boundary
-
-All three logical roles currently route to the same Qwen2.5-Coder-3B model. This is a
-valid hardware-adjusted starting point, but broad autonomous decomposition remains the
-main risk. Keep edits atomic. A future 7B planning/review profile should be loaded on
-demand rather than concurrently, and only after real 3B trajectories justify it.
-
-## Next meaningful work
-
-1. Keep the current model routes and integration surface unchanged until clean bounded
-   trajectories justify expanding them.
-2. Continue to use atomic tasks and inspect every preserved `needs_attention` worktree;
-   rejected edits and unavailable semantic review remain explicit approval gates.
-
-Do not return to synthetic calculator fault injection unless it is needed for a specific
-regression test.
+Inspect every returned worktree, run record, diff, verification result, and fresh review
+state. Do not merge automatically. Broad autonomous decomposition remains outside the
+validated capability of the current 3B model.

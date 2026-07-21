@@ -20,7 +20,10 @@ def parse_args() -> argparse.Namespace:
         "--task",
         type=Path,
         default=None,
-        help="Authoritative task file (defaults to LOCAL_CODER_TASK_FILE or TASK.md).",
+        help=(
+            "Authoritative task file. Defaults to LOCAL_CODER_TASK_FILE; when neither "
+            "is supplied, the atomic instruction is authoritative."
+        ),
     )
     return parser.parse_args()
 
@@ -29,17 +32,23 @@ def main() -> int:
     args = parse_args()
     task_path = args.task
     if task_path is None:
-        task_path = Path(os.environ.get("LOCAL_CODER_TASK_FILE", "TASK.md"))
-    if not task_path.is_absolute():
-        task_path = ROOT / task_path
+        configured = os.environ.get("LOCAL_CODER_TASK_FILE")
+        task_path = Path(configured) if configured else None
     try:
-        task = task_path.read_text(encoding="utf-8")
+        protected_files: set[str] = set()
+        if task_path is None:
+            task = f"# Atomic Task\n\n{args.instruction.strip()}\n"
+        else:
+            if not task_path.is_absolute():
+                task_path = ROOT / task_path
+            task = task_path.read_text(encoding="utf-8")
+            protected_files.add(str(task_path.relative_to(ROOT)))
         changed = request_and_apply(
             root=ROOT,
             instruction=args.instruction,
             editable_files=args.files,
             task=task,
-            protected_files={str(task_path.relative_to(ROOT))},
+            protected_files=protected_files,
         )
     except (EditorError, FileNotFoundError, UnicodeDecodeError, ValueError) as exc:
         print(f"Editor error: {exc}")

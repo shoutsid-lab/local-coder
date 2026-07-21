@@ -4,15 +4,15 @@
 
 This repository is a fully local, role-separated coding-agent stack designed for a
 GTX 1660 Ti with 6 GiB VRAM and 8 GiB system RAM. Preserve the architecture described
-in `ARCHITECTURE.md`; do not redirect the project into a generic CLI wrapper or replace
-the local stack with a cloud-first design.
+in `docs/ARCHITECTURE.md`; do not redirect the project into a generic CLI wrapper or
+replace the local stack with a cloud-first design.
 
 ## Read first
 
 1. `HANDOFF.md` — current state, verified capabilities, and remaining work.
-2. `ARCHITECTURE.md` — frozen architecture and component boundaries.
-3. `PIPELINE.md` — deterministic workflow and safety gates.
-4. `CONVENTIONS.md` — coding and editing conventions.
+2. `docs/ARCHITECTURE.md` — frozen architecture and component boundaries.
+3. `docs/PIPELINE.md` — deterministic workflow and safety gates.
+4. `docs/CONVENTIONS.md` — coding and editing conventions.
 
 Treat those documents as the source of truth. Keep this file short and use the deeper
 documents for detail.
@@ -45,7 +45,7 @@ documents for detail.
 - Treat every `*_contract.py` file as protected unless the user explicitly requests a
   contract change.
 - Do not edit `.local-coder/state/`, `.local-coder/runs/`, `.worktrees/`, generated
-  `PLAN.candidate*`, or `REVIEW.json` files.
+  `REVIEW.json` files, or trusted evaluation holdout/oracle data.
 - Do not commit virtual environments, secrets, legacy Aider histories, SQLite databases,
   or generated worktrees.
 

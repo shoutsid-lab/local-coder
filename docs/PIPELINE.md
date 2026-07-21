@@ -68,8 +68,17 @@ The model does not decide whether an edit is correct. The independent verificati
 
 The following files are not editable during implementation repairs:
 
-* `test_pipeline_contract.py`
-* `CONVENTIONS.md`
+* `tests/test_architecture_contract.py`
+* `.flake8`
+* `AGENTS.md`
+* `HANDOFF.md`
+* `docs/ARCHITECTURE.md`
+* `docs/PIPELINE.md`
+* `docs/CONVENTIONS.md`
+* `docs/UPSTREAM.json`
+* `docs/VALIDATION_HISTORY.md`
+* `pytest.ini`
+* `requirements-agent.txt`
 * `TASK.md`
 
 Additional test files may also be treated as protected when only implementation code should change.
@@ -122,22 +131,6 @@ Broader tasks must therefore be decomposed into atomic operations before executi
 * Commit only after `make verify` passes.
 * Restore failed edits before retrying with a new instruction.
 
-## Context Benchmark
-
-The context benchmark is separate from routine pytest discovery.
-
-Run it only deliberately:
-
-```bash
-make context-benchmark
-```
-
-It must not run as part of:
-
-```bash
-make verify
-```
-
 ## Current Validated Capabilities
 
 * CUDA inference: passed
@@ -176,4 +169,6 @@ files are ignored and must not be committed.
 
 Codex must follow `AGENTS.md` and use `HANDOFF.md` as the current-state brief. The
 architecture is fixed unless the user explicitly changes it. `make verify` is the routine
-gate; `make handoff-check` is the final clean-tree handoff gate.
+gate; `make handoff-check` is the final clean-tree handoff gate. Recursive-improvement
+work must additionally follow the trusted evaluator, holdout, and promotion boundaries
+defined in `HANDOFF.md`.

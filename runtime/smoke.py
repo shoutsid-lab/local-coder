@@ -16,7 +16,13 @@ def main() -> int:
     """Instantiate the manager and managed agents without calling a model."""
     root = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory(prefix="local-coder-smoke-") as temporary:
-        state = StateStore(Path(temporary) / "agent.db")
+        temporary_path = Path(temporary)
+        state = StateStore(temporary_path / "agent.db")
+        task_file = temporary_path / "TASK.md"
+        task_file.write_text(
+            "# Agent Task\n\nSmoke-test construction only.\n",
+            encoding="utf-8",
+        )
         run_id = state.create_run(
             task="Agent hierarchy smoke test",
             mode="agentic",
@@ -28,7 +34,7 @@ def main() -> int:
             worktree=Worktree(root, "agent/smoke", "main"),
             run_id=run_id,
             state=state,
-            task_file=root / "TASK.md",
+            task_file=task_file,
             agent_role="orchestrator",
         )
         bundle = build_agent_bundle(

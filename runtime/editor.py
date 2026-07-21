@@ -17,15 +17,22 @@ MAX_TOTAL_BYTES = 64_000
 MAX_EDITS = 8
 
 PIPELINE_CONTROLS = {
-    "CONVENTIONS.md",
+    ".flake8",
+    "AGENTS.md",
+    "HANDOFF.md",
     "TASK.md",
     "Makefile",
-    "create-plan.py",
+    "docs/ARCHITECTURE.md",
+    "docs/CONVENTIONS.md",
+    "docs/PIPELINE.md",
+    "docs/UPSTREAM.json",
+    "docs/VALIDATION_HISTORY.md",
     "litellm-config.yaml",
     "local-coder.py",
+    "pytest.ini",
     "review-diff.py",
+    "requirements-agent.txt",
     "run-editor.py",
-    "run-plan.py",
 }
 
 

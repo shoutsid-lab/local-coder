@@ -238,8 +238,8 @@ def call_reviewer(
     prompt = f"""
 Review this code change without editing any files.
 
-Judge whether the change satisfies TASK.md, whether it introduces unrelated
-changes, and whether the independent verification result supports acceptance.
+Judge whether the change satisfies the authoritative task, whether it introduces
+unrelated changes, and whether the independent verification result supports acceptance.
 
 Rules:
 
@@ -256,7 +256,7 @@ Rules:
 - Use "fail" for definite correctness or contract violations.
 - Use "needs_attention" when additional independent judgement is required.
 
-TASK.md:
+Authoritative task:
 
 {task}
 
@@ -359,7 +359,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--task",
         type=Path,
-        default=ROOT / "TASK.md",
+        required=True,
+        help="Authoritative task file for the change under review.",
     )
 
     parser.add_argument(

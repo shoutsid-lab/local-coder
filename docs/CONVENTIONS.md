@@ -8,3 +8,6 @@
 - Prefer clear, conventional code over clever code.
 - Preserve existing APIs unless explicitly asked to change them.
 - Run the test suite after making changes.
+- Treat evaluation manifests, oracles, contracts, and promotion policy as trusted
+  controls rather than candidate-editable implementation surfaces.
+- Record improvement hypotheses and acceptance metrics before running candidates.
