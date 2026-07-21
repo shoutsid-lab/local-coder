@@ -97,7 +97,10 @@ class ReadOnlyReviewAgent:
         del task, additional_args
         diff = self.context.inspect_diff()
         verification = self.context.run_verification()
-        review = self.context.review_diff()
+        try:
+            review = self.context.review_diff()
+        except RuntimeError as exc:
+            review = f"Review unavailable: {exc}"
         return f"{diff}\n\n{verification}\n\n{review}"
 
 

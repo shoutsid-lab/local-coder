@@ -62,6 +62,15 @@ def determine_run_status(
     return "needs_attention"
 
 
+def collect_final_review(context: ToolContext) -> tuple[str, str | None]:
+    """Run final semantic review without hiding deterministic run evidence."""
+    try:
+        output = context.review_diff()
+    except RuntimeError as exc:
+        return f"Review unavailable: {exc}", None
+    return output, context.last_review_verdict
+
+
 class AgentOrchestrator:
     """Create an isolated run and coordinate role-specialized local agents."""
 
@@ -145,8 +154,7 @@ Required process:
             review_verdict: str | None = None
             if diff != "No uncommitted diff.":
                 self.state.add_artifact(run_id, kind="diff", content=diff)
-                review_output = context.review_diff()
-                review_verdict = context.last_review_verdict
+                review_output, review_verdict = collect_final_review(context)
             else:
                 review_output = "No diff was produced; semantic review skipped."
 

@@ -128,6 +128,17 @@ Reviewer invocations now clear prior artifact and verdict state first, accept on
 valid verdict artifact, and record missing or malformed output as a failed tool call with
 no verdict. Deterministic coverage passes with all 41 tests.
 
+Post-commit atomic run `031fb5dac244` applied exactly one requested `README.md` edit with
+no rejected editor attempts or unrelated paths. Fresh review state worked: malformed
+review output never reused a verdict. However, the fixed reviewer adapter propagated that
+failure into the manager, which retried it through every remaining step; the run recorded
+thirteen failed review calls and fifteen passing verification results before the final
+review exception incorrectly produced status `failed` and `verification_passed: false`.
+Review unavailability is now bounded in both layers. The adapter returns one explicit
+failure report instead of triggering manager retries, and the authoritative orchestrator
+preserves deterministic verification, clears the verdict, and returns `needs_attention`.
+All 43 deterministic tests pass.
+
 This proves the native bounded exact-edit path. It does not prove broad autonomous
 decomposition. The 3B model still requires atomic tasks with explicit file paths and
 literal before/after text where practical.
@@ -166,8 +177,9 @@ demand rather than concurrently, and only after real 3B trajectories justify it.
 
 ## Next meaningful work
 
-1. After committing the reviewer-state fix, run one atomic single-edit trajectory and
-   confirm the final summary uses only the latest fresh review verdict.
+1. After committing the review-unavailability control-flow fix, repeat the atomic task and
+   confirm review failure is bounded, verification remains true, and no stale verdict is
+   reported.
 2. Keep the current model routes and integration surface unchanged until clean bounded
    trajectories justify expanding them.
 

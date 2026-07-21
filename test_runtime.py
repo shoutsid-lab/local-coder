@@ -317,6 +317,31 @@ def test_reviewer_runs_only_fixed_read_only_gates(tmp_path: Path) -> None:
     assert not hasattr(reviewer, "python_executor")
 
 
+def test_reviewer_reports_review_failure_without_retrying() -> None:
+    from runtime.agents import ReadOnlyReviewAgent
+
+    def failed_review() -> str:
+        raise RuntimeError("invalid structured response")
+
+    context = SimpleNamespace(
+        inspect_diff=lambda: "diff",
+        run_verification=lambda: "Verification: PASS",
+        review_diff=failed_review,
+    )
+    reviewer = ReadOnlyReviewAgent(
+        name="reviewer",
+        description="Read-only review",
+        context=context,
+    )
+
+    result = reviewer("Review README.md")
+
+    assert result == (
+        "diff\n\nVerification: PASS\n\n"
+        "Review unavailable: invalid structured response"
+    )
+
+
 def test_state_store_records_run_and_verification(tmp_path: Path) -> None:
     store = StateStore(tmp_path / "agent.db")
     run_id = store.create_run(
@@ -370,6 +395,31 @@ def test_rejected_editor_attempt_forces_needs_attention() -> None:
         editor_error_count=1,
     )
 
+    assert status == "needs_attention"
+
+
+def test_final_review_failure_requires_attention_without_stale_verdict() -> None:
+    from runtime.orchestrator import collect_final_review, determine_run_status
+
+    def failed_review() -> str:
+        raise RuntimeError("invalid structured response")
+
+    context = SimpleNamespace(
+        review_diff=failed_review,
+        last_review_verdict="pass",
+    )
+
+    output, verdict = collect_final_review(context)
+    status = determine_run_status(
+        verification_passed=True,
+        has_diff=True,
+        review_verdict=verdict,
+        has_scope_violations=False,
+        editor_error_count=0,
+    )
+
+    assert output == "Review unavailable: invalid structured response"
+    assert verdict is None
     assert status == "needs_attention"
 
 
