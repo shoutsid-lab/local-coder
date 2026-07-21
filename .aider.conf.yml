@@ -9,9 +9,12 @@ show-model-warnings: false
 map-tokens: 2048
 max-chat-history-tokens: 8192
 
+auto-commits: false
+dirty-commits: false
+
 auto-lint: true
-test-cmd: python -m pytest -q
 auto-test: true
+test-cmd: python -m pytest -q
 
 read:
   - CONVENTIONS.md
