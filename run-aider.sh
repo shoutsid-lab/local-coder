@@ -2,32 +2,30 @@
 set -euo pipefail
 
 usage() {
-    cat <<'EOF'
+    cat <<'USAGE'
 Usage:
   ./run-aider.sh task FILE [FILE ...]
+  ./run-aider.sh apply "ATOMIC INSTRUCTION" FILE [FILE ...]
   ./run-aider.sh repair "ATOMIC INSTRUCTION" FILE [FILE ...]
-EOF
+USAGE
 }
 
 mode="${1:-}"
+instruction=""
 
 case "$mode" in
     task)
         shift
         ;;
-
-    repair)
+    apply|repair)
         shift
-
         if [[ $# -lt 2 ]]; then
             usage
             exit 2
         fi
-
         instruction="$1"
         shift
         ;;
-
     *)
         usage
         exit 2
@@ -35,10 +33,11 @@ case "$mode" in
 esac
 
 editable_files=("$@")
+task_file="${LOCAL_CODER_TASK_FILE:-TASK.md}"
 
 required_files=(
     CONVENTIONS.md
-    TASK.md
+    "$task_file"
     .venv/bin/python
 )
 
@@ -59,18 +58,54 @@ if ! (echo > /dev/tcp/127.0.0.1/4000) 2>/dev/null; then
     exit 1
 fi
 
-if [[ -n "$(git status --porcelain)" ]]; then
+# Interactive tasks and standalone repairs must begin from a clean repository.
+# Agentic apply mode intentionally supports an existing worktree diff so a plan
+# can be implemented through several atomic edits.
+if [[ "$mode" != "apply" && -n "$(git status --porcelain)" ]]; then
     echo "The repository has uncommitted changes."
     echo "Commit, stash, or discard them before starting."
     exit 1
 fi
+
+mapfile -t contract_files < <(git ls-files '*_contract.py')
+pipeline_controls=(
+    run-aider.sh
+    run-plan.py
+    create-plan.py
+    review-diff.py
+    local-coder.py
+    Makefile
+    litellm-config.yaml
+)
+protected_files=(
+    CONVENTIONS.md
+    TASK.md
+    "$task_file"
+    "${contract_files[@]}"
+    "${pipeline_controls[@]}"
+)
+
+for editable_file in "${editable_files[@]}"; do
+    normalized_file="${editable_file#./}"
+    if [[ "$normalized_file" == *_contract.py ]]; then
+        echo "Protected contract file cannot be edited: $editable_file"
+        exit 1
+    fi
+    for protected_file in "${protected_files[@]}"; do
+        [[ -z "$protected_file" ]] && continue
+        if [[ "$normalized_file" == "${protected_file#./}" ]]; then
+            echo "Protected file cannot be edited: $editable_file"
+            exit 1
+        fi
+    done
+done
 
 common_args=(
     --no-gitignore
     --model openai/local-fast
     --edit-format whole
     --read CONVENTIONS.md
-    --read TASK.md
+    --read "$task_file"
 )
 
 if [[ "$mode" == "task" ]]; then
@@ -79,30 +114,27 @@ if [[ "$mode" == "task" ]]; then
         "${editable_files[@]}"
 fi
 
-failure_log="$(mktemp)"
+if [[ "$mode" == "repair" ]]; then
+    echo "Running independent verification..."
+    failure_log="$(mktemp)"
+    trap 'rm -f "$failure_log"' EXIT
 
-cleanup() {
-    rm -f "$failure_log"
-}
-trap cleanup EXIT
+    set +e
+    make verify >"$failure_log" 2>&1
+    verify_status=$?
+    set -e
 
-echo "Running independent verification..."
+    cat "$failure_log"
 
-set +e
-make verify >"$failure_log" 2>&1
-verify_status=$?
-set -e
-
-cat "$failure_log"
-
-if [[ $verify_status -eq 0 ]]; then
-    echo
-    echo "Verification already passes. No repair is required."
-    exit 0
+    if [[ $verify_status -eq 0 ]]; then
+        echo
+        echo "Verification already passes. No repair is required."
+        exit 0
+    fi
 fi
 
-prompt=$(cat <<EOF
-Apply exactly this atomic repair:
+prompt=$(cat <<PROMPT
+Apply exactly this atomic change:
 
 ${instruction}
 
@@ -110,15 +142,15 @@ Rules:
 
 - Modify only the editable files supplied to this invocation.
 - Make no other changes.
-- Preserve signatures, docstrings, exception classes, and behaviour unless
-  the instruction explicitly changes them.
-- Do not modify tests, TASK.md, CONVENTIONS.md, or protected files.
+- Preserve signatures, docstrings, exception classes, and behavior unless the
+  instruction explicitly changes them.
+- Never modify contract tests, ${task_file}, CONVENTIONS.md, or pipeline controls.
 - Return a valid Aider whole-file edit.
-EOF
+PROMPT
 )
 
 echo
-echo "Sending atomic repair to local-coder..."
+echo "Sending atomic change to local-fast..."
 
 aider \
     "${common_args[@]}" \
@@ -127,18 +159,25 @@ aider \
     --message "$prompt" \
     "${editable_files[@]}"
 
-protected_files=(
-    test_calculator.py
-    test_pipeline_contract.py
-    CONVENTIONS.md
-    TASK.md
-)
-
 if ! git diff --quiet -- "${protected_files[@]}"; then
     echo
     echo "A protected file was modified."
     git diff -- "${protected_files[@]}"
     exit 1
+fi
+
+if ! git diff --check; then
+    echo
+    echo "The atomic change introduced invalid whitespace or conflict markers."
+    exit 1
+fi
+
+if [[ "$mode" == "apply" ]]; then
+    echo
+    echo "Atomic change applied. Full verification is deferred to the orchestrator."
+    echo "Current status:"
+    git status --short
+    exit 0
 fi
 
 echo

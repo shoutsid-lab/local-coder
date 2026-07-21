@@ -11,7 +11,6 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parent
 DEFAULT_OUTPUT = ROOT / "PLAN.candidate.json"
 DEFAULT_API_URL = "http://127.0.0.1:4000/v1/chat/completions"
@@ -39,6 +38,7 @@ def is_protected_file(filename: str) -> bool:
 class PlannerError(RuntimeError):
     """Raised when a candidate plan cannot be created safely."""
 
+
 def run_verification_precheck() -> tuple[bool, str]:
     result = subprocess.run(
         ["make", "verify"],
@@ -52,6 +52,7 @@ def run_verification_precheck() -> tuple[bool, str]:
     ).strip()
 
     return result.returncode == 0, combined_output
+
 
 def write_already_satisfied_candidate(
     *,
@@ -70,6 +71,7 @@ def write_already_satisfied_candidate(
         json.dumps(plan, indent=2) + "\n",
         encoding="utf-8",
     )
+
 
 def command_output(command: list[str]) -> str:
     result = subprocess.run(
@@ -126,9 +128,7 @@ def build_prompt(
         relative = path.relative_to(ROOT)
         content = read_text_file(path)
 
-        context_sections.append(
-            f"--- {relative} ---\n{content}"
-        )
+        context_sections.append(f"--- {relative} ---\n{content}")
 
     context_text = "\n\n".join(context_sections)
     tracked_text = "\n".join(f"- {name}" for name in tracked_files)
@@ -200,21 +200,16 @@ Repository context:
 """.strip()
 
 
-
 def build_plan_schema(
     tracked_files: list[str],
     base_branch: str,
 ) -> dict[str, Any]:
     editable_files = sorted(
-        filename
-        for filename in tracked_files
-        if not is_protected_file(filename)
+        filename for filename in tracked_files if not is_protected_file(filename)
     )
 
     if not editable_files:
-        raise PlannerError(
-            "The repository contains no files eligible for editing."
-        )
+        raise PlannerError("The repository contains no files eligible for editing.")
 
     return {
         "type": "object",
@@ -298,6 +293,7 @@ def build_plan_schema(
         },
     }
 
+
 def call_model(
     *,
     api_url: str,
@@ -340,9 +336,7 @@ def call_model(
             result = json.load(response)
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        raise PlannerError(
-            f"Planner API returned HTTP {exc.code}: {body}"
-        ) from exc
+        raise PlannerError(f"Planner API returned HTTP {exc.code}: {body}") from exc
     except urllib.error.URLError as exc:
         raise PlannerError(f"Could not reach planner API: {exc}") from exc
 
@@ -376,64 +370,46 @@ def validate_candidate(
     base_branch: str,
 ) -> None:
     if plan.get("approved") is not False:
-        raise PlannerError(
-            "Generated plan must set `approved` to false."
-        )
+        raise PlannerError("Generated plan must set `approved` to false.")
 
     if plan.get("base_branch") != base_branch:
-        raise PlannerError(
-            "Generated plan changed the requested base branch."
-        )
+        raise PlannerError("Generated plan changed the requested base branch.")
 
     name = plan.get("name")
 
     if not isinstance(name, str) or not name.strip():
         raise PlannerError("Generated plan has an invalid name.")
 
-
-
     status = plan.get("status")
 
     if status not in {"planned", "already_satisfied"}:
-        raise PlannerError(
-            "Generated plan has an invalid `status`."
-        )
+        raise PlannerError("Generated plan has an invalid `status`.")
 
     steps = plan.get("steps")
 
     if not isinstance(steps, list):
-        raise PlannerError(
-            "Generated plan must contain a `steps` array."
-        )
+        raise PlannerError("Generated plan must contain a `steps` array.")
 
     if status == "already_satisfied":
         if steps:
-            raise PlannerError(
-                "An already-satisfied plan must have no steps."
-            )
+            raise PlannerError("An already-satisfied plan must have no steps.")
         return
 
     if not 1 <= len(steps) <= MAX_STEPS:
-        raise PlannerError(
-            f"A planned task must contain 1-{MAX_STEPS} steps."
-        )
+        raise PlannerError(f"A planned task must contain 1-{MAX_STEPS} steps.")
 
     for expected_id, step in enumerate(steps, start=1):
         if not isinstance(step, dict):
             raise PlannerError(f"Step {expected_id} is not an object.")
 
         if step.get("id") != expected_id:
-            raise PlannerError(
-                "Step IDs must be consecutive and begin at 1."
-            )
+            raise PlannerError("Step IDs must be consecutive and begin at 1.")
 
         for field in ("title", "instruction", "commit_message"):
             value = step.get(field)
 
             if not isinstance(value, str) or not value.strip():
-                raise PlannerError(
-                    f"Step {expected_id} has an invalid `{field}`."
-                )
+                raise PlannerError(f"Step {expected_id} has an invalid `{field}`.")
 
         files = step.get("editable_files")
 
@@ -469,8 +445,7 @@ def write_candidate(
         plan = json.loads(cleaned)
     except json.JSONDecodeError as exc:
         raise PlannerError(
-            "The planner did not return valid JSON.\n\n"
-            f"Raw output:\n{model_output}"
+            "The planner did not return valid JSON.\n\n" f"Raw output:\n{model_output}"
         ) from exc
 
     if not isinstance(plan, dict):
@@ -598,9 +573,7 @@ def main() -> int:
         print()
         print("Review it with:")
         print(f"  cat {output_path}")
-        print(
-            f"  ./run-plan.py --plan {output_path} --dry-run"
-        )
+        print(f"  ./run-plan.py --plan {output_path} --dry-run")
 
     except PlannerError as exc:
         print(f"Planner error: {exc}", file=sys.stderr)

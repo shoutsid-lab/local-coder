@@ -9,3 +9,12 @@ __pycache__/
 PLAN.candidate.json
 PLAN.candidate.raw.txt
 REVIEW.json
+.local-coder/state/*.db
+.local-coder/state/*.db-shm
+.local-coder/state/*.db-wal
+.local-coder/runs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/

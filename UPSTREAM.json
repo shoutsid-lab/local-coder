@@ -1,0 +1,14 @@
+{
+  "repository": "https://github.com/shoutsid-lab/local-coder",
+  "branch": "main",
+  "commit": "8f12ea1f78fd692017797591cf1ee1948b8d7b1d",
+  "verified_files": {
+    "run-aider.sh": "9ca155b0d06fd98a839db50d94efa55851010095",
+    "local-coder.py": "1c833b5c03ffd9d5c273406e8534052ffa175be9",
+    "create-plan.py": "8721b9679d7dfd739e641914624d19ae87833b2b",
+    "run-plan.py": "881d0f912756a0e252596d24d99a6aeb6d49cf76",
+    "review-diff.py": "1a89a0187cbde996d554fb9a630b579586a1c59e",
+    "Makefile": "36ac6d017ce0b42e1ab3361ea4ce64869bd47af3",
+    "litellm-config.yaml": "26d56db1d2a65f1078cc9b961e76c14542432c46"
+  }
+}

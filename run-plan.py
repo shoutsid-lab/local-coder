@@ -5,13 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shutil
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
 
 ROOT = Path(__file__).resolve().parent
 PLAN_PATH = ROOT / "PLAN.json"
@@ -69,6 +67,7 @@ def require_clean_repository() -> None:
             "Commit, stash, or restore them before running a plan."
         )
 
+
 def load_plan(
     path: Path,
     *,
@@ -83,6 +82,7 @@ def load_plan(
 
     validate_plan(plan, require_approval=require_approval)
     return plan
+
 
 def validate_plan(
     plan: dict[str, Any],
@@ -107,39 +107,27 @@ def validate_plan(
     status = plan.get("status")
 
     if status not in {"planned", "already_satisfied"}:
-        raise PipelineError(
-            "The plan must contain a valid `status`."
-        )
+        raise PipelineError("The plan must contain a valid `status`.")
 
     steps = plan.get("steps")
 
     if not isinstance(steps, list):
-        raise PipelineError(
-            "The plan must contain a `steps` array."
-        )
+        raise PipelineError("The plan must contain a `steps` array.")
 
     if status == "already_satisfied":
         if steps:
-            raise PipelineError(
-                "An already-satisfied plan must have no steps."
-            )
+            raise PipelineError("An already-satisfied plan must have no steps.")
 
         if plan.get("approved") is not False:
-            raise PipelineError(
-                "An already-satisfied plan must remain unapproved."
-            )
+            raise PipelineError("An already-satisfied plan must remain unapproved.")
 
         return
 
     if not steps:
-        raise PipelineError(
-            "A planned task must contain at least one step."
-        )
+        raise PipelineError("A planned task must contain at least one step.")
 
     if require_approval and plan.get("approved") is not True:
-        raise PipelineError(
-            "The plan has not been approved."
-        )
+        raise PipelineError("The plan has not been approved.")
 
     seen_ids: set[int] = set()
 
@@ -180,8 +168,7 @@ def validate_plan(
 
             if is_protected_file(filename):
                 raise PipelineError(
-                    f"Step {step_id} attempts to edit protected file: "
-                    f"{filename}"
+                    f"Step {step_id} attempts to edit protected file: " f"{filename}"
                 )
 
             path = Path(filename)
@@ -270,8 +257,7 @@ def check_changed_files(
     if unexpected:
         formatted = "\n".join(f"- {name}" for name in unexpected)
         raise PipelineError(
-            "The model changed files outside the approved scope:\n"
-            f"{formatted}"
+            "The model changed files outside the approved scope:\n" f"{formatted}"
         )
 
 
@@ -309,9 +295,7 @@ def execute_step(
     )
 
     if not staged_files:
-        raise PipelineError(
-            f"Step {step_id} produced no staged changes."
-        )
+        raise PipelineError(f"Step {step_id} produced no staged changes.")
 
     run(
         [
@@ -338,8 +322,7 @@ def execute_plan(plan_path: Path, *, dry_run: bool) -> None:
 
     for step in plan["steps"]:
         print(
-            f"  {step['id']}. {step['title']} "
-            f"({', '.join(step['editable_files'])})"
+            f"  {step['id']}. {step['title']} " f"({', '.join(step['editable_files'])})"
         )
 
     if dry_run:

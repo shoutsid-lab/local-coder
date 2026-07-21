@@ -11,7 +11,6 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parent
 API_URL = "http://127.0.0.1:4000/v1/chat/completions"
 DEFAULT_OUTPUT = ROOT / "REVIEW.json"
@@ -42,6 +41,34 @@ def read_file(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def untracked_diff() -> tuple[str, list[str]]:
+    names_result = run(
+        ["git", "ls-files", "--others", "--exclude-standard"], check=False
+    )
+    if names_result.returncode != 0:
+        raise ReviewError(
+            names_result.stderr.strip() or "Could not list untracked files."
+        )
+
+    sections: list[str] = []
+    names: list[str] = []
+    for relative in names_result.stdout.splitlines():
+        path = ROOT / relative
+        if not path.is_file():
+            continue
+        result = run(
+            ["git", "diff", "--no-index", "--", "/dev/null", relative],
+            check=False,
+        )
+        if result.returncode not in {0, 1}:
+            raise ReviewError(result.stderr.strip() or f"Could not diff {relative}.")
+        if result.stdout.strip():
+            names.append(relative)
+            sections.append(result.stdout.strip())
+
+    return "\n\n".join(sections), names
+
+
 def collect_diff(*, cached: bool, base: str | None) -> tuple[str, list[str]]:
     if base:
         diff_command = ["git", "diff", "--no-ext-diff", f"{base}...HEAD"]
@@ -54,11 +81,13 @@ def collect_diff(*, cached: bool, base: str | None) -> tuple[str, list[str]]:
         names_command = ["git", "diff", "--name-only"]
 
     diff = run(diff_command).stdout.strip()
-    names = [
-        line
-        for line in run(names_command).stdout.splitlines()
-        if line.strip()
-    ]
+    names = [line for line in run(names_command).stdout.splitlines() if line.strip()]
+
+    if not base and not cached:
+        extra_diff, extra_names = untracked_diff()
+        if extra_diff:
+            diff = "\n\n".join(part for part in (diff, extra_diff) if part)
+            names.extend(name for name in extra_names if name not in names)
 
     if not diff:
         raise ReviewError("There are no changes to review.")
@@ -70,9 +99,7 @@ def run_verification() -> tuple[bool, str]:
     result = run(["make", "verify"], check=False)
 
     output = "\n".join(
-        part.strip()
-        for part in (result.stdout, result.stderr)
-        if part.strip()
+        part.strip() for part in (result.stdout, result.stderr) if part.strip()
     )
 
     return result.returncode == 0, output
@@ -205,9 +232,7 @@ Git diff:
             result = json.load(response)
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        raise ReviewError(
-            f"Reviewer API returned HTTP {exc.code}: {body}"
-        ) from exc
+        raise ReviewError(f"Reviewer API returned HTTP {exc.code}: {body}") from exc
     except urllib.error.URLError as exc:
         raise ReviewError(f"Could not reach LiteLLM: {exc}") from exc
 

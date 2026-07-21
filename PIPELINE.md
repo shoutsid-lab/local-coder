@@ -152,17 +152,27 @@ make verify
 * Atomic repair mode: passed
 * Manual commit gate: passed
 
-## Next Architecture Stage
+## Role-Separated Agent Runtime
 
-The next component is a task planner that produces `PLAN.md`.
+The primary runtime is now a smolagents manager with managed explorer, planner,
+implementer, repairer, and reviewer agents. It composes the existing Aider, LiteLLM,
+worktree, verification, and review components rather than replacing them.
 
-The planner must not edit source files. It should:
+```bash
+make agent-install
+./local-coder.py run "Implement one concrete task"
+```
 
-1. Inspect the task and repository context.
-2. Produce an ordered list of atomic steps.
-3. Name the editable files for each step.
-4. Define a validation command for each step.
-5. Stop for approval before execution.
+The command requires a clean base repository, creates an isolated sibling worktree, and
+leaves all edits uncommitted for human inspection. Each non-interactive Aider call applies
+one atomic step; the orchestrator runs full deterministic verification after the planned
+steps and invokes the read-only reviewer against tracked and untracked changes.
 
-The existing atomic Aider mode remains the only component authorised to edit source files.
+Run metadata and tool trajectories are written to `.local-coder/state/agent.db`. These
+files are ignored and must not be committed.
 
+## Codex Maintenance
+
+Codex must follow `AGENTS.md` and use `HANDOFF.md` as the current-state brief. The
+architecture is fixed unless the user explicitly changes it. `make verify` is the routine
+gate; `make handoff-check` is the final clean-tree handoff gate.

@@ -3,7 +3,6 @@ import time
 import urllib.error
 import urllib.request
 
-
 URL = "http://127.0.0.1:8080/v1/chat/completions"
 
 # Approximate prompt sizes. The API response reports the actual token count.
