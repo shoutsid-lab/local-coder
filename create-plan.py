@@ -30,6 +30,12 @@ PROTECTED_FILES = {
 }
 
 
+def is_protected_file(filename: str) -> bool:
+    """Return whether a plan must never allow edits to this file."""
+    path = Path(filename)
+    return filename in PROTECTED_FILES or path.name.endswith("_contract.py")
+
+
 class PlannerError(RuntimeError):
     """Raised when a candidate plan cannot be created safely."""
 
@@ -160,6 +166,7 @@ Rules:
 - Never use more than two editable files in one step.
 - Use only existing tracked files listed below.
 - Do not include protected tests as editable files.
+- Treat every file whose name ends with `_contract.py` as protected.
 - Do not edit TASK.md, PLAN.md, PLAN.json, PIPELINE.md,
   CONVENTIONS.md, or test_pipeline_contract.py.
 - Do not include validation commands inside instructions.
@@ -201,7 +208,7 @@ def build_plan_schema(
     editable_files = sorted(
         filename
         for filename in tracked_files
-        if filename not in PROTECTED_FILES
+        if not is_protected_file(filename)
     )
 
     if not editable_files:
@@ -411,8 +418,6 @@ def validate_candidate(
             f"A planned task must contain 1-{MAX_STEPS} steps."
         )
 
-    protected = PROTECTED_FILES
-
     for expected_id, step in enumerate(steps, start=1):
         if not isinstance(step, dict):
             raise PlannerError(f"Step {expected_id} is not an object.")
@@ -438,7 +443,7 @@ def validate_candidate(
             )
 
         for filename in files:
-            if filename in protected:
+            if is_protected_file(filename):
                 raise PlannerError(
                     f"Step {expected_id} attempts to edit protected file: "
                     f"{filename}"

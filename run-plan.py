@@ -17,6 +17,21 @@ ROOT = Path(__file__).resolve().parent
 PLAN_PATH = ROOT / "PLAN.json"
 WORKTREE_ROOT = ROOT.parent / f"{ROOT.name}-worktrees"
 
+PROTECTED_FILES = {
+    "TASK.md",
+    "PLAN.md",
+    "PLAN.json",
+    "PIPELINE.md",
+    "CONVENTIONS.md",
+    "test_pipeline_contract.py",
+}
+
+
+def is_protected_file(filename: str) -> bool:
+    """Return whether a plan must never allow edits to this file."""
+    path = Path(filename)
+    return filename in PROTECTED_FILES or path.name.endswith("_contract.py")
+
 
 class PipelineError(RuntimeError):
     """Raised when the execution pipeline cannot safely continue."""
@@ -89,10 +104,42 @@ def validate_plan(
     if not isinstance(plan.get("base_branch"), str):
         raise PipelineError("The plan must contain `base_branch`.")
 
+    status = plan.get("status")
+
+    if status not in {"planned", "already_satisfied"}:
+        raise PipelineError(
+            "The plan must contain a valid `status`."
+        )
+
     steps = plan.get("steps")
 
-    if not isinstance(steps, list) or not steps:
-        raise PipelineError("The plan must contain at least one step.")
+    if not isinstance(steps, list):
+        raise PipelineError(
+            "The plan must contain a `steps` array."
+        )
+
+    if status == "already_satisfied":
+        if steps:
+            raise PipelineError(
+                "An already-satisfied plan must have no steps."
+            )
+
+        if plan.get("approved") is not False:
+            raise PipelineError(
+                "An already-satisfied plan must remain unapproved."
+            )
+
+        return
+
+    if not steps:
+        raise PipelineError(
+            "A planned task must contain at least one step."
+        )
+
+    if require_approval and plan.get("approved") is not True:
+        raise PipelineError(
+            "The plan has not been approved."
+        )
 
     seen_ids: set[int] = set()
 
@@ -129,6 +176,12 @@ def validate_plan(
             if not isinstance(filename, str) or not filename.strip():
                 raise PipelineError(
                     f"Step {step_id} contains an invalid editable filename."
+                )
+
+            if is_protected_file(filename):
+                raise PipelineError(
+                    f"Step {step_id} attempts to edit protected file: "
+                    f"{filename}"
                 )
 
             path = Path(filename)
@@ -281,6 +334,7 @@ def execute_plan(plan_path: Path, *, dry_run: bool) -> None:
     print(f"Approved: {plan['approved']}")
     print(f"Base branch: {plan['base_branch']}")
     print(f"Steps: {len(plan['steps'])}")
+    print(f"Status: {plan['status']}")
 
     for step in plan["steps"]:
         print(
@@ -293,6 +347,12 @@ def execute_plan(plan_path: Path, *, dry_run: bool) -> None:
         return
 
     require_clean_repository()
+
+    if plan["status"] == "already_satisfied":
+        print()
+        print("The current repository already satisfies the task.")
+        print("No worktree or editing session is required.")
+        return
 
     worktree: Path | None = None
     branch: str | None = None
