@@ -1,7 +1,7 @@
 PYTHON := .venv/bin/python
 FILES := calculator.py test_calculator.py test_pipeline_contract.py
 
-.PHONY: health format format-check lint test verify metrics clean-aider
+.PHONY: health format format-check lint test verify metrics context-benchmark
 
 health:
 	@curl -fsS http://127.0.0.1:8080/health | jq
@@ -17,6 +17,9 @@ lint:
 
 test:
 	$(PYTHON) -m pytest -q
+
+context-benchmark:
+	$(PYTHON) benchmarks/context_benchmark.py
 
 verify: format-check lint test
 	git diff --check
