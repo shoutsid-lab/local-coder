@@ -18,3 +18,14 @@ metrics:
 
 clean-aider:
 	rm -f aider
+
+.PHONY: format format-check health test lint verify metrics clean-aider
+
+format:
+	python -m black calculator.py test_calculator.py test_pipeline_contract.py
+
+format-check:
+	python -m black --check calculator.py test_calculator.py test_pipeline_contract.py
+
+verify: format-check lint test
+	git diff --check
