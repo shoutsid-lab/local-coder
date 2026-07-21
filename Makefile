@@ -1,7 +1,7 @@
 PYTHON := .venv/bin/python
 FILES := calculator.py test_calculator.py test_pipeline_contract.py
 
-.PHONY: health format format-check lint test verify metrics context-benchmark plan-check
+.PHONY: health format format-check lint test verify metrics context-benchmark plan-check plan-generate plan-candidate-check
 
 health:
 	@curl -fsS http://127.0.0.1:8080/health | jq
@@ -34,3 +34,13 @@ clean-aider:
 plan-check:
 	$(PYTHON) -m json.tool PLAN.json >/dev/null
 	$(PYTHON) run-plan.py --dry-run
+
+plan-generate:
+	$(PYTHON) create-plan.py \
+		--context calculator.py test_calculator.py
+
+plan-candidate-check:
+	$(PYTHON) -m json.tool PLAN.candidate.json >/dev/null
+	$(PYTHON) run-plan.py \
+		--plan PLAN.candidate.json \
+		--dry-run
