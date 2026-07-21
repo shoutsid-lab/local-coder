@@ -31,7 +31,8 @@ Aider remains the implementation worker. Deterministic verification remains auth
 - GitHub baseline alignment recorded in `UPSTREAM.json`.
 - Python formatting, linting, compilation, JSON validation, and unit tests pass.
 - Five skills load with their expected model and tool boundaries.
-- The smolagents manager and all five managed agents instantiate with version 1.26.
+- The smolagents CodeAgent manager, two read-only evidence adapters, and three
+  code-action managed workers instantiate with version 1.26.
 - Worktree creation shares the base repository virtual environment.
 - Tracked and untracked worktree changes are included in final diff review.
 - `run-aider.sh apply` supports multiple sequential atomic edits and defers full
@@ -39,13 +40,31 @@ Aider remains the implementation worker. Deterministic verification remains auth
 - Direct `./local-coder.py` execution re-enters `.venv`, preventing a false
   `smolagents NOT INSTALLED` result.
 
-## Important honest limitation
+## Bounded live validation
 
-A live end-to-end multi-agent implementation has not yet completed after this upgrade.
-The attempted run stopped before creating a worktree because the upgrade files had not
-been committed and the base repository was dirty. This is expected safety behaviour.
-Do not report the live agentic path as production-proven until a real task completes in a
-clean repository with llama-server and LiteLLM running.
+The first live end-to-end task completed successfully against the local llama-server and
+LiteLLM services. Because the upgrade was still uncommitted and the runtime correctly
+rejects a dirty base repository, the exact working-tree diff was committed only inside a
+disposable validation clone. The source repository and validation worktree remained
+uncommitted.
+
+The task replaced one exact sentence in `README.md`. The recorded trajectory included
+explorer and planner reads, one Aider edit, diff inspection, deterministic verification,
+and read-only semantic review. Only `README.md` changed; all 25 tests passed; the review
+verdict was `pass`; and the run ended as `awaiting_approval`. SQLite recorded six agent
+registrations, twelve tool calls, four artifacts, and four verification results.
+
+The validation exposed and fixed three additional boundaries: Aider could report success
+without changing an editable file, the reviewer script was invoked as an executable even
+though it is a Python source file, and the 3B reviewer sometimes returned only a valid
+verdict rather than the full requested object. Aider now uses search/replace diffs with a
+strict changed-file postcondition, review runs through the project interpreter, and a
+verdict-only response is normalized into the stored schema with an explicit note that
+explanatory details were omitted.
+
+This proves the bounded, exact-edit path. It does not prove broad autonomous
+decomposition. The 3B model still requires atomic tasks with explicit file paths and
+literal before/after text where practical.
 
 ## First local validation after committing
 
@@ -59,11 +78,15 @@ make handoff-check
 `make handoff-check` intentionally requires a clean working tree, so run it only after
 committing the upgrade.
 
-Then exercise one real, bounded task:
+For a post-commit regression, exercise another real, bounded task:
 
 ```bash
+./local-coder.py status
 ./local-coder.py run "Implement one narrowly scoped task with clear acceptance criteria"
 ```
+
+If either service is down, start the existing llama-server on port 8080 and LiteLLM
+proxy on port 4000 first, then rerun the status check.
 
 Inspect the returned worktree, run record, diff, verification output, and review verdict.
 Do not merge automatically.
@@ -78,8 +101,9 @@ demand rather than concurrently, and only after real 3B trajectories justify it.
 ## Next meaningful work
 
 1. Commit this upgrade and obtain a clean handoff check.
-2. Complete one real end-to-end task and inspect the SQLite trajectory.
-3. Fix failures exposed by that run without changing the architecture.
+2. Repeat the bounded regression from the committed repository and preserve its run
+   record for comparison.
+3. Improve review explanations without weakening strict verdict validation.
 4. Only then consider an on-demand deeper model route, MCP integrations, or offline
    prompt optimisation.
 

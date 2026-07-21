@@ -4,7 +4,8 @@
 
 This repository validates a hardware-adjusted local AI coding pipeline for small, controlled software changes.
 
-The pipeline prioritises deterministic verification and human approval over autonomous model behaviour.
+The pipeline prioritises deterministic verification and explicit approval over
+autonomous model behaviour.
 
 ## Hardware Profile
 
@@ -44,7 +45,7 @@ Atomic repair profile:
 * One editable file where practical
 * One explicit transformation per invocation
 * Independent verification runs before and after the edit
-* Changes remain uncommitted for human review
+* Changes remain uncommitted for independent review
 
 ## Verification Pipeline
 
@@ -79,17 +80,17 @@ Additional test files may also be treated as protected when only implementation 
 ```text
 Task request
     ↓
-Human or planner creates an atomic instruction
+Requesting actor or planner creates an atomic instruction
     ↓
 Aider sends the instruction to the local model
     ↓
 The model edits explicitly allowed files
     ↓
 make verify
-    ├── pass → human reviews the diff
+    ├── pass → independent actor reviews the diff
     └── fail → restore or issue another atomic instruction
     ↓
-Human commits the verified change
+Authorized actor commits the verified change
 ```
 
 ## Model Capability Boundary
@@ -164,7 +165,7 @@ make agent-install
 ```
 
 The command requires a clean base repository, creates an isolated sibling worktree, and
-leaves all edits uncommitted for human inspection. Each non-interactive Aider call applies
+leaves all edits uncommitted for independent inspection. Each non-interactive Aider call applies
 one atomic step; the orchestrator runs full deterministic verification after the planned
 steps and invokes the read-only reviewer against tracked and untracked changes.
 

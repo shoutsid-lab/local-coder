@@ -45,7 +45,10 @@ def main() -> int:
         raise RuntimeError(f"Unexpected managed-agent order: {names}")
     print("Agent hierarchy: OK")
     print(f"Manager: {bundle.manager.__class__.__name__}")
-    print(f"Managed agents: {', '.join(names)}")
+    print(
+        f"Managed agents: {', '.join(names)} "
+        "(read-only evidence adapters and CodeAgent workers)"
+    )
     return 0
 
 

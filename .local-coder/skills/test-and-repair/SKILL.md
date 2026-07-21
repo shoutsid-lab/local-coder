@@ -13,6 +13,9 @@ max_steps: 7
 ---
 # Test and Repair
 
+Use the provided tools for every diagnosis or repair, and return a final answer only
+after using their evidence.
+
 Treat verification output and protected tests as authoritative. Diagnose one failure at a
 time. Translate it into one literal or tightly bounded repair instruction for Aider.
 Verify again before continuing. If a repair broadens scope, weakens a contract, or makes

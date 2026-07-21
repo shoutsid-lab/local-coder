@@ -27,7 +27,7 @@ class OrchestratorConfig:
 
 @dataclass(frozen=True)
 class RunSummary:
-    """Human-reviewable outcome of an orchestrated run."""
+    """Inspection-ready outcome of an orchestrated run."""
 
     run_id: str
     status: str
@@ -135,7 +135,7 @@ Required process:
             elif diff == "No uncommitted diff.":
                 status = "no_changes"
             elif review_verdict == "pass":
-                status = "awaiting_human_review"
+                status = "awaiting_approval"
             else:
                 status = "needs_attention"
 

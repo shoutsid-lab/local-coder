@@ -11,11 +11,11 @@ Developer
 local-coder.py run
    ↓
 smolagents CodeAgent orchestrator
-   ├── explorer      → local-plan
-   ├── planner       → local-plan
-   ├── implementer   → local-fast → Aider
-   ├── repairer      → local-fast → Aider
-   └── reviewer      → local-review
+   ├── explorer      → read-only evidence adapter → local-plan
+   ├── planner       → read-only evidence adapter → local-plan
+   ├── implementer   → code-action leaf → local-fast → Aider
+   ├── repairer      → code-action leaf → local-fast → Aider
+   └── reviewer      → code-action leaf → local-review
         ↓
 LiteLLM routing gateway :4000
         ↓
@@ -39,7 +39,8 @@ large universal tool schema from consuming the small model's context.
 
 `.local-coder/state/agent.db` records runs, agents, tool calls, artifacts, verification
 results, and model metrics. The database and per-run task/review artifacts are ignored by
-Git. Worktrees are preserved after a run so a human can inspect and merge or delete them.
+Git. Worktrees are preserved after a run so an authorized actor can inspect and
+merge or delete them.
 
 ## Hardware adaptation
 

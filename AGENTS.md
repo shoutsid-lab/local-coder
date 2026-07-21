@@ -58,3 +58,4 @@ documents for detail.
 - direct Aider planning, repair, and semantic-review commands
 
 They expect llama-server on `127.0.0.1:8080` and LiteLLM on `127.0.0.1:4000`.
+Check whether both are already running before starting anything new.

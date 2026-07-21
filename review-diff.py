@@ -147,6 +147,50 @@ def review_schema() -> dict[str, Any]:
     }
 
 
+def parse_review_content(content: str) -> dict[str, Any]:
+    """Extract and validate one reviewer JSON object from model text."""
+    decoder = json.JSONDecoder()
+    for offset, character in enumerate(content):
+        if character != "{":
+            continue
+        try:
+            candidate, _ = decoder.raw_decode(content[offset:])
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(candidate, dict):
+            continue
+        required = {"verdict", "summary", "issues", "unrelated_changes"}
+        if set(candidate) == {"verdict"} and candidate["verdict"] in {
+            "pass",
+            "fail",
+            "needs_attention",
+        }:
+            verdict = candidate["verdict"]
+            return {
+                "verdict": verdict,
+                "summary": (
+                    f"The local reviewer returned verdict {verdict!r} without "
+                    "explanatory details."
+                ),
+                "issues": [],
+                "unrelated_changes": [],
+            }
+        if set(candidate) != required:
+            continue
+        if candidate["verdict"] not in {"pass", "fail", "needs_attention"}:
+            continue
+        if not isinstance(candidate["summary"], str) or not candidate["summary"]:
+            continue
+        if not all(
+            isinstance(candidate[field], list)
+            and all(isinstance(item, str) for item in candidate[field])
+            for field in ("issues", "unrelated_changes")
+        ):
+            continue
+        return candidate
+    raise ReviewError("The reviewer returned an invalid structured response.")
+
+
 def call_reviewer(
     *,
     model: str,
@@ -171,7 +215,7 @@ Rules:
 - Use verdict "pass" only when the task is satisfied, verification passed,
   and there are no material unrelated changes.
 - Use "fail" for definite correctness or contract violations.
-- Use "needs_attention" when human judgement is required.
+- Use "needs_attention" when additional independent judgement is required.
 
 TASK.md:
 
@@ -238,8 +282,10 @@ Git diff:
 
     try:
         content = result["choices"][0]["message"]["content"]
-        review = json.loads(content)
-    except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+        if not isinstance(content, str):
+            raise TypeError("Reviewer content is not text.")
+        review = parse_review_content(content)
+    except (KeyError, IndexError, TypeError) as exc:
         raise ReviewError(
             "The reviewer returned an invalid structured response."
         ) from exc

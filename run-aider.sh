@@ -103,7 +103,7 @@ done
 common_args=(
     --no-gitignore
     --model openai/local-fast
-    --edit-format whole
+    --edit-format diff
     --read CONVENTIONS.md
     --read "$task_file"
 )
@@ -145,7 +145,9 @@ Rules:
 - Preserve signatures, docstrings, exception classes, and behavior unless the
   instruction explicitly changes them.
 - Never modify contract tests, ${task_file}, CONVENTIONS.md, or pipeline controls.
-- Return a valid Aider whole-file edit.
+- Return a valid Aider search/replace diff.
+- Use editable repository paths exactly as supplied to this invocation. Never
+  add a path/to/ prefix or placeholder.
 PROMPT
 )
 

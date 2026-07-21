@@ -28,7 +28,8 @@ make agent-install
 
 ## Start the local services
 
-Start the existing llama-server on port 8080 and LiteLLM proxy on port 4000, then check:
+Check whether the existing llama-server on port 8080 and LiteLLM proxy on port 4000
+are already running first. If either one is down, start it, then check:
 
 ```bash
 ./local-coder.py status

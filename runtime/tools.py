@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -253,10 +254,24 @@ class ToolContext:
             files = [item.strip() for item in editable_files.split(",") if item.strip()]
             if not files:
                 raise ValueError("At least one editable file is required.")
+            editable_paths = [self._safe_path(item) for item in files]
+            missing = [
+                item for item, path in zip(files, editable_paths) if not path.is_file()
+            ]
+            if missing:
+                raise FileNotFoundError(
+                    f"Editable files must already exist: {', '.join(missing)}"
+                )
+            before = [path.read_bytes() for path in editable_paths]
             env = dict(__import__("os").environ)
             env["LOCAL_CODER_TASK_FILE"] = str(self.task_file)
+            exact_paths = ", ".join(files)
+            bounded_instruction = (
+                f"Edit only these existing repository paths exactly as named: "
+                f"{exact_paths}. Never create a path/to/ placeholder. {instruction}"
+            )
             result = command(
-                ["./run-aider.sh", "apply", instruction, *files],
+                ["./run-aider.sh", "apply", bounded_instruction, *files],
                 cwd=self.worktree.path,
                 env=env,
             )
@@ -265,6 +280,13 @@ class ToolContext:
             )
             if result.returncode != 0:
                 raise RuntimeError(combined or "Aider edit failed.")
+            if all(
+                path.read_bytes() == original
+                for path, original in zip(editable_paths, before)
+            ):
+                raise RuntimeError(
+                    "Aider reported success but did not change an editable file."
+                )
             return combined or "Aider edit completed."
 
         return self._recorded(
@@ -303,6 +325,7 @@ class ToolContext:
             output_path = run_dir / "REVIEW.json"
             result = command(
                 [
+                    sys.executable,
                     "./review-diff.py",
                     "--task",
                     str(self.task_file),

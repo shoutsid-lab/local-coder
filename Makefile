@@ -16,7 +16,7 @@ format-check:
 	$(PYTHON) -m black --check $(PYTHON_FILES)
 
 lint:
-	$(PYTHON) -m flake8 $(PYTHON_FILES)
+	$(PYTHON) -m flake8 -j 1 $(PYTHON_FILES)
 
 agent-check:
 	$(PYTHON) -m py_compile $(PYTHON_FILES)

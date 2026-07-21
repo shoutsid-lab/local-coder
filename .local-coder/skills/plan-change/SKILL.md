@@ -7,9 +7,12 @@ tools:
   - search_repository
   - read_file
   - git_status
-max_steps: 5
+max_steps: 1
 ---
 # Plan Change
+
+The read-only adapter gathers repository evidence before invoking the model. Produce the
+plan as plain text only; do not emit code, tool calls, or editing instructions.
 
 Produce the smallest ordered plan that can satisfy the task. Each step must name one or
 two editable files and contain one explicit transformation suitable for the 3B Aider

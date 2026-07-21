@@ -30,7 +30,9 @@ def ensure_project_python() -> None:
     if not VENV_PYTHON.is_file():
         return
     try:
-        already_using_venv = Path(sys.executable).resolve() == VENV_PYTHON.resolve()
+        already_using_venv = (
+            Path(sys.prefix).resolve() == VENV_PYTHON.parent.parent.resolve()
+        )
     except OSError:
         already_using_venv = False
     if already_using_venv:
@@ -171,7 +173,11 @@ def handle_run(args: argparse.Namespace) -> int:
     )
     summary = AgentOrchestrator(config).run(args.task)
     print(summary.to_json())
-    completed = {"awaiting_human_review", "needs_attention", "no_changes"}
+    completed = {
+        "awaiting_approval",
+        "needs_attention",
+        "no_changes",
+    }
     return 0 if summary.status in completed else 1
 
 
