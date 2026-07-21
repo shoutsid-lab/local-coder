@@ -1,0 +1,6 @@
+.aider.chat.history.md
+.aider.input.history
+.aider.chat
+.aider.tags.cache.v4
+.env
+__pycache__/
