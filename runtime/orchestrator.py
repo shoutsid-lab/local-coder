@@ -42,6 +42,26 @@ class RunSummary:
         return json.dumps(asdict(self), indent=2)
 
 
+def determine_run_status(
+    *,
+    verification_passed: bool,
+    has_diff: bool,
+    review_verdict: str | None,
+    has_scope_violations: bool,
+    editor_error_count: int,
+) -> str:
+    """Return the authoritative status from deterministic run evidence."""
+    if not verification_passed:
+        return "failed_verification"
+    if has_scope_violations or editor_error_count:
+        return "needs_attention"
+    if not has_diff:
+        return "no_changes"
+    if review_verdict == "pass":
+        return "awaiting_approval"
+    return "needs_attention"
+
+
 class AgentOrchestrator:
     """Create an isolated run and coordinate role-specialized local agents."""
 
@@ -130,27 +150,32 @@ Required process:
             else:
                 review_output = "No diff was produced; semantic review skipped."
 
-            if not verification_passed:
-                status = "failed_verification"
-            elif context.scope_violations:
-                status = "needs_attention"
-            elif diff == "No uncommitted diff.":
-                status = "no_changes"
-            elif review_verdict == "pass":
-                status = "awaiting_approval"
-            else:
-                status = "needs_attention"
+            editor_error_count = self.state.tool_call_error_count(
+                run_id,
+                tool_name="apply_atomic_edit",
+            )
+            status = determine_run_status(
+                verification_passed=verification_passed,
+                has_diff=diff != "No uncommitted diff.",
+                review_verdict=review_verdict,
+                has_scope_violations=bool(context.scope_violations),
+                editor_error_count=editor_error_count,
+            )
 
             scope_output = ""
             if context.scope_violations:
                 paths = ", ".join(sorted(context.scope_violations))
                 scope_output = f"Scope violations: {paths}"
+            editor_output = ""
+            if editor_error_count:
+                editor_output = f"Rejected editor attempts: {editor_error_count}"
             result_text = "\n\n".join(
                 part
                 for part in (
                     str(result),
                     verification_output,
                     scope_output,
+                    editor_output,
                     review_output,
                 )
                 if part

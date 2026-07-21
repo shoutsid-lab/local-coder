@@ -103,6 +103,22 @@ items. A verdict-only small-model response remains compatible but receives a det
 fallback naming the changed files and verification result. A live `local-review` call
 returned `pass` with a concrete behavioral explanation, and all 38 tests pass.
 
+A second committed-source trajectory, run `9bf491ef79c7`, requested two literal
+`README.md` replacements in one edit batch. The manager instead split the work into two
+delegations. The first implementer applied both replacements through two successful editor
+calls; the redundant second delegation then accumulated seven safely rejected exact-match
+attempts. Five verification runs and semantic review passed, and the final source diff was
+correct, but the old status logic returned `awaiting_approval`. Inspection also found the
+shared `.venv` directory symlink as an untracked path that the diff renderer had skipped.
+This trajectory reinforces the current 3B decomposition boundary and does not justify a
+deeper route or broader integration yet.
+
+The runtime is now hardened from that evidence. Any rejected `apply_atomic_edit` call
+forces `needs_attention` even when verification and semantic review pass, and the result
+reports the rejected-attempt count. The expected `.venv` symlink is ignored cleanly, while
+any other untracked symbolic link is rendered explicitly for review. Deterministic tests
+cover both postconditions; all 40 tests pass.
+
 This proves the native bounded exact-edit path. It does not prove broad autonomous
 decomposition. The 3B model still requires atomic tasks with explicit file paths and
 literal before/after text where practical.
@@ -141,8 +157,10 @@ demand rather than concurrently, and only after real 3B trajectories justify it.
 
 ## Next meaningful work
 
-1. Use additional real bounded trajectories to decide whether an on-demand deeper model
-   route, MCP integrations, or offline prompt optimisation are justified.
+1. After committing the trajectory hardening, repeat the bounded two-replacement task and
+   confirm that `.venv` stays ignored and rejected editor attempts force `needs_attention`.
+2. Keep the current model routes and integration surface unchanged until clean bounded
+   trajectories justify expanding them.
 
 Do not return to synthetic calculator fault injection unless it is needed for a specific
 regression test.

@@ -226,6 +226,22 @@ class StateStore:
                 ),
             )
 
+    def tool_call_error_count(
+        self,
+        run_id: str,
+        *,
+        tool_name: str | None = None,
+    ) -> int:
+        """Return the number of recorded failed tool calls for one run."""
+        query = "SELECT COUNT(*) FROM tool_calls WHERE run_id = ? AND status = 'error'"
+        parameters: list[Any] = [run_id]
+        if tool_name is not None:
+            query += " AND tool_name = ?"
+            parameters.append(tool_name)
+        with self.connect() as connection:
+            row = connection.execute(query, parameters).fetchone()
+        return int(row[0]) if row is not None else 0
+
     def add_artifact(
         self,
         run_id: str,

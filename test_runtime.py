@@ -338,6 +338,15 @@ def test_state_store_records_run_and_verification(tmp_path: Path) -> None:
         output="ok",
         duration_ms=1.5,
     )
+    store.log_tool_call(
+        run_id,
+        agent_role="implementer",
+        tool_name="apply_atomic_edit",
+        arguments={},
+        output="EditorError: missing match",
+        status="error",
+        duration_ms=1.0,
+    )
     store.update_run(run_id, status="awaiting_approval")
 
     details = store.run_details(run_id)
@@ -346,6 +355,22 @@ def test_state_store_records_run_and_verification(tmp_path: Path) -> None:
     assert details["status"] == "awaiting_approval"
     assert details["agents"][0]["role"] == "explorer"
     assert details["verification"][0]["passed"] == 1
+    assert store.tool_call_error_count(run_id) == 1
+    assert store.tool_call_error_count(run_id, tool_name="apply_atomic_edit") == 1
+
+
+def test_rejected_editor_attempt_forces_needs_attention() -> None:
+    from runtime.orchestrator import determine_run_status
+
+    status = determine_run_status(
+        verification_passed=True,
+        has_diff=True,
+        review_verdict="pass",
+        has_scope_violations=False,
+        editor_error_count=1,
+    )
+
+    assert status == "needs_attention"
 
 
 def test_tool_context_rejects_paths_outside_worktree(tmp_path: Path) -> None:
@@ -533,6 +558,37 @@ def test_untracked_files_are_included_in_diff(tmp_path: Path) -> None:
     assert "+value = 1" in diff
 
 
+def test_untracked_symlinks_are_included_in_diff(tmp_path: Path) -> None:
+    import subprocess
+
+    from runtime.tools import collect_uncommitted_diff
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Local Coder Test"],
+        cwd=tmp_path,
+        check=True,
+    )
+    (tmp_path / "tracked.txt").write_text("baseline\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "baseline"], cwd=tmp_path, check=True)
+
+    target = tmp_path / "environment"
+    target.mkdir()
+    (tmp_path / "linked-environment").symlink_to(target, target_is_directory=True)
+
+    diff = collect_uncommitted_diff(tmp_path)
+
+    assert "new file mode 120000" in diff
+    assert "linked-environment" in diff
+    assert f"+{target}" in diff
+
+
 def test_staged_empty_files_are_included_in_diff(tmp_path: Path) -> None:
     import subprocess
 
@@ -582,7 +638,7 @@ def test_create_worktree_shares_virtualenv(tmp_path: Path) -> None:
         cwd=root,
         check=True,
     )
-    (root / ".gitignore").write_text(".venv/\n", encoding="utf-8")
+    (root / ".gitignore").write_text(".venv\n", encoding="utf-8")
     (root / "tracked.txt").write_text("baseline\n", encoding="utf-8")
     (root / ".venv").mkdir()
     subprocess.run(["git", "add", ".gitignore", "tracked.txt"], cwd=root, check=True)
@@ -593,5 +649,13 @@ def test_create_worktree_shares_virtualenv(tmp_path: Path) -> None:
         target = worktree.path / ".venv"
         assert target.is_symlink()
         assert target.resolve() == (root / ".venv").resolve()
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=worktree.path,
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        assert status.stdout == ""
     finally:
         remove_worktree(root, worktree, force=True)

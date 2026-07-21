@@ -64,6 +64,22 @@ def collect_uncommitted_diff(root: Path) -> str:
         )
     for relative in untracked.stdout.splitlines():
         file_path = root / relative
+        if file_path.is_symlink():
+            target = file_path.readlink()
+            sections.append(
+                "\n".join(
+                    (
+                        f"diff --git a/{relative} b/{relative}",
+                        "new file mode 120000",
+                        "--- /dev/null",
+                        f"+++ b/{relative}",
+                        "@@ -0,0 +1 @@",
+                        f"+{target}",
+                        "\\ No newline at end of file",
+                    )
+                )
+            )
+            continue
         if not file_path.is_file():
             continue
         result = command(

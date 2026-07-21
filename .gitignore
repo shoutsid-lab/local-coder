@@ -4,7 +4,7 @@
 .aider.tags.cache.v4
 .env
 __pycache__/
-.venv/
+.venv
 .worktrees/
 PLAN.candidate.json
 PLAN.candidate.raw.txt
