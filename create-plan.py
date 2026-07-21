@@ -15,9 +15,19 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent
 DEFAULT_OUTPUT = ROOT / "PLAN.candidate.json"
 DEFAULT_API_URL = "http://127.0.0.1:8080/v1/chat/completions"
+RAW_OUTPUT_PATH = ROOT / "PLAN.candidate.raw.txt"
 
 MAX_CONTEXT_FILE_BYTES = 32_000
 MAX_STEPS = 8
+
+PROTECTED_FILES = {
+    "TASK.md",
+    "PLAN.md",
+    "PLAN.json",
+    "PIPELINE.md",
+    "CONVENTIONS.md",
+    "test_pipeline_contract.py",
+}
 
 
 class PlannerError(RuntimeError):
@@ -124,6 +134,12 @@ Rules:
 - Preserve unrelated code.
 - Order steps so every intermediate state can pass verification.
 - Do not claim the plan is approved.
+- Every step must edit at least one tracked, non-protected file.
+- Do not create validation-only, testing-only, review-only, or commit-only steps.
+- The executor runs verification and creates commits automatically.
+- Do not include a final "run tests" or "verify changes" step.
+- Each instruction must state one concrete source transformation.
+- Do not repeat the same transformation in multiple steps.
 
 Task:
 
@@ -139,11 +155,102 @@ Repository context:
 """.strip()
 
 
+
+def build_plan_schema(
+    tracked_files: list[str],
+    base_branch: str,
+) -> dict[str, Any]:
+    editable_files = sorted(
+        filename
+        for filename in tracked_files
+        if filename not in PROTECTED_FILES
+    )
+
+    if not editable_files:
+        raise PlannerError(
+            "The repository contains no files eligible for editing."
+        )
+
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "name",
+            "approved",
+            "base_branch",
+            "steps",
+        ],
+        "properties": {
+            "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+            },
+            "approved": {
+                "type": "boolean",
+                "enum": [False],
+            },
+            "base_branch": {
+                "type": "string",
+                "enum": [base_branch],
+            },
+            "steps": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": MAX_STEPS,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "id",
+                        "title",
+                        "instruction",
+                        "editable_files",
+                        "commit_message",
+                    ],
+                    "properties": {
+                        "id": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": MAX_STEPS,
+                        },
+                        "title": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 120,
+                        },
+                        "instruction": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 1_500,
+                        },
+                        "editable_files": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 2,
+                            "uniqueItems": True,
+                            "items": {
+                                "type": "string",
+                                "enum": editable_files,
+                            },
+                        },
+                        "commit_message": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 120,
+                        },
+                    },
+                },
+            },
+        },
+    }
+
 def call_model(
     *,
     api_url: str,
     model: str,
     prompt: str,
+    response_schema: dict[str, Any],
 ) -> str:
     payload = {
         "model": model,
@@ -162,6 +269,10 @@ def call_model(
         ],
         "temperature": 0,
         "max_tokens": 2048,
+        "response_format": {
+            "type": "json_schema",
+            "schema": response_schema,
+        },
     }
 
     request = urllib.request.Request(
@@ -233,14 +344,7 @@ def validate_candidate(
             f"Generated plan must contain 1-{MAX_STEPS} steps."
         )
 
-    protected = {
-        "TASK.md",
-        "PLAN.md",
-        "PLAN.json",
-        "PIPELINE.md",
-        "CONVENTIONS.md",
-        "test_pipeline_contract.py",
-    }
+    protected = PROTECTED_FILES
 
     for expected_id, step in enumerate(steps, start=1):
         if not isinstance(step, dict):
@@ -379,10 +483,21 @@ def main() -> int:
             branch,
         )
 
+        response_schema = build_plan_schema(
+            tracked,
+            branch,
+        )
+
         model_output = call_model(
             api_url=args.api_url,
             model=args.model,
             prompt=prompt,
+            response_schema=response_schema,
+        )
+
+        RAW_OUTPUT_PATH.write_text(
+            model_output + "\n",
+            encoding="utf-8",
         )
 
         write_candidate(

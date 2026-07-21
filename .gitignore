@@ -7,3 +7,4 @@ __pycache__/
 .venv/
 .worktrees/
 PLAN.candidate.json
+PLAN.candidate.raw.txt
