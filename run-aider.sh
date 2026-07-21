@@ -67,7 +67,7 @@ fi
 
 common_args=(
     --no-gitignore
-    --model openai/local-coder
+    --model openai/local-fast
     --edit-format whole
     --read CONVENTIONS.md
     --read TASK.md
