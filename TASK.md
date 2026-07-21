@@ -9,5 +9,5 @@ For a role-separated run, pass the task directly:
 ```
 
 The orchestrator writes that task into an ignored per-run task file inside the isolated
-worktree. For the legacy planner or direct interactive Aider workflow, replace this file
-with the current task before starting.
+worktree. For the legacy planner or direct native repair workflow, replace this file with
+the current task before starting.

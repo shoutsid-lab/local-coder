@@ -115,15 +115,10 @@ def handle_status(_: argparse.Namespace) -> int:
     return 0 if ready else 1
 
 
-def handle_task(args: argparse.Namespace) -> int:
-    return run_command(["./run-aider.sh", "task", *args.files])
-
-
 def handle_repair(args: argparse.Namespace) -> int:
     return run_command(
         [
-            "./run-aider.sh",
-            "repair",
+            "./run-editor.py",
             args.instruction,
             *args.files,
         ]
@@ -250,13 +245,11 @@ def build_parser() -> argparse.ArgumentParser:
     skills_parser = subparsers.add_parser("skills", help="List loaded agent skills.")
     skills_parser.set_defaults(handler=handle_skills)
 
-    task_parser = subparsers.add_parser("task", help="Open an interactive Aider task.")
-    task_parser.add_argument("files", nargs="+", help="Files Aider may edit.")
-    task_parser.set_defaults(handler=handle_task)
-
-    repair_parser = subparsers.add_parser("repair", help="Apply one atomic repair.")
+    repair_parser = subparsers.add_parser(
+        "repair", help="Apply one validated native atomic edit."
+    )
     repair_parser.add_argument("instruction", help="Exact atomic editing instruction.")
-    repair_parser.add_argument("files", nargs="+", help="Files Aider may edit.")
+    repair_parser.add_argument("files", nargs="+", help="Approved files to edit.")
     repair_parser.set_defaults(handler=handle_repair)
 
     plan_parser = subparsers.add_parser(

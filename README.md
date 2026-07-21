@@ -10,7 +10,7 @@ machine used to build this repository.
   `local-review`.
 - **smolagents CodeAgent** coordinates managed explorer, planner, implementer,
   repairer, and reviewer agents.
-- **Aider** remains the only source-editing worker and receives narrowly scoped edits.
+- A **validated native editor** converts narrow instructions into strict exact edits.
 - **Git worktrees** isolate every agentic run.
 - **SQLite** records runs, agents, tool calls, artifacts, verification, and metrics.
 - **Black, Flake8, pytest, protected tests, and `git diff --check`** remain authoritative.
@@ -59,7 +59,6 @@ Then review the preserved worktree manually before committing or merging.
 The proven lower-level commands remain available:
 
 ```bash
-./local-coder.py task FILE [FILE ...]
 ./local-coder.py repair "ATOMIC INSTRUCTION" FILE [FILE ...]
 ./local-coder.py plan
 ./local-coder.py execute

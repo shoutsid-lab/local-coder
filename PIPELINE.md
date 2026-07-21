@@ -25,23 +25,22 @@ autonomous model behaviour.
 * Server context: 32,768 tokens
 * Parallel slots: 1
 
-## Coding Agent
+## Native Atomic Editor
 
-Aider is used as the editing harness.
+`runtime/editor.py` is the only source-editing worker.
 
 Normal task profile:
 
-* Repository map enabled
-* Repository-map budget: 2,048 tokens
-* Chat-history summarisation threshold: 8,192 tokens
-* Only relevant files are editable
-* `CONVENTIONS.md` and `TASK.md` are read-only
-* Automatic commits are disabled
+* One or two approved existing files where practical
+* Strict JSON search/replace operations through `local-fast`
+* Exact old text must match once
+* All paths and edits validate in memory before writes
+* Protected controls and `*_contract.py` files are rejected
+* No staging, commits, renames, file creation, or file deletion
 
 Atomic repair profile:
 
-* Fresh Aider process
-* Repository map disabled
+* Fresh structured editor request
 * One editable file where practical
 * One explicit transformation per invocation
 * Independent verification runs before and after the edit
@@ -82,9 +81,9 @@ Task request
     ↓
 Requesting actor or planner creates an atomic instruction
     ↓
-Aider sends the instruction to the local model
+The native editor sends approved contents and a strict schema to `local-fast`
     ↓
-The model edits explicitly allowed files
+The runtime validates and applies exact replacements to approved files
     ↓
 make verify
     ├── pass → independent actor reviews the diff
@@ -118,7 +117,7 @@ Broader tasks must therefore be decomposed into atomic operations before executi
 
 * Start tasks from a clean working tree.
 * Make model changes on a dedicated branch or worktree.
-* Disable automatic Aider commits.
+* The editor never stages or commits.
 * Review `git diff` after verification.
 * Commit only after `make verify` passes.
 * Restore failed edits before retrying with a new instruction.
@@ -144,8 +143,8 @@ make verify
 * CUDA inference: passed
 * OpenAI-compatible local API: passed
 * 32K server context: passed
-* Aider connectivity: passed
-* Whole-file editing: passed
+* Native structured editor connectivity: passed
+* Exact search/replace editing: passed
 * Repository context: passed
 * Protected tests: passed
 * Formatting and lint gates: passed
@@ -156,8 +155,8 @@ make verify
 ## Role-Separated Agent Runtime
 
 The primary runtime is now a smolagents manager with managed explorer, planner,
-implementer, repairer, and reviewer agents. It composes the existing Aider, LiteLLM,
-worktree, verification, and review components rather than replacing them.
+implementer, repairer, and reviewer agents. It composes the native editor, LiteLLM,
+worktree, verification, and review components.
 
 ```bash
 make agent-install
@@ -165,9 +164,10 @@ make agent-install
 ```
 
 The command requires a clean base repository, creates an isolated sibling worktree, and
-leaves all edits uncommitted for independent inspection. Each non-interactive Aider call applies
-one atomic step; the orchestrator runs full deterministic verification after the planned
-steps and invokes the read-only reviewer against tracked and untracked changes.
+leaves all edits uncommitted for independent inspection. Each editor call validates a
+complete atomic edit batch before writing; the orchestrator runs full deterministic
+verification after the planned steps and invokes the read-only reviewer against tracked,
+staged, and untracked changes.
 
 Run metadata and tool trajectories are written to `.local-coder/state/agent.db`. These
 files are ignored and must not be committed.

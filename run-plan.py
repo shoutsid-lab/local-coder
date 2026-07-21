@@ -16,11 +16,19 @@ PLAN_PATH = ROOT / "PLAN.json"
 WORKTREE_ROOT = ROOT.parent / f"{ROOT.name}-worktrees"
 
 PROTECTED_FILES = {
+    "AGENTS.md",
     "TASK.md",
     "PLAN.md",
     "PLAN.json",
     "PIPELINE.md",
     "CONVENTIONS.md",
+    "Makefile",
+    "create-plan.py",
+    "litellm-config.yaml",
+    "local-coder.py",
+    "review-diff.py",
+    "run-editor.py",
+    "run-plan.py",
     "test_pipeline_contract.py",
 }
 
@@ -276,8 +284,7 @@ def execute_step(
 
     run(
         [
-            "./run-aider.sh",
-            "repair",
+            "./run-editor.py",
             step["instruction"],
             *files,
         ],

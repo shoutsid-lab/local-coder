@@ -13,9 +13,9 @@ local-coder.py run
 smolagents CodeAgent orchestrator
    ├── explorer      → read-only evidence adapter → local-plan
    ├── planner       → read-only evidence adapter → local-plan
-   ├── implementer   → code-action leaf → local-fast → Aider
-   ├── repairer      → code-action leaf → local-fast → Aider
-   └── reviewer      → code-action leaf → local-review
+   ├── implementer   → code-action leaf → local-fast → validated exact edits
+   ├── repairer      → code-action leaf → local-fast → validated exact edits
+   └── reviewer      → fixed read-only review adapter → local-review
         ↓
 LiteLLM routing gateway :4000
         ↓
@@ -25,9 +25,11 @@ Qwen2.5-Coder-3B Q4_K_M
 ```
 
 Every run receives an isolated Git worktree. Agents can only use the narrow tools exposed
-by `runtime/tools.py`; there is no unrestricted shell tool. Source edits are delegated to
-Aider through the proven atomic-edit mode. Formatting, linting, tests, and protected
-contract tests remain deterministic and authoritative.
+by `runtime/tools.py`; there is no unrestricted shell tool. Source edits pass through
+`runtime/editor.py`, which requests strict JSON search/replace operations, validates
+approved paths and unique exact matches in memory, and writes nothing unless the complete
+batch is valid. Formatting, linting, tests, and protected contract tests remain
+deterministic and authoritative.
 
 ## Skills
 
@@ -51,6 +53,6 @@ behind planning or review to change without changing the harness.
 
 ## Existing utilities
 
-The earlier planner, plan executor, reviewer, and direct Aider CLI remain available as
-fallback and debugging utilities. The agent runtime composes them rather than replacing
-working components.
+The earlier planner, plan executor, reviewer, and direct repair CLI remain available as
+fallback and debugging utilities. They use the same native editor boundary as the agent
+runtime.

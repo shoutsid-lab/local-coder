@@ -1,6 +1,6 @@
 PYTHON := .venv/bin/python
 PYTHON_FILES := calculator.py create-plan.py local-coder.py review-diff.py \
-	run-plan.py runtime/*.py test_*.py
+	run-editor.py run-plan.py runtime/*.py test_*.py
 
 .PHONY: health format format-check lint agent-check agent-install agent-smoke handoff-check test verify \
 	metrics context-benchmark plan-check plan-generate plan-candidate-check \
@@ -44,9 +44,6 @@ verify: format-check lint agent-check test
 metrics:
 	@curl -s http://127.0.0.1:8080/metrics | \
 	grep -E 'n_tokens_max|prompt_tokens_total|predicted_tokens_total|prompt_tokens_seconds|predicted_tokens_seconds'
-
-clean-aider:
-	rm -f aider
 
 plan-check:
 	$(PYTHON) -m json.tool PLAN.json >/dev/null

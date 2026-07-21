@@ -20,11 +20,19 @@ MAX_CONTEXT_FILE_BYTES = 32_000
 MAX_STEPS = 8
 
 PROTECTED_FILES = {
+    "AGENTS.md",
     "TASK.md",
     "PLAN.md",
     "PLAN.json",
     "PIPELINE.md",
     "CONVENTIONS.md",
+    "Makefile",
+    "create-plan.py",
+    "litellm-config.yaml",
+    "local-coder.py",
+    "review-diff.py",
+    "run-editor.py",
+    "run-plan.py",
     "test_pipeline_contract.py",
 }
 
@@ -167,8 +175,9 @@ Rules:
 - Use only existing tracked files listed below.
 - Do not include protected tests as editable files.
 - Treat every file whose name ends with `_contract.py` as protected.
-- Do not edit TASK.md, PLAN.md, PLAN.json, PIPELINE.md,
-  CONVENTIONS.md, or test_pipeline_contract.py.
+- Do not edit repository controls such as AGENTS.md, TASK.md, PLAN.md, PLAN.json,
+  PIPELINE.md, CONVENTIONS.md, Makefile, local-coder.py, run-editor.py,
+  run-plan.py, or test_pipeline_contract.py.
 - Do not include validation commands inside instructions.
 - Preserve unrelated code.
 - Order steps so every intermediate state can pass verification.

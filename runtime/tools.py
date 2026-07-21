@@ -7,11 +7,12 @@ import re
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from .editor import request_and_apply
 from .state import StateStore
 
 
@@ -50,7 +51,7 @@ def command(
 def collect_uncommitted_diff(root: Path) -> str:
     """Return tracked and untracked changes as a unified diff."""
     sections: list[str] = []
-    tracked = command(["git", "diff", "--no-ext-diff"], cwd=root)
+    tracked = command(["git", "diff", "--no-ext-diff", "HEAD"], cwd=root)
     if tracked.returncode != 0:
         raise RuntimeError(tracked.stderr.strip() or "Could not inspect Git diff.")
     if tracked.stdout.strip():
@@ -75,6 +76,23 @@ def collect_uncommitted_diff(root: Path) -> str:
             sections.append(result.stdout.strip())
 
     return "\n\n".join(sections)
+
+
+def collect_changed_paths(root: Path) -> set[str]:
+    """Return tracked, staged, and untracked paths changed from HEAD."""
+    paths: set[str] = set()
+    commands = (
+        ["git", "diff", "--name-only", "--no-renames", "-z", "HEAD", "--"],
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+    )
+    for args in commands:
+        result = command(args, cwd=root)
+        if result.returncode != 0:
+            raise RuntimeError(
+                result.stderr.strip() or "Could not inspect changed paths."
+            )
+        paths.update(path for path in result.stdout.split("\0") if path)
+    return paths
 
 
 def require_clean_repository(root: Path) -> None:
@@ -136,6 +154,7 @@ class ToolContext:
     task_file: Path
     agent_role: str | None = None
     last_review_verdict: str | None = None
+    scope_violations: set[str] = field(default_factory=set)
 
     def _safe_path(self, relative: str) -> Path:
         candidate = (self.worktree.path / relative).resolve()
@@ -247,50 +266,46 @@ class ToolContext:
 
         return self._recorded("inspect_diff", {}, operation)
 
-    def delegate_aider(self, instruction: str, editable_files: str) -> str:
-        """Delegate one atomic code edit to the proven Aider worker."""
+    def apply_atomic_edit(self, instruction: str, editable_files: str) -> str:
+        """Generate and apply one validated local-fast edit batch."""
 
         def operation() -> str:
             files = [item.strip() for item in editable_files.split(",") if item.strip()]
             if not files:
                 raise ValueError("At least one editable file is required.")
             editable_paths = [self._safe_path(item) for item in files]
-            missing = [
-                item for item, path in zip(files, editable_paths) if not path.is_file()
-            ]
-            if missing:
-                raise FileNotFoundError(
-                    f"Editable files must already exist: {', '.join(missing)}"
-                )
             before = [path.read_bytes() for path in editable_paths]
-            env = dict(__import__("os").environ)
-            env["LOCAL_CODER_TASK_FILE"] = str(self.task_file)
-            exact_paths = ", ".join(files)
-            bounded_instruction = (
-                f"Edit only these existing repository paths exactly as named: "
-                f"{exact_paths}. Never create a path/to/ placeholder. {instruction}"
+            changed_before = collect_changed_paths(self.worktree.path)
+            task = self.task_file.read_text(encoding="utf-8")
+            task_relative = str(self.task_file.relative_to(self.worktree.path))
+            changed = request_and_apply(
+                root=self.worktree.path,
+                instruction=instruction,
+                editable_files=files,
+                task=task,
+                protected_files={task_relative},
             )
-            result = command(
-                ["./run-aider.sh", "apply", bounded_instruction, *files],
-                cwd=self.worktree.path,
-                env=env,
+            changed_after = collect_changed_paths(self.worktree.path)
+            unexpected = (changed_after - changed_before - set(files)) | (
+                changed_after & self.scope_violations
             )
-            combined = "\n".join(
-                part.strip() for part in (result.stdout, result.stderr) if part.strip()
-            )
-            if result.returncode != 0:
-                raise RuntimeError(combined or "Aider edit failed.")
-            if all(
+            if unexpected:
+                self.scope_violations.update(unexpected)
+                paths = ", ".join(sorted(unexpected))
+                raise RuntimeError(
+                    f"Editor changed paths outside the editable scope: {paths}"
+                )
+            if not changed or all(
                 path.read_bytes() == original
                 for path, original in zip(editable_paths, before)
             ):
                 raise RuntimeError(
-                    "Aider reported success but did not change an editable file."
+                    "Editor reported success but did not change an editable file."
                 )
-            return combined or "Aider edit completed."
+            return f"Atomic edit applied to: {', '.join(changed)}"
 
         return self._recorded(
-            "delegate_aider",
+            "apply_atomic_edit",
             {"instruction": instruction, "editable_files": editable_files},
             operation,
         )
@@ -416,14 +431,14 @@ def build_smol_tools(context: ToolContext, names: tuple[str, ...]) -> list[Any]:
         return context.inspect_diff()
 
     @tool
-    def delegate_aider(instruction: str, editable_files: str) -> str:
-        """Apply one exact atomic edit through Aider.
+    def apply_atomic_edit(instruction: str, editable_files: str) -> str:
+        """Generate and apply one validated atomic edit batch.
 
         Args:
             instruction: One narrowly scoped editing instruction.
             editable_files: Comma-separated repository-relative file paths.
         """
-        return context.delegate_aider(instruction, editable_files)
+        return context.apply_atomic_edit(instruction, editable_files)
 
     @tool
     def run_verification() -> str:
@@ -448,7 +463,7 @@ def build_smol_tools(context: ToolContext, names: tuple[str, ...]) -> list[Any]:
             search_repository,
             git_status,
             inspect_diff,
-            delegate_aider,
+            apply_atomic_edit,
             run_verification,
             review_diff,
             rollback_worktree,

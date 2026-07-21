@@ -47,7 +47,7 @@ def main() -> int:
     print(f"Manager: {bundle.manager.__class__.__name__}")
     print(
         f"Managed agents: {', '.join(names)} "
-        "(read-only evidence adapters and CodeAgent workers)"
+        "(read-only evidence/review adapters and CodeAgent workers)"
     )
     return 0
 

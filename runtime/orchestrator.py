@@ -111,7 +111,7 @@ Complete this coding task inside the already-created isolated worktree:
 Required process:
 1. Delegate repository inspection to the explorer.
 2. Delegate an atomic, ordered implementation plan to the planner.
-3. Delegate each narrowly scoped edit to the implementer, which must use Aider.
+3. Delegate each narrowly scoped edit to the validated native editor.
 4. If deterministic verification fails, delegate one failure at a time to the repairer.
 5. Run deterministic verification and delegate final diff review to the reviewer.
 6. Never commit, merge, modify contract tests, or weaken acceptance criteria.
@@ -132,6 +132,8 @@ Required process:
 
             if not verification_passed:
                 status = "failed_verification"
+            elif context.scope_violations:
+                status = "needs_attention"
             elif diff == "No uncommitted diff.":
                 status = "no_changes"
             elif review_verdict == "pass":
@@ -139,9 +141,20 @@ Required process:
             else:
                 status = "needs_attention"
 
-            result_text = (
-                f"{result}\n\n{verification_output}\n\n{review_output}".strip()
-            )
+            scope_output = ""
+            if context.scope_violations:
+                paths = ", ".join(sorted(context.scope_violations))
+                scope_output = f"Scope violations: {paths}"
+            result_text = "\n\n".join(
+                part
+                for part in (
+                    str(result),
+                    verification_output,
+                    scope_output,
+                    review_output,
+                )
+                if part
+            ).strip()
             self.state.update_run(run_id, status=status, result=result_text)
             return RunSummary(
                 run_id=run_id,

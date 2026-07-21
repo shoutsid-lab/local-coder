@@ -31,8 +31,8 @@ documents for detail.
 
 - Keep llama.cpp as the local inference runtime and LiteLLM as the role router.
 - Keep logical routes `local-fast`, `local-plan`, and `local-review` stable.
-- Keep Aider as the only component authorised to perform source edits during local
-  agent runs.
+- Keep the validated native atomic editor as the only component authorised to perform
+  source edits during local agent runs.
 - Keep Git worktrees as the isolation boundary and SQLite as the audit store.
 - Never add an automatic commit, merge, push, or destructive worktree cleanup step.
 - Never weaken verification, acceptance criteria, or protected tests to make a run pass.
@@ -46,8 +46,8 @@ documents for detail.
   contract change.
 - Do not edit `.local-coder/state/`, `.local-coder/runs/`, `.worktrees/`, generated
   `PLAN.candidate*`, or `REVIEW.json` files.
-- Do not commit virtual environments, secrets, Aider histories, SQLite databases, or
-  generated worktrees.
+- Do not commit virtual environments, secrets, legacy Aider histories, SQLite databases,
+  or generated worktrees.
 
 ## Service-dependent commands
 
@@ -55,7 +55,7 @@ documents for detail.
 
 - `./local-coder.py status`
 - `./local-coder.py run "..."`
-- direct Aider planning, repair, and semantic-review commands
+- direct native editing, planning, repair, and semantic-review commands
 
 They expect llama-server on `127.0.0.1:8080` and LiteLLM on `127.0.0.1:4000`.
 Check whether both are already running before starting anything new.

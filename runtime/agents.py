@@ -80,6 +80,27 @@ class ReadOnlyEvidenceAgent:
         return str(response.content)
 
 
+@dataclass
+class ReadOnlyReviewAgent:
+    """Run the fixed review gates without exposing a code executor."""
+
+    name: str
+    description: str
+    context: ToolContext
+
+    def __call__(
+        self,
+        task: str,
+        additional_args: dict[str, Any] | None = None,
+        **_: Any,
+    ) -> str:
+        del task, additional_args
+        diff = self.context.inspect_diff()
+        verification = self.context.run_verification()
+        review = self.context.review_diff()
+        return f"{diff}\n\n{verification}\n\n{review}"
+
+
 def _build_agent(
     *,
     role: str,
@@ -110,11 +131,9 @@ def _build_agent(
             first_file = named_files[0] if named_files else None
             if role == "implementer" and first_file:
                 first_action = (
-                    "Your first action must call delegate_aider exactly once, using "
+                    "Your first action must call apply_atomic_edit exactly once, using "
                     f"instruction={task!r} and editable_files={first_file!r}."
                 )
-            elif role == "reviewer":
-                first_action = "Your first action must call inspect_diff()."
             else:
                 first_action = "Your first action must call run_verification()."
             constrained_task = (
@@ -144,6 +163,7 @@ def _build_agent(
         state=context.state,
         task_file=context.task_file,
         agent_role=role,
+        scope_violations=context.scope_violations,
     )
     state.register_agent(
         run_id,
@@ -158,6 +178,12 @@ def _build_agent(
             skill=skill,
             context=role_context,
             model=models.build(skill.model),
+        )
+    if role == "reviewer":
+        return ReadOnlyReviewAgent(
+            name=role,
+            description=skill.description,
+            context=role_context,
         )
     return ManagedCodeAgent(
         tools=build_smol_tools(role_context, skill.tools),

@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+from runtime.editor import AtomicEdit, EditorError, apply_edits, parse_edit_content
 from runtime.models import ModelRegistry
 from runtime.skills import discover_skills
 from runtime.state import StateStore
@@ -91,17 +92,96 @@ def test_required_skills_load() -> None:
         "review-change",
     }
     assert skills["atomic-implementation"].model == "local-fast"
-    assert "delegate_aider" in skills["atomic-implementation"].tools
+    assert "apply_atomic_edit" in skills["atomic-implementation"].tools
     assert "read-only adapter" in skills["explore-repository"].instructions
     assert "do not emit code" in skills["explore-repository"].instructions
     assert skills["explore-repository"].max_steps == 1
     assert skills["plan-change"].max_steps == 1
 
 
+def test_native_editor_parses_strict_edit_json() -> None:
+    edits = parse_edit_content(
+        '{"edits":[{"path":"README.md","old_text":"before","new_text":"after"}]}'
+    )
+
+    assert edits == [AtomicEdit("README.md", "before", "after")]
+
+
+def test_native_editor_accepts_one_exact_json_fence() -> None:
+    edits = parse_edit_content("""```json
+{"edits":[{"path":"README.md","old_text":"before","new_text":"after"}]}
+```""")
+
+    assert edits == [AtomicEdit("README.md", "before", "after")]
+
+
+def test_native_editor_rejects_prose_around_json() -> None:
+    with pytest.raises(EditorError, match="invalid JSON"):
+        parse_edit_content(
+            'Result: {"edits":[{"path":"README.md","old_text":"a","new_text":"b"}]}'
+        )
+
+
+def test_native_editor_applies_only_exact_unique_matches(tmp_path: Path) -> None:
+    editable = tmp_path / "README.md"
+    editable.write_text("before\n", encoding="utf-8")
+
+    changed = apply_edits(
+        tmp_path,
+        ["README.md"],
+        [AtomicEdit("README.md", "before", "after")],
+    )
+
+    assert changed == ["README.md"]
+    assert editable.read_text(encoding="utf-8") == "after\n"
+
+
+def test_native_editor_fails_before_writing_ambiguous_edits(tmp_path: Path) -> None:
+    editable = tmp_path / "README.md"
+    editable.write_text("repeat repeat\n", encoding="utf-8")
+
+    with pytest.raises(EditorError, match="match exactly once"):
+        apply_edits(
+            tmp_path,
+            ["README.md"],
+            [AtomicEdit("README.md", "repeat", "changed")],
+        )
+
+    assert editable.read_text(encoding="utf-8") == "repeat repeat\n"
+
+
+def test_native_editor_rejects_protected_files(tmp_path: Path) -> None:
+    protected = tmp_path / "example_contract.py"
+    protected.write_text("before\n", encoding="utf-8")
+
+    with pytest.raises(EditorError, match="Protected file"):
+        apply_edits(
+            tmp_path,
+            ["example_contract.py"],
+            [AtomicEdit("example_contract.py", "before", "after")],
+        )
+
+
+def test_native_editor_rejects_normalized_protected_aliases(tmp_path: Path) -> None:
+    protected = tmp_path / "Makefile"
+    protected.write_text("before\n", encoding="utf-8")
+
+    with pytest.raises(EditorError, match="Protected file"):
+        apply_edits(
+            tmp_path,
+            ["./Makefile"],
+            [AtomicEdit("./Makefile", "before", "after")],
+        )
+
+
 def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -> None:
     from smolagents import CodeAgent
 
-    from runtime.agents import ReadOnlyEvidenceAgent, build_agent_bundle
+    from runtime.agents import (
+        ReadOnlyEvidenceAgent,
+        ReadOnlyReviewAgent,
+        build_agent_bundle,
+    )
 
     store = StateStore(tmp_path / "agent.db")
     run_id = store.create_run(
@@ -128,9 +208,10 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
     parameters = inspect.signature(bundle.managed[0].__call__).parameters
 
     assert all(isinstance(agent, ReadOnlyEvidenceAgent) for agent in bundle.managed[:2])
-    assert all(isinstance(agent, CodeAgent) for agent in bundle.managed[2:])
+    assert all(isinstance(agent, CodeAgent) for agent in bundle.managed[2:4])
+    assert isinstance(bundle.managed[4], ReadOnlyReviewAgent)
     assert all(
-        agent.python_executor.timeout_seconds == 600 for agent in bundle.managed[2:]
+        agent.python_executor.timeout_seconds == 600 for agent in bundle.managed[2:4]
     )
     assert "additional_args" in parameters
     assert bundle.manager.python_executor.timeout_seconds == 600
@@ -157,7 +238,28 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
     implementer = bundle.managed[2]
     with patch.object(implementer, "run", return_value="done") as run:
         implementer("Replace one sentence in README.md")
+    assert "apply_atomic_edit exactly once" in run.call_args.args[0]
     assert "editable_files='README.md'" in run.call_args.args[0]
+
+
+def test_reviewer_runs_only_fixed_read_only_gates(tmp_path: Path) -> None:
+    from runtime.agents import ReadOnlyReviewAgent
+
+    context = SimpleNamespace(
+        inspect_diff=lambda: "diff",
+        run_verification=lambda: "Verification: PASS",
+        review_diff=lambda: '{"verdict": "pass"}',
+    )
+    reviewer = ReadOnlyReviewAgent(
+        name="reviewer",
+        description="Read-only review",
+        context=context,
+    )
+
+    result = reviewer("Review README.md", {"ignored": True})
+
+    assert result == 'diff\n\nVerification: PASS\n\n{"verdict": "pass"}'
+    assert not hasattr(reviewer, "python_executor")
 
 
 def test_state_store_records_run_and_verification(tmp_path: Path) -> None:
@@ -217,13 +319,34 @@ def test_tool_context_rejects_paths_outside_worktree(tmp_path: Path) -> None:
         raise AssertionError("Unsafe path was accepted")
 
 
-def test_delegate_aider_rejects_success_without_an_edit(tmp_path: Path) -> None:
+def _initialize_edit_test_repository(worktree_path: Path) -> None:
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=worktree_path, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=worktree_path,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Local Coder Test"],
+        cwd=worktree_path,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "add", "README.md", "TASK.md"], cwd=worktree_path, check=True
+    )
+    subprocess.run(["git", "commit", "-qm", "baseline"], cwd=worktree_path, check=True)
+
+
+def test_atomic_editor_rejects_success_without_an_edit(tmp_path: Path) -> None:
     worktree_path = tmp_path / "worktree"
     worktree_path.mkdir()
     editable = worktree_path / "README.md"
     editable.write_text("unchanged\n", encoding="utf-8")
     task_file = worktree_path / "TASK.md"
     task_file.write_text("# Task\n", encoding="utf-8")
+    _initialize_edit_test_repository(worktree_path)
     store = StateStore(tmp_path / "agent.db")
     run_id = store.create_run(
         task="Edit README.md",
@@ -241,12 +364,49 @@ def test_delegate_aider_rejects_success_without_an_edit(tmp_path: Path) -> None:
 
     with (
         patch(
-            "runtime.tools.command",
-            return_value=SimpleNamespace(returncode=0, stdout="done", stderr=""),
+            "runtime.tools.request_and_apply",
+            return_value=["README.md"],
         ),
         pytest.raises(RuntimeError, match="did not change an editable file"),
     ):
-        context.delegate_aider("Add one sentence", "README.md")
+        context.apply_atomic_edit("Add one sentence", "README.md")
+
+
+def test_atomic_editor_rejects_changes_outside_editable_scope(
+    tmp_path: Path,
+) -> None:
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+    editable = worktree_path / "README.md"
+    editable.write_text("before\n", encoding="utf-8")
+    task_file = worktree_path / "TASK.md"
+    task_file.write_text("# Task\n", encoding="utf-8")
+    _initialize_edit_test_repository(worktree_path)
+    store = StateStore(tmp_path / "agent.db")
+    run_id = store.create_run(
+        task="Edit README.md",
+        mode="agentic",
+        repository=tmp_path,
+        base_branch="main",
+    )
+    context = ToolContext(
+        root=tmp_path,
+        worktree=Worktree(worktree_path, "agent/test", "main"),
+        run_id=run_id,
+        state=store,
+        task_file=task_file,
+    )
+
+    def fake_editor(**_: object) -> list[str]:
+        editable.write_text("after\n", encoding="utf-8")
+        (worktree_path / "unexpected.py").write_text("", encoding="utf-8")
+        return ["README.md"]
+
+    with (
+        patch("runtime.tools.request_and_apply", side_effect=fake_editor),
+        pytest.raises(RuntimeError, match="outside the editable scope: unexpected.py"),
+    ):
+        context.apply_atomic_edit("Change one line", "README.md")
 
 
 def test_review_diff_uses_project_python(tmp_path: Path) -> None:
@@ -316,6 +476,34 @@ def test_untracked_files_are_included_in_diff(tmp_path: Path) -> None:
 
     assert "new_file.py" in diff
     assert "+value = 1" in diff
+
+
+def test_staged_empty_files_are_included_in_diff(tmp_path: Path) -> None:
+    import subprocess
+
+    from runtime.tools import collect_uncommitted_diff
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Local Coder Test"],
+        cwd=tmp_path,
+        check=True,
+    )
+    (tmp_path / "tracked.txt").write_text("baseline\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "baseline"], cwd=tmp_path, check=True)
+
+    (tmp_path / "staged_empty.py").touch()
+    subprocess.run(["git", "add", "staged_empty.py"], cwd=tmp_path, check=True)
+
+    diff = collect_uncommitted_diff(tmp_path)
+
+    assert "staged_empty.py" in diff
 
 
 def test_codex_handoff_documents_exist() -> None:
