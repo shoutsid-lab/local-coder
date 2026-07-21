@@ -14,7 +14,7 @@ auto-commits: false
 dirty-commits: false
 
 auto-lint: false
-auto-test: true
+auto-test: false
 test-cmd: make verify
 
 read:
