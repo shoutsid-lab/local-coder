@@ -6,7 +6,13 @@ from unittest.mock import patch
 
 import pytest
 
-from runtime.editor import AtomicEdit, EditorError, apply_edits, parse_edit_content
+from runtime.editor import (
+    AtomicEdit,
+    EditorError,
+    apply_edits,
+    parse_edit_content,
+    request_and_apply,
+)
 from runtime.models import ModelRegistry
 from runtime.skills import discover_skills
 from runtime.state import StateStore
@@ -73,12 +79,34 @@ def test_reviewer_rejects_invalid_json_shape() -> None:
 
 
 def test_reviewer_normalizes_verdict_only_response() -> None:
-    review = review_diff_cli.parse_review_content('{"verdict": "pass"}')
+    evidence = review_diff_cli.verdict_only_context(["README.md"], True)
+    review = review_diff_cli.parse_review_content(
+        '{"verdict": "pass"}',
+        verdict_only_evidence=evidence,
+    )
 
     assert review["verdict"] == "pass"
-    assert "without explanatory details" in review["summary"]
+    assert "Deterministic verification passed for README.md" in review["summary"]
+    assert "model supplied no additional explanation" in review["summary"]
     assert review["issues"] == []
     assert review["unrelated_changes"] == []
+
+
+def test_reviewer_rejects_unknown_verdict() -> None:
+    with pytest.raises(review_diff_cli.ReviewError):
+        review_diff_cli.parse_review_content('{"verdict": "approve"}')
+
+
+def test_reviewer_rejects_invalid_explanation_fields() -> None:
+    content = """{
+      "verdict": "fail",
+      "summary": "A concrete issue exists.",
+      "issues": [""],
+      "unrelated_changes": []
+    }"""
+
+    with pytest.raises(review_diff_cli.ReviewError):
+        review_diff_cli.parse_review_content(content)
 
 
 def test_required_skills_load() -> None:
@@ -148,6 +176,33 @@ def test_native_editor_fails_before_writing_ambiguous_edits(tmp_path: Path) -> N
         )
 
     assert editable.read_text(encoding="utf-8") == "repeat repeat\n"
+
+
+def test_native_editor_validates_complete_batch_before_writing(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first.txt"
+    first.write_text("first before\n", encoding="utf-8")
+    second = tmp_path / "second.txt"
+    second.write_text("second before\n", encoding="utf-8")
+    generated = [
+        AtomicEdit("first.txt", "first before", "first after"),
+        AtomicEdit("second.txt", "missing text", "second after"),
+    ]
+
+    with (
+        patch("runtime.editor.request_edits", return_value=generated),
+        pytest.raises(EditorError, match="found 0"),
+    ):
+        request_and_apply(
+            root=tmp_path,
+            instruction="Update both approved files",
+            editable_files=["first.txt", "second.txt"],
+            task="Make two exact replacements",
+        )
+
+    assert first.read_text(encoding="utf-8") == "first before\n"
+    assert second.read_text(encoding="utf-8") == "second before\n"
 
 
 def test_native_editor_rejects_protected_files(tmp_path: Path) -> None:

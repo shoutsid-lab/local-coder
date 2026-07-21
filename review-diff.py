@@ -147,7 +147,31 @@ def review_schema() -> dict[str, Any]:
     }
 
 
-def parse_review_content(content: str) -> dict[str, Any]:
+def verdict_only_context(
+    changed_files: list[str],
+    verification_passed: bool,
+) -> str:
+    """Describe deterministic evidence when the model omits its explanation."""
+    if changed_files:
+        displayed = [name[:120] for name in changed_files[:3]]
+        files = ", ".join(displayed)
+        remaining = len(changed_files) - len(displayed)
+        if remaining:
+            files += f", and {remaining} other changed file(s)"
+    else:
+        files = "the reviewed diff"
+    verification = "passed" if verification_passed else "failed"
+    return (
+        f"Deterministic verification {verification} for {files}. "
+        "The model supplied no additional explanation."
+    )
+
+
+def parse_review_content(
+    content: str,
+    *,
+    verdict_only_evidence: str | None = None,
+) -> dict[str, Any]:
     """Extract and validate one reviewer JSON object from model text."""
     decoder = json.JSONDecoder()
     for offset, character in enumerate(content):
@@ -166,12 +190,10 @@ def parse_review_content(content: str) -> dict[str, Any]:
             "needs_attention",
         }:
             verdict = candidate["verdict"]
+            detail = verdict_only_evidence or "No explanatory details were supplied."
             return {
                 "verdict": verdict,
-                "summary": (
-                    f"The local reviewer returned verdict {verdict!r} without "
-                    "explanatory details."
-                ),
+                "summary": f"The local reviewer returned verdict {verdict!r}. {detail}",
                 "issues": [],
                 "unrelated_changes": [],
             }
@@ -179,15 +201,28 @@ def parse_review_content(content: str) -> dict[str, Any]:
             continue
         if candidate["verdict"] not in {"pass", "fail", "needs_attention"}:
             continue
-        if not isinstance(candidate["summary"], str) or not candidate["summary"]:
+        summary = candidate["summary"]
+        if not isinstance(summary, str) or not summary.strip() or len(summary) > 1000:
             continue
-        if not all(
-            isinstance(candidate[field], list)
-            and all(isinstance(item, str) for item in candidate[field])
-            for field in ("issues", "unrelated_changes")
+        details = (candidate["issues"], candidate["unrelated_changes"])
+        if any(
+            not isinstance(items, list)
+            or len(items) > 20
+            or any(
+                not isinstance(item, str) or not item.strip() or len(item) > 500
+                for item in items
+            )
+            for items in details
         ):
             continue
-        return candidate
+        return {
+            "verdict": candidate["verdict"],
+            "summary": summary.strip(),
+            "issues": [item.strip() for item in candidate["issues"]],
+            "unrelated_changes": [
+                item.strip() for item in candidate["unrelated_changes"]
+            ],
+        }
     raise ReviewError("The reviewer returned an invalid structured response.")
 
 
@@ -212,6 +247,10 @@ Rules:
 - Do not claim verification passed when it failed.
 - Treat protected tests and deterministic verification as authoritative.
 - Return JSON only.
+- Return all four required fields; never return only a verdict.
+- Write a concrete one-sentence summary naming the changed behavior and how the
+  verification evidence supports the verdict.
+- Identify each issue or unrelated change with its file path and a concise reason.
 - Use verdict "pass" only when the task is satisfied, verification passed,
   and there are no material unrelated changes.
 - Use "fail" for definite correctness or contract violations.
@@ -284,7 +323,13 @@ Git diff:
         content = result["choices"][0]["message"]["content"]
         if not isinstance(content, str):
             raise TypeError("Reviewer content is not text.")
-        review = parse_review_content(content)
+        review = parse_review_content(
+            content,
+            verdict_only_evidence=verdict_only_context(
+                changed_files,
+                verification_passed,
+            ),
+        )
     except (KeyError, IndexError, TypeError) as exc:
         raise ReviewError(
             "The reviewer returned an invalid structured response."

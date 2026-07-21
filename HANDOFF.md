@@ -83,6 +83,26 @@ is now a fixed read-only adapter with no code executor. It deterministically gat
 diff and verification evidence and invokes the existing semantic reviewer, so write
 operations cannot be generated or attempted by that role.
 
+The first committed-source regression then completed from a clean disposable clone of
+`cc3668b`. Run `43bc88984ee8` made one literal sentence replacement in `README.md`,
+ended as `awaiting_approval`, and received a `pass` verdict from the fixed reviewer. The
+preserved worktree contained only the requested unstaged one-line diff, with no staged or
+untracked files. All 35 tests passed. SQLite recorded six agents, twelve successful tool
+calls, and four passing verification results with no failed tool calls.
+
+A deterministic multi-edit regression now exercises the runtime's `request_and_apply`
+entrypoint with a valid first replacement and an invalid second replacement across two
+approved files. The complete batch fails validation before the write loop, and both files
+remain unchanged. This directly proves the fail-before-write boundary for generated
+multi-edit batches; all 36 tests pass.
+
+Semantic-review explanations are now hardened without relaxing verdict validation. The
+review prompt requires all four fields and a concrete, verification-grounded summary;
+the parser rejects unknown verdicts, blank or oversized explanations, and invalid list
+items. A verdict-only small-model response remains compatible but receives a deterministic
+fallback naming the changed files and verification result. A live `local-review` call
+returned `pass` with a concrete behavioral explanation, and all 38 tests pass.
+
 This proves the native bounded exact-edit path. It does not prove broad autonomous
 decomposition. The 3B model still requires atomic tasks with explicit file paths and
 literal before/after text where practical.
@@ -121,13 +141,8 @@ demand rather than concurrently, and only after real 3B trajectories justify it.
 
 ## Next meaningful work
 
-1. Commit this upgrade and obtain a clean handoff check.
-2. Repeat the native bounded regression from the committed source repository and
-   preserve its run record for comparison.
-3. Add one bounded multi-edit regression to prove all edits validate before writes.
-4. Improve review explanations without weakening strict verdict validation.
-5. Only then consider an on-demand deeper model route, MCP integrations, or offline
-   prompt optimisation.
+1. Use additional real bounded trajectories to decide whether an on-demand deeper model
+   route, MCP integrations, or offline prompt optimisation are justified.
 
 Do not return to synthetic calculator fault injection unless it is needed for a specific
 regression test.
