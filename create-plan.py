@@ -33,6 +33,37 @@ PROTECTED_FILES = {
 class PlannerError(RuntimeError):
     """Raised when a candidate plan cannot be created safely."""
 
+def run_verification_precheck() -> tuple[bool, str]:
+    result = subprocess.run(
+        ["make", "verify"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+    )
+
+    combined_output = "\n".join(
+        part for part in (result.stdout, result.stderr) if part
+    ).strip()
+
+    return result.returncode == 0, combined_output
+
+def write_already_satisfied_candidate(
+    *,
+    output_path: Path,
+    base_branch: str,
+) -> None:
+    plan = {
+        "name": "task-already-satisfied",
+        "approved": False,
+        "status": "already_satisfied",
+        "base_branch": base_branch,
+        "steps": [],
+    }
+
+    output_path.write_text(
+        json.dumps(plan, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 def command_output(command: list[str]) -> str:
     result = subprocess.run(
@@ -106,6 +137,7 @@ The exact required structure is:
 {{
   "name": "short-plan-name",
   "approved": false,
+  "status": "planned",
   "base_branch": "{base_branch}",
   "steps": [
     {{
@@ -140,6 +172,12 @@ Rules:
 - Do not include a final "run tests" or "verify changes" step.
 - Each instruction must state one concrete source transformation.
 - Do not repeat the same transformation in multiple steps.
+- First determine whether the current repository already satisfies TASK.md.
+- If the task is already satisfied, set "status" to "already_satisfied"
+  and return an empty "steps" array.
+- Do not invent refactors, cleanup, annotation, documentation, or test changes
+  when the requested behaviour already exists.
+- Otherwise set "status" to "planned" and provide atomic implementation steps.
 
 Task:
 
@@ -177,10 +215,18 @@ def build_plan_schema(
         "required": [
             "name",
             "approved",
+            "status",
             "base_branch",
             "steps",
         ],
         "properties": {
+            "status": {
+                "type": "string",
+                "enum": [
+                    "planned",
+                    "already_satisfied",
+                ],
+            },
             "name": {
                 "type": "string",
                 "minLength": 1,
@@ -196,7 +242,7 @@ def build_plan_schema(
             },
             "steps": {
                 "type": "array",
-                "minItems": 1,
+                "minItems": 0,
                 "maxItems": MAX_STEPS,
                 "items": {
                     "type": "object",
@@ -337,11 +383,32 @@ def validate_candidate(
     if not isinstance(name, str) or not name.strip():
         raise PlannerError("Generated plan has an invalid name.")
 
+
+
+    status = plan.get("status")
+
+    if status not in {"planned", "already_satisfied"}:
+        raise PlannerError(
+            "Generated plan has an invalid `status`."
+        )
+
     steps = plan.get("steps")
 
-    if not isinstance(steps, list) or not 1 <= len(steps) <= MAX_STEPS:
+    if not isinstance(steps, list):
         raise PlannerError(
-            f"Generated plan must contain 1-{MAX_STEPS} steps."
+            "Generated plan must contain a `steps` array."
+        )
+
+    if status == "already_satisfied":
+        if steps:
+            raise PlannerError(
+                "An already-satisfied plan must have no steps."
+            )
+        return
+
+    if not 1 <= len(steps) <= MAX_STEPS:
+        raise PlannerError(
+            f"A planned task must contain 1-{MAX_STEPS} steps."
         )
 
     protected = PROTECTED_FILES
@@ -465,6 +532,8 @@ def main() -> int:
         task_path = args.task.resolve()
         output_path = args.output.resolve()
 
+        precheck_passed, precheck_output = run_verification_precheck()
+
         context_paths = [
             (ROOT / "PIPELINE.md").resolve(),
             (ROOT / "CONVENTIONS.md").resolve(),
@@ -475,6 +544,18 @@ def main() -> int:
         tracked = repository_files()
         branch = current_branch()
         task = read_text_file(task_path)
+
+        if precheck_passed:
+            write_already_satisfied_candidate(
+                output_path=output_path,
+                base_branch=branch,
+            )
+
+            print(f"Candidate plan written to: {output_path}")
+            print("Status: already_satisfied")
+            print("The independent verification pipeline already passes.")
+            print("The local model was not called.")
+            return 0
 
         prompt = build_prompt(
             task,
