@@ -354,6 +354,9 @@ class ToolContext:
             run_dir = self.worktree.path / ".local-coder" / "runs" / self.run_id
             run_dir.mkdir(parents=True, exist_ok=True)
             output_path = run_dir / "REVIEW.json"
+            self.last_review_verdict = None
+            if output_path.exists():
+                output_path.unlink()
             result = command(
                 [
                     sys.executable,
@@ -380,6 +383,13 @@ class ToolContext:
                     self.last_review_verdict = json.loads(review_text).get("verdict")
                 except json.JSONDecodeError:
                     self.last_review_verdict = None
+            if self.last_review_verdict not in {
+                "pass",
+                "fail",
+                "needs_attention",
+            }:
+                message = combined or "Reviewer did not produce a valid verdict."
+                raise RuntimeError(message)
             return combined or f"Reviewer exited with status {result.returncode}."
 
         return self._recorded("review_diff", {}, operation)

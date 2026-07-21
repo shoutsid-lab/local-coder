@@ -119,6 +119,15 @@ reports the rejected-attempt count. The expected `.venv` symlink is ignored clea
 any other untracked symbolic link is rendered explicitly for review. Deterministic tests
 cover both postconditions; all 40 tests pass.
 
+Post-commit run `9affc7dd61b0` repeated the same task and model trajectory. The worktree
+contained only the two-line `README.md` diff, with no staged or untracked `.venv` path.
+Seven rejected editor attempts were reported and correctly forced `needs_attention`; all
+five verification runs passed. The repeat also exposed stale reviewer state: a final
+review parse failure left the earlier successful `pass` artifact and verdict visible.
+Reviewer invocations now clear prior artifact and verdict state first, accept only a fresh
+valid verdict artifact, and record missing or malformed output as a failed tool call with
+no verdict. Deterministic coverage passes with all 41 tests.
+
 This proves the native bounded exact-edit path. It does not prove broad autonomous
 decomposition. The 3B model still requires atomic tasks with explicit file paths and
 literal before/after text where practical.
@@ -157,8 +166,8 @@ demand rather than concurrently, and only after real 3B trajectories justify it.
 
 ## Next meaningful work
 
-1. After committing the trajectory hardening, repeat the bounded two-replacement task and
-   confirm that `.venv` stays ignored and rejected editor attempts force `needs_attention`.
+1. After committing the reviewer-state fix, run one atomic single-edit trajectory and
+   confirm the final summary uses only the latest fresh review verdict.
 2. Keep the current model routes and integration surface unchanged until clean bounded
    trajectories justify expanding them.
 

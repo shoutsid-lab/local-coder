@@ -510,14 +510,66 @@ def test_review_diff_uses_project_python(tmp_path: Path) -> None:
         task_file=task_file,
     )
 
+    def successful_review(*_: object, **__: object) -> SimpleNamespace:
+        (run_dir / "REVIEW.json").write_text(
+            '{"verdict": "pass"}',
+            encoding="utf-8",
+        )
+        return SimpleNamespace(returncode=0, stdout="reviewed", stderr="")
+
     with patch(
         "runtime.tools.command",
-        return_value=SimpleNamespace(returncode=0, stdout="reviewed", stderr=""),
+        side_effect=successful_review,
     ) as command:
         assert context.review_diff() == "reviewed"
 
     assert command.call_args.args[0][0] == local_coder.sys.executable
     assert command.call_args.args[0][1] == "./review-diff.py"
+    assert context.last_review_verdict == "pass"
+
+
+def test_review_diff_discards_stale_verdict_after_failure(tmp_path: Path) -> None:
+    worktree_path = tmp_path / "worktree"
+    store = StateStore(tmp_path / "agent.db")
+    run_id = store.create_run(
+        task="Review a diff",
+        mode="agentic",
+        repository=tmp_path,
+        base_branch="main",
+    )
+    run_dir = worktree_path / ".local-coder" / "runs" / run_id
+    run_dir.mkdir(parents=True)
+    output_path = run_dir / "REVIEW.json"
+    output_path.write_text('{"verdict": "pass"}', encoding="utf-8")
+    task_file = run_dir / "TASK.md"
+    task_file.write_text("# Task\n", encoding="utf-8")
+    context = ToolContext(
+        root=tmp_path,
+        worktree=Worktree(worktree_path, "agent/test", "main"),
+        run_id=run_id,
+        state=store,
+        task_file=task_file,
+        last_review_verdict="pass",
+    )
+
+    with (
+        patch(
+            "runtime.tools.command",
+            return_value=SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr="Review error: invalid structured response",
+            ),
+        ),
+        pytest.raises(RuntimeError, match="invalid structured response"),
+    ):
+        context.review_diff()
+
+    assert context.last_review_verdict is None
+    assert not output_path.exists()
+    details = store.run_details(run_id)
+    assert details is not None
+    assert details["tool_calls"][-1]["status"] == "error"
 
 
 def test_model_registry_exposes_role_aliases() -> None:
