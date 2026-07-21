@@ -2,6 +2,7 @@
   "name": "calculator-example",
   "approved": false,
   "base_branch": "master",
+  "status": "planned",
   "steps": [
     {
       "id": 1,
