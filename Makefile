@@ -1,7 +1,7 @@
 PYTHON := .venv/bin/python
 FILES := calculator.py test_calculator.py test_pipeline_contract.py
 
-.PHONY: health format format-check lint test verify metrics context-benchmark plan-check plan-generate plan-candidate-check
+.PHONY: health format format-check lint test verify metrics context-benchmark plan-check plan-generate plan-candidate-check review review-cached
 
 health:
 	@curl -fsS http://127.0.0.1:8080/health | jq
@@ -44,3 +44,8 @@ plan-candidate-check:
 	$(PYTHON) run-plan.py \
 		--plan PLAN.candidate.json \
 		--dry-run
+review:
+	$(PYTHON) review-diff.py
+
+review-cached:
+	$(PYTHON) review-diff.py --cached

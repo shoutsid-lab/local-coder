@@ -8,3 +8,4 @@ __pycache__/
 .worktrees/
 PLAN.candidate.json
 PLAN.candidate.raw.txt
+REVIEW.json
