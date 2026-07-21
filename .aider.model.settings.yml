@@ -1,5 +1,8 @@
 - name: openai/local-coder
   edit_format: whole
   use_repo_map: true
+  reminder: sys
+  examples_as_sys_msg: true
+
   extra_params:
     max_tokens: 4096

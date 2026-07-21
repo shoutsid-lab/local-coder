@@ -14,7 +14,9 @@ dirty-commits: false
 
 auto-lint: true
 auto-test: true
-test-cmd: python -m pytest -q
+lint-cmd: python:flake8
+test-cmd: make verify
 
 read:
   - CONVENTIONS.md
+  - TASK.md
