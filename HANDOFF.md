@@ -139,6 +139,14 @@ failure report instead of triggering manager retries, and the authoritative orch
 preserves deterministic verification, clears the verdict, and returns `needs_attention`.
 All 43 deterministic tests pass.
 
+Post-commit run `b3d35207a6b1` confirmed that control flow from clean commit `65351e0`.
+The native editor made the requested one-line `README.md` replacement after one rejected
+structured response, and the preserved worktree contains only that unstaged diff. All four
+verification runs passed with 43 tests. The managed reviewer and authoritative final review
+each made one bounded semantic-review attempt; both rejected malformed output without a
+retry storm. The final summary reports `needs_attention`, `verification_passed: true`, and
+`review_verdict: null`, with one explicit review-unavailable report and no stale verdict.
+
 This proves the native bounded exact-edit path. It does not prove broad autonomous
 decomposition. The 3B model still requires atomic tasks with explicit file paths and
 literal before/after text where practical.
@@ -177,11 +185,10 @@ demand rather than concurrently, and only after real 3B trajectories justify it.
 
 ## Next meaningful work
 
-1. After committing the review-unavailability control-flow fix, repeat the atomic task and
-   confirm review failure is bounded, verification remains true, and no stale verdict is
-   reported.
-2. Keep the current model routes and integration surface unchanged until clean bounded
+1. Keep the current model routes and integration surface unchanged until clean bounded
    trajectories justify expanding them.
+2. Continue to use atomic tasks and inspect every preserved `needs_attention` worktree;
+   rejected edits and unavailable semantic review remain explicit approval gates.
 
 Do not return to synthetic calculator fault injection unless it is needed for a specific
 regression test.
