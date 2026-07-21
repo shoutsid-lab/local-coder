@@ -5,6 +5,7 @@ openai-api-base: http://127.0.0.1:8080/v1
 openai-api-key: local-no-key
 
 show-model-warnings: false
+gitignore: false
 
 map-tokens: 2048
 max-chat-history-tokens: 8192
@@ -12,9 +13,8 @@ max-chat-history-tokens: 8192
 auto-commits: false
 dirty-commits: false
 
-auto-lint: true
+auto-lint: false
 auto-test: true
-lint-cmd: python:flake8
 test-cmd: make verify
 
 read:

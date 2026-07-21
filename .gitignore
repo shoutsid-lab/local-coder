@@ -4,3 +4,4 @@
 .aider.tags.cache.v4
 .env
 __pycache__/
+.venv/
