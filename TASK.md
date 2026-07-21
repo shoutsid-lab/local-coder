@@ -1,30 +1,62 @@
 # Goal
 
-Repair the calculator implementation so division follows the documented contract.
+Add a unified command-line interface named `local-coder.py` for the existing local AI coding pipeline.
 
-# Editable files
+# Requirements
 
-- calculator.py
+The command must support these subcommands:
 
-# Protected files
+* `status`
 
-- test_calculator.py
-- test_pipeline_contract.py
-- CONVENTIONS.md
-- TASK.md
+  * Check that llama-server is healthy on port 8080.
+  * Check that LiteLLM is available on port 4000.
+  * Show the current Git branch.
+  * Show whether the working tree is clean.
 
-# Acceptance criteria
+* `task FILE [FILE ...]`
 
-- Both integer and floating-point inputs remain supported.
-- Division returns a float.
-- A zero dividend is valid and returns 0.0.
-- A zero divisor raises ValueError with the required message.
-- Type annotations and the exact docstring remain unchanged.
-- Do not modify tests or protected files.
-- `make verify` must pass.
+  * Launch `run-aider.sh task` with the supplied editable files.
+
+* `repair INSTRUCTION FILE [FILE ...]`
+
+  * Launch `run-aider.sh repair` with the supplied atomic instruction and editable files.
+
+* `plan`
+
+  * Run `create-plan.py`.
+  * Display the generated `PLAN.candidate.json`.
+
+* `execute`
+
+  * Run `run-plan.py` using the approved `PLAN.json`.
+
+* `verify`
+
+  * Run `make verify`.
+
+* `review`
+
+  * Run `review-diff.py`.
+
+# Constraints
+
+* Use only the Python standard library.
+* Reuse the existing scripts rather than duplicating their logic.
+* Return the underlying command's exit code.
+* Print commands before executing them.
+* Do not commit automatically.
+* Do not modify existing calculator behaviour.
+* Do not modify protected contract tests.
+* Keep the implementation in one new file: `local-coder.py`.
 
 # Validation
 
 Run:
 
+```bash
+.venv/bin/python -m py_compile local-coder.py
+./local-coder.py status
+./local-coder.py verify
 make verify
+```
+
