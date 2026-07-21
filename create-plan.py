@@ -14,7 +14,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_OUTPUT = ROOT / "PLAN.candidate.json"
-DEFAULT_API_URL = "http://127.0.0.1:8080/v1/chat/completions"
+DEFAULT_API_URL = "http://127.0.0.1:4000/v1/chat/completions"
 RAW_OUTPUT_PATH = ROOT / "PLAN.candidate.raw.txt"
 
 MAX_CONTEXT_FILE_BYTES = 32_000
@@ -517,8 +517,8 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--model",
-        default="local-coder",
-        help="Model alias exposed by llama-server.",
+        default="local-plan",
+        help="Model alias exposed by LiteLLM.",
     )
 
     parser.add_argument(

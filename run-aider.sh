@@ -54,6 +54,11 @@ if ! curl -fsS http://127.0.0.1:8080/health >/dev/null; then
     exit 1
 fi
 
+if ! (echo > /dev/tcp/127.0.0.1/4000) 2>/dev/null; then
+    echo "LiteLLM is not listening on port 4000."
+    exit 1
+fi
+
 if [[ -n "$(git status --porcelain)" ]]; then
     echo "The repository has uncommitted changes."
     echo "Commit, stash, or discard them before starting."

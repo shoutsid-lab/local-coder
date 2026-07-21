@@ -1,8 +1,8 @@
 model: openai/local-coder
 edit-format: whole
 
-openai-api-base: http://127.0.0.1:8080/v1
-openai-api-key: local-no-key
+openai-api-base: http://127.0.0.1:4000/v1
+openai-api-key: local
 
 show-model-warnings: false
 gitignore: false

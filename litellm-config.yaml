@@ -1,0 +1,18 @@
+model_list:
+  - model_name: local-fast
+    litellm_params:
+      model: openai/local-coder
+      api_base: http://127.0.0.1:8080/v1
+      api_key: local-no-key
+
+  - model_name: local-plan
+    litellm_params:
+      model: openai/local-coder
+      api_base: http://127.0.0.1:8080/v1
+      api_key: local-no-key
+
+  - model_name: local-review
+    litellm_params:
+      model: openai/local-coder
+      api_base: http://127.0.0.1:8080/v1
+      api_key: local-no-key
