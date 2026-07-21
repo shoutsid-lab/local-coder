@@ -19,9 +19,6 @@ test:
 	$(PYTHON) -m pytest -q --tb=short
 
 context-benchmark:
-	$(PYTHON) benchmarks/context_test.py
-
-context-benchmark:
 	$(PYTHON) benchmarks/context_benchmark.py
 
 verify: format-check lint test
