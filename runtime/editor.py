@@ -20,7 +20,8 @@ MAX_EDITS = 8
 PIPELINE_CONTROLS = {
     ".flake8",
     "AGENTS.md",
-    "HANDOFF.md",
+    "ROADMAP.md",
+    "docs/HANDOFF.md",
     "TASK.md",
     "Makefile",
     "docs/ARCHITECTURE.md",

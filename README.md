@@ -15,8 +15,9 @@ machine used to build this repository.
 - **SQLite** records runs, agents, tool calls, artifacts, verification, and metrics.
 - **Black, Flake8, pytest, protected tests, and `git diff --check`** remain authoritative.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the complete design and
-[HANDOFF.md](HANDOFF.md) for the recursive-improvement roadmap.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the complete design,
+[ROADMAP.md](ROADMAP.md) for active implementation work, and
+[docs/HANDOFF.md](docs/HANDOFF.md) for the completed recursive-improvement baseline.
 
 ## Install the agent runtime
 
@@ -104,10 +105,12 @@ The proven lower-level commands remain available:
 `docs/UPSTREAM.json` records the GitHub repository, commit, and verified blob SHAs used as the
 baseline before the agent-runtime changes were applied.
 
-## Codex handoff
+## Primary actor startup
 
-Codex should read `AGENTS.md` first, then `HANDOFF.md`, `docs/ARCHITECTURE.md`, and
-`docs/PIPELINE.md`. Unit verification is service-independent:
+The primary actor should read `AGENTS.md` first, then `ROADMAP.md`,
+`docs/ARCHITECTURE.md`, and `docs/PIPELINE.md`. Consult `docs/HANDOFF.md` when work
+relies on the completed recursive-improvement control-plane guarantees. Unit
+verification is service-independent:
 
 ```bash
 make verify

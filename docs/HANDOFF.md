@@ -1,11 +1,14 @@
-# Recursive Improvement Handoff
+# Recursive Improvement Control Plane — Completion Record
 
-## Direction
+**Status: Complete.** This document records the bounded recursive-improvement control
+plane delivered by the repository. It is a stable baseline, not the active work queue.
+Current forward work starts in [`../ROADMAP.md`](../ROADMAP.md).
 
-The next phase is an evidence-gated recursive improvement loop for the local coding
-harness. The target is a system that can diagnose its own failures, propose one bounded
-improvement, build and test a candidate, and recommend promotion. It must never authorize
-its own promotion.
+## Completed scope
+
+The evidence-gated recursive-improvement loop described below is implemented. The system
+can diagnose its own failures, propose one bounded improvement, build and test a candidate,
+and recommend promotion. The candidate being evaluated cannot authorize its own promotion.
 
 Recursive improvement applies to the scaffold—skills, context selection, tool protocols,
 control flow, and eventually logical route selection—not to autonomous foundation-model
@@ -14,7 +17,7 @@ training on this hardware.
 ## Current architecture
 
 ```text
-Developer
+Primary actor
    ↓
 local-coder role-separated harness
    ├── explorer and planner       → read-only evidence → local-plan
@@ -34,10 +37,10 @@ explicit authorization remain authoritative.
 
 Supporting documentation:
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- [`docs/PIPELINE.md`](docs/PIPELINE.md)
-- [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md)
-- [`docs/VALIDATION_HISTORY.md`](docs/VALIDATION_HISTORY.md)
+- [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- [`PIPELINE.md`](PIPELINE.md)
+- [`CONVENTIONS.md`](CONVENTIONS.md)
+- [`VALIDATION_HISTORY.md`](VALIDATION_HISTORY.md)
 
 ## Current evidence
 
@@ -78,7 +81,7 @@ The trusted control plane is implemented under `evaluation/`:
 
 The system recommends promotion but does not commit, merge, push, promote, create an
 evaluation worktree, or clean one up. See
-[`docs/RECURSIVE_IMPROVEMENT.md`](docs/RECURSIVE_IMPROVEMENT.md) for the operator flow.
+[`RECURSIVE_IMPROVEMENT.md`](RECURSIVE_IMPROVEMENT.md) for the operator flow.
 
 ## Target loop
 
@@ -122,7 +125,7 @@ hashes.
 - Do not download a larger model or change a hardware profile without explicit user
   authorization and benchmark evidence.
 
-## Implemented roadmap
+## Completed implementation roadmap
 
 ### 1. Trusted measurement layer — implemented
 
@@ -266,7 +269,7 @@ Acceptance criteria:
 - no command edits, commits, merges, pushes, promotes, or deletes anything;
 - `make verify`, `make agent-smoke`, and clean-tree `make handoff-check` pass.
 
-## Current operating procedure
+## Reference operating procedure
 
 ```bash
 make verify
@@ -282,5 +285,6 @@ make agent-smoke
 ```
 
 Inspect every returned worktree, run record, diff, verification result, and fresh review
-state. Do not merge automatically. Broad autonomous decomposition remains outside the
-validated capability of the current 3B model.
+state. Do not merge automatically. The current 3B model still cannot reliably decompose
+broad tasks autonomously. Trusted external actors can supply hash-approved task plans;
+further work is tracked in [`../ROADMAP.md`](../ROADMAP.md).

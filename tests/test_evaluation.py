@@ -120,15 +120,13 @@ def test_state_migration_preserves_v7_campaign_identity_gap(tmp_path: Path) -> N
                 (migration.version, "2026-01-01T00:00:00+00:00"),
             )
             connection.execute(f"PRAGMA user_version = {migration.version}")
-        connection.execute(
-            """
+        connection.execute("""
             INSERT INTO evaluation_campaigns VALUES (
                 'campaign', 'base', 'active', 'suite', '{"processes":1}',
                 1, '2026-01-01T00:00:00+00:00',
                 '2026-01-01T00:00:00+00:00'
             )
-            """
-        )
+            """)
 
     store = StateStore(database)
     details = store.campaign_details("campaign")
@@ -376,7 +374,7 @@ def test_legacy_authority_gate_remains_promotion_compatible() -> None:
                 "efficiency",
             )
         ]
-        + [{"name": "authority", "passed": None}]
+        + [{"name": "authority", "passed": None}],
     }
 
     assert scorecard_allows_promotion(scorecard) is True

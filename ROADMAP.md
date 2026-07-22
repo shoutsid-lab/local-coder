@@ -1,9 +1,14 @@
 # ROADMAP: Agent Skills + DSPy + GEPA Integration
 
 **Target repository:** `shoutsid-lab/local-coder`
-**Status:** Proposed — for review against `AGENTS.md` / `docs/ARCHITECTURE.md`
+**Status:** Active — primary implementation entry point
 
 ## 0. Why this document exists
+
+This is the primary document to read before starting repository work, whether the actor
+is a trusted service, a more capable model, or a human operator. The completed
+recursive-improvement control-plane record lives in
+[`docs/HANDOFF.md`](docs/HANDOFF.md); it is the stable baseline that this roadmap extends.
 
 `local-coder` already has three of the exact pieces these projects formalize:
 
@@ -13,7 +18,7 @@
 | Hand-written prompts inside each skill/agent, glued together by `smolagents` | **DSPy** (signatures/modules instead of prompt strings) |
 | `analyze-runs` → `create-campaign` → evaluator → scorecard → authorized promotion | **GEPA** (reflective, evolutionary prompt optimization with a trusted judge) |
 
-This roadmap does not propose replacing the frozen architecture in `docs/ARCHITECTURE.md`. It proposes using each project to formalize a piece the repo has already hand-rolled, behind the same trust boundaries `AGENTS.md` already requires: no automatic commits, no candidate-controlled evaluation, no unrestricted shell, no required cloud dependency for the core local loop.
+This roadmap does not propose replacing the frozen architecture in `docs/ARCHITECTURE.md`. It proposes using each project to formalize a piece the repo has already hand-rolled, behind the same trust boundaries `AGENTS.md` and `docs/HANDOFF.md` already require: no automatic commits, no candidate-controlled evaluation, no unrestricted shell, no required cloud dependency for the core local loop.
 
 Every phase below ends with `make verify` / `make agent-smoke` / `make handoff-check` staying green, per `AGENTS.md`.
 
@@ -72,7 +77,7 @@ Each signature is wrapped in a small `dspy.Module` (e.g. `dspy.ChainOfThought` o
 
 ## 3. Track C — GEPA (optimizing the DSPy programs)
 
-**Goal:** stop hand-tuning role instructions by trial and error, and instead let `dspy.GEPA` evolve them — but run every optimization *inside* the repo's existing trusted-evaluator/campaign machinery (`evaluation/`, `docs/RECURSIVE_IMPROVEMENT.md`), so a GEPA-proposed prompt is subject to the exact same holdout/promotion boundary as a candidate code change.
+**Goal:** stop hand-tuning role instructions by trial and error, and instead let `dspy.GEPA` evolve them — but run every optimization *inside* the repo's completed trusted-evaluator/campaign machinery (`evaluation/`, `docs/HANDOFF.md`, `docs/RECURSIVE_IMPROVEMENT.md`), so a GEPA-proposed prompt is subject to the exact same holdout/promotion boundary as a candidate code change.
 
 ### C1. Feedback source: the audit trail you already have
 - `.local-coder/state/agent.db` already records every run, tool call, artifact, and verification result. This is precisely the "trace of the program's execution" GEPA's reflection step consumes.
@@ -115,9 +120,11 @@ Each phase is independently revertible: DSPy modules can be swapped back for the
 - No change to which component may write source (`runtime/editor.py` only, unchanged).
 - No change to the three LiteLLM route names or the requirement to run entirely on the current GTX 1660 Ti / 8 GiB profile for the core `run`/`repair`/`review` path.
 - No automatic commits, merges, or promotions introduced anywhere in Tracks A–C.
-- No relaxation of protected files or protected contract tests; every protected-file touch called out above (`docs/ARCHITECTURE.md`, `docs/PIPELINE.md`, `docs/RECURSIVE_IMPROVEMENT.md`) is flagged as requiring explicit maintainer approval rather than being edited as part of this roadmap.
+- No relaxation of protected files or protected contract tests. `ROADMAP.md` and
+  `docs/HANDOFF.md` are trusted planning and completion records; protected-file changes
+  remain explicit, reviewable actions rather than candidate-controlled edits.
 
-## 6. Open questions for the maintainer
+## 6. Open questions for the primary actor
 
 1. Should Phase 2's DSPy migration happen role-by-role in separate PRs (safer, matches the "narrowly scoped" convention in `AGENTS.md`) or as one coordinated change?
 2. Should the `optimize-prompts` campaign kind live in the same `evaluation/` module tree as code campaigns, or in a sibling `evaluation/prompt_optimization/` package to keep the protected `evaluation/` contract tests scoped to code evaluation only?

@@ -71,7 +71,8 @@ The following files are not editable during implementation repairs:
 * `tests/test_architecture_contract.py`
 * `.flake8`
 * `AGENTS.md`
-* `HANDOFF.md`
+* `ROADMAP.md`
+* `docs/HANDOFF.md`
 * `docs/ARCHITECTURE.md`
 * `docs/PIPELINE.md`
 * `docs/RECURSIVE_IMPROVEMENT.md`
@@ -166,13 +167,14 @@ staged, and untracked changes.
 Run metadata and tool trajectories are written to `.local-coder/state/agent.db`. These
 files are ignored and must not be committed.
 
-## Codex Maintenance
+## Primary Actor Maintenance
 
-Codex must follow `AGENTS.md` and use `HANDOFF.md` as the current-state brief. The
-architecture is fixed unless the user explicitly changes it. `make verify` is the routine
+The primary actor must follow `AGENTS.md` and use `ROADMAP.md` as the active work queue.
+`docs/HANDOFF.md` records the completed recursive-improvement baseline. The architecture
+is fixed unless an authorized actor explicitly changes it. `make verify` is the routine
 gate; `make handoff-check` is the final clean-tree handoff gate. Recursive-improvement
 work must additionally follow the trusted evaluator, holdout, and promotion boundaries
-defined in `HANDOFF.md`.
+defined in `docs/HANDOFF.md` and `docs/RECURSIVE_IMPROVEMENT.md`.
 
 ## Recursive Improvement Pipeline
 

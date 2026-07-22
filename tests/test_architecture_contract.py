@@ -20,7 +20,8 @@ def test_trusted_repository_controls_are_not_agent_editable() -> None:
     assert {
         ".flake8",
         "AGENTS.md",
-        "HANDOFF.md",
+        "ROADMAP.md",
+        "docs/HANDOFF.md",
         "Makefile",
         "docs/ARCHITECTURE.md",
         "docs/CONVENTIONS.md",

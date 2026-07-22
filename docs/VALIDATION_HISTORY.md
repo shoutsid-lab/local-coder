@@ -1,7 +1,7 @@
 # Validation History
 
 This file retains the evidence that still informs the current architecture without
-keeping the former chronological narrative in `HANDOFF.md`.
+keeping the full chronological narrative in the completed [`HANDOFF.md`](HANDOFF.md).
 
 ## Baseline
 
@@ -36,6 +36,10 @@ tests, and documentation. Promotion scorecards now end at the efficiency gate an
 `eligible_for_promotion`; brief approval and promotion decisions accept any nonempty
 actor identity with a rationale. Legacy scorecards with the former trailing authority gate
 remain promotion-compatible through structural gate validation.
+
+The active planning entry point is now [`../ROADMAP.md`](../ROADMAP.md), while
+[`HANDOFF.md`](HANDOFF.md) remains the completed recursive-improvement baseline. This
+separates current work from historical delivery evidence without changing the trust model.
 
 ## Proven boundary
 

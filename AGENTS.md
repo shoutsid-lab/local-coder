@@ -1,21 +1,25 @@
-# Repository Instructions for Codex
+# Repository Instructions for Primary Actors
 
 ## Purpose
 
-This repository is a fully local, role-separated coding-agent stack designed for a
-GTX 1660 Ti with 6 GiB VRAM and 8 GiB system RAM. Preserve the architecture described
+These instructions apply to the primary actor working on the repository, whether a
+trusted service, a more capable model, or a human operator. This repository is a fully
+local, role-separated coding-agent stack designed for a GTX 1660 Ti with 6 GiB VRAM and
+8 GiB system RAM. Preserve the architecture described
 in `docs/ARCHITECTURE.md`; do not redirect the project into a generic CLI wrapper or
 replace the local stack with a cloud-first design.
 
 ## Read first
 
-1. `HANDOFF.md` — current state, verified capabilities, and remaining work.
+1. `ROADMAP.md` — active implementation direction and next work.
 2. `docs/ARCHITECTURE.md` — frozen architecture and component boundaries.
 3. `docs/PIPELINE.md` — deterministic workflow and safety gates.
-4. `docs/CONVENTIONS.md` — coding and editing conventions.
+4. `docs/HANDOFF.md` — completed recursive-improvement control-plane record.
+5. `docs/CONVENTIONS.md` — coding and editing conventions.
 
-Treat those documents as the source of truth. Keep this file short and use the deeper
-documents for detail.
+Treat `ROADMAP.md` as the active work queue and the remaining documents as the source
+of truth for established behaviour and boundaries. Keep this file short and use the
+deeper documents for detail.
 
 ## Required development workflow
 
@@ -42,8 +46,8 @@ documents for detail.
 
 ## Protected and generated content
 
-- Treat every `*_contract.py` file as protected unless the user explicitly requests a
-  contract change.
+- Treat `ROADMAP.md`, `docs/HANDOFF.md`, and every `*_contract.py` file as protected
+  unless the requesting actor explicitly authorizes the change.
 - Do not edit `.local-coder/state/`, `.local-coder/runs/`, `.worktrees/`, generated
   `REVIEW.json` files, or trusted evaluation holdout/oracle data.
 - Treat all of `evaluation/` and `tests/test_evaluation_contract.py` as protected trusted

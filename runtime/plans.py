@@ -95,9 +95,7 @@ def _string_list(
 ) -> tuple[str, ...]:
     if not isinstance(value, list) or not minimum <= len(value) <= maximum:
         raise PlanError(f"{label} must contain between {minimum} and {maximum} items.")
-    items = tuple(
-        _text(item, f"{label} item", maximum=item_maximum) for item in value
-    )
+    items = tuple(_text(item, f"{label} item", maximum=item_maximum) for item in value)
     if len(set(items)) != len(items):
         raise PlanError(f"{label} items must be unique.")
     return items
@@ -160,9 +158,7 @@ def parse_task_plan(
     objective = _text(payload["objective"], "objective", maximum=2_000)
     raw_steps = payload["steps"]
     if not isinstance(raw_steps, list) or not 1 <= len(raw_steps) <= MAX_PLAN_STEPS:
-        raise PlanError(
-            f"steps must contain between 1 and {MAX_PLAN_STEPS} entries."
-        )
+        raise PlanError(f"steps must contain between 1 and {MAX_PLAN_STEPS} entries.")
 
     protected_files: set[str] = set()
     if plan_path is not None:

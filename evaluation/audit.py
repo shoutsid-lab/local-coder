@@ -173,8 +173,7 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
             and evaluation.get("baseline_commit") == campaign.get("baseline_commit")
             and evaluation.get("suite_hash") == campaign.get("suite_hash")
             and evaluation.get("holdout_hash") == campaign.get("holdout_hash")
-            and evaluation.get("environment_hash")
-            == campaign.get("environment_hash")
+            and evaluation.get("environment_hash") == campaign.get("environment_hash")
             and evaluation.get("budget") == campaign.get("budget")
             for evaluation in evaluations
         )
@@ -202,8 +201,7 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
             artifacts_by_kind.setdefault(artifact["kind"], []).append(artifact)
         required_artifacts = ("candidate_patch", "candidate_trajectory")
         if any(
-            len(artifacts_by_kind.get(kind, [])) != 1
-            for kind in required_artifacts
+            len(artifacts_by_kind.get(kind, [])) != 1 for kind in required_artifacts
         ):
             artifact_failures.append(evaluation_id)
         elif not all(
@@ -213,12 +211,9 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
 
         cases = details["cases"]
         case_keys = {
-            (case["repetition"], case["case_id"], case["generation"])
-            for case in cases
+            (case["repetition"], case["case_id"], case["generation"]) for case in cases
         }
-        logical_cases = {
-            (case["repetition"], case["case_id"]) for case in cases
-        }
+        logical_cases = {(case["repetition"], case["case_id"]) for case in cases}
         completed = details.get("status") == "completed"
         candidate_without_baseline = any(
             generation == "candidate"

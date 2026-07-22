@@ -838,9 +838,7 @@ def test_atomic_editor_rejects_requests_outside_predeclared_scope(
 
     request_and_apply.assert_not_called()
     assert context.scope_violations == {"other.py"}
-    assert store.tool_call_error_count(
-        run_id, tool_name="apply_atomic_edit"
-    ) == 1
+    assert store.tool_call_error_count(run_id, tool_name="apply_atomic_edit") == 1
 
 
 def test_atomic_editor_normalizes_approved_scope_aliases(tmp_path: Path) -> None:
@@ -1128,9 +1126,10 @@ def test_staged_empty_files_are_included_in_diff(tmp_path: Path) -> None:
     assert "staged_empty.py" in diff
 
 
-def test_codex_handoff_documents_exist() -> None:
+def test_primary_actor_documents_exist() -> None:
     assert (ROOT / "AGENTS.md").is_file()
-    assert (ROOT / "HANDOFF.md").is_file()
+    assert (ROOT / "ROADMAP.md").is_file()
+    assert (ROOT / "docs" / "HANDOFF.md").is_file()
     assert (ROOT / "docs" / "ARCHITECTURE.md").is_file()
     assert (ROOT / "docs" / "PIPELINE.md").is_file()
     assert (ROOT / "docs" / "CONVENTIONS.md").is_file()

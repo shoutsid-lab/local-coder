@@ -32,7 +32,8 @@ agent-smoke:
 	$(PYTHON) -m runtime.smoke
 
 handoff-check: verify agent-smoke
-	@test -f AGENTS.md -a -f HANDOFF.md -a -f docs/ARCHITECTURE.md \
+	@test -f AGENTS.md -a -f ROADMAP.md -a -f docs/HANDOFF.md \
+		-a -f docs/ARCHITECTURE.md \
 		-a -f docs/PIPELINE.md -a -f docs/CONVENTIONS.md \
 		-a -f docs/RECURSIVE_IMPROVEMENT.md
 	@test -z "$$(git status --porcelain)" || (echo "Handoff check failed: working tree is not clean."; git status --short; exit 1)
