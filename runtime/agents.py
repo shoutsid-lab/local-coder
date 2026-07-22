@@ -219,6 +219,7 @@ def _build_agent(
         task_file=context.task_file,
         agent_role=role,
         scope_violations=context.scope_violations,
+        allowed_edit_paths=context.allowed_edit_paths,
     )
     state.register_agent(
         run_id,

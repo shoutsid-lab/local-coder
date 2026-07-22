@@ -173,6 +173,15 @@ class ToolContext:
     agent_role: str | None = None
     last_review_verdict: str | None = None
     scope_violations: set[str] = field(default_factory=set)
+    allowed_edit_paths: frozenset[str] | None = None
+
+    @staticmethod
+    def _normalized_path(relative: str) -> str:
+        path = Path(relative)
+        normalized = path.as_posix()
+        while normalized.startswith("./"):
+            normalized = normalized[2:]
+        return normalized
 
     def _safe_path(self, relative: str) -> Path:
         normalized = Path(relative).as_posix().lstrip("./")
@@ -294,6 +303,22 @@ class ToolContext:
             files = [item.strip() for item in editable_files.split(",") if item.strip()]
             if not files:
                 raise ValueError("At least one editable file is required.")
+            normalized_files = {self._normalized_path(item) for item in files}
+            if len(normalized_files) != len(files):
+                raise ValueError(
+                    "Editable file paths must be unique after normalization."
+                )
+            if self.allowed_edit_paths is not None:
+                allowed = {
+                    self._normalized_path(item) for item in self.allowed_edit_paths
+                }
+                disallowed = normalized_files - allowed
+                if disallowed:
+                    self.scope_violations.update(disallowed)
+                    paths = ", ".join(sorted(disallowed))
+                    raise RuntimeError(
+                        f"Edit request is outside the predeclared scope: {paths}"
+                    )
             editable_paths = [self._safe_path(item) for item in files]
             before = [path.read_bytes() for path in editable_paths]
             changed_before = collect_changed_paths(self.worktree.path)
@@ -310,7 +335,7 @@ class ToolContext:
                 ),
             )
             changed_after = collect_changed_paths(self.worktree.path)
-            unexpected = (changed_after - changed_before - set(files)) | (
+            unexpected = (changed_after - changed_before - normalized_files) | (
                 changed_after & self.scope_violations
             )
             if unexpected:

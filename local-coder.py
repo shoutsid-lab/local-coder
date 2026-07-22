@@ -165,6 +165,65 @@ def handle_run(args: argparse.Namespace) -> int:
     return 0 if summary.status in completed else 1
 
 
+def handle_validate_plan(args: argparse.Namespace) -> int:
+    """Validate and hash one human-authored atomic task plan read-only."""
+    from runtime.plans import PlanError, load_task_plan, plan_summary
+
+    try:
+        plan = load_task_plan(args.plan, repository=ROOT)
+    except (OSError, PlanError) as exc:
+        print(f"Task plan rejected: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(plan_summary(plan), indent=2, sort_keys=True))
+    return 0
+
+
+def handle_run_plan_step(args: argparse.Namespace) -> int:
+    """Run exactly one manually selected, hash-approved plan step."""
+    from runtime.orchestrator import AgentOrchestrator, OrchestratorConfig
+    from runtime.plans import PlanError, load_task_plan, render_step_task
+
+    try:
+        plan = load_task_plan(args.plan, repository=ROOT)
+        if args.approve_plan_hash != plan.plan_hash:
+            raise PlanError("Approved plan hash does not match the validated plan.")
+        step = plan.step(args.step_id)
+        step_index = next(
+            index
+            for index, candidate in enumerate(plan.steps)
+            if candidate.id == step.id
+        )
+        prior_steps = {candidate.id for candidate in plan.steps[:step_index]}
+        completed_steps = set(args.completed_step or ())
+        invalid_completed = completed_steps - prior_steps
+        if invalid_completed:
+            invalid = ", ".join(sorted(invalid_completed))
+            raise PlanError(f"Completed steps are not prior plan steps: {invalid}")
+        missing_dependencies = set(step.depends_on) - completed_steps
+        if missing_dependencies:
+            missing = ", ".join(sorted(missing_dependencies))
+            raise PlanError(f"Step dependencies are not completed: {missing}")
+    except (OSError, PlanError) as exc:
+        print(f"Task plan rejected: {exc}", file=sys.stderr)
+        return 1
+
+    config = OrchestratorConfig(
+        repository=ROOT,
+        max_steps=args.max_steps,
+        keep_worktree=True,
+        mode="agentic",
+        expected_changed_paths=step.editable_files,
+    )
+    summary = AgentOrchestrator(config).run(render_step_task(plan, step))
+    print(summary.to_json())
+    completed = {
+        "awaiting_approval",
+        "needs_attention",
+        "no_changes",
+    }
+    return 0 if summary.status in completed else 1
+
+
 def handle_runs(args: argparse.Namespace) -> int:
     from runtime.state import StateStore
 
@@ -746,6 +805,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="Predeclare an expected changed path; may be repeated.",
     )
     run_parser.set_defaults(handler=handle_run)
+
+    validate_plan_parser = subparsers.add_parser(
+        "validate-plan",
+        help="Validate and hash a human-authored atomic task plan read-only.",
+    )
+    validate_plan_parser.add_argument("plan", type=Path)
+    validate_plan_parser.set_defaults(handler=handle_validate_plan)
+
+    run_plan_parser = subparsers.add_parser(
+        "run-plan-step",
+        help="Run one manually selected, hash-approved atomic plan step.",
+    )
+    run_plan_parser.add_argument("plan", type=Path)
+    run_plan_parser.add_argument("step_id")
+    run_plan_parser.add_argument(
+        "--approve-plan-hash",
+        required=True,
+        help="Exact SHA-256 emitted by validate-plan.",
+    )
+    run_plan_parser.add_argument(
+        "--completed-step",
+        action="append",
+        help="Manually attest one completed prior dependency; may be repeated.",
+    )
+    run_plan_parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=8,
+        help="Maximum manager-agent steps for this atomic plan step.",
+    )
+    run_plan_parser.set_defaults(handler=handle_run_plan_step)
 
     runs_parser = subparsers.add_parser("runs", help="List recent audited runs.")
     runs_parser.add_argument("--limit", type=int, default=20)

@@ -1,5 +1,6 @@
 import inspect
 import importlib.util
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -18,6 +19,12 @@ from runtime.models import (
     ModelBudgetExceeded,
     ModelRegistry,
     ModelUsageBudget,
+)
+from runtime.plans import (
+    PlanError,
+    load_task_plan,
+    parse_task_plan,
+    render_step_task,
 )
 from runtime.skills import discover_skills
 from runtime.state import StateStore
@@ -398,6 +405,163 @@ def test_native_editor_rejects_normalized_protected_aliases(tmp_path: Path) -> N
         )
 
 
+def _valid_task_plan() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "plan_id": "parser-cleanup-v1",
+        "objective": "Improve parser error reporting in two reviewed steps.",
+        "steps": [
+            {
+                "id": "implementation",
+                "instruction": (
+                    "Clarify the parser error message without changing behavior."
+                ),
+                "editable_files": ["runtime/parser.py"],
+                "acceptance_criteria": [
+                    "The error identifies the invalid token.",
+                    "Existing parser behavior remains unchanged.",
+                ],
+                "depends_on": [],
+            },
+            {
+                "id": "tests",
+                "instruction": "Add a regression test for the clarified error message.",
+                "editable_files": ["tests/test_parser.py"],
+                "acceptance_criteria": [
+                    "The regression test passes deterministically."
+                ],
+                "depends_on": ["implementation"],
+            },
+        ],
+    }
+
+
+def _write_plan_repository(tmp_path: Path) -> Path:
+    (tmp_path / "runtime").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "runtime" / "parser.py").write_text(
+        "def parse(value):\n    return value\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "tests" / "test_parser.py").write_text(
+        "def test_parser():\n    assert True\n",
+        encoding="utf-8",
+    )
+    plan_path = tmp_path / "task-plan.json"
+    plan_path.write_text(json.dumps(_valid_task_plan()), encoding="utf-8")
+    return plan_path
+
+
+def test_task_plan_is_strict_ordered_and_deterministically_hashed(
+    tmp_path: Path,
+) -> None:
+    plan_path = _write_plan_repository(tmp_path)
+
+    first = load_task_plan(plan_path, repository=tmp_path)
+    second = parse_task_plan(
+        json.loads(plan_path.read_text(encoding="utf-8")),
+        repository=tmp_path,
+        plan_path=plan_path,
+    )
+
+    assert first.plan_hash == second.plan_hash
+    assert first.step("tests").depends_on == ("implementation",)
+    assert first.step("implementation").editable_files == ("runtime/parser.py",)
+    assert len(first.plan_hash) == 64
+
+
+def test_task_plan_rejects_later_dependencies_and_protected_plan_file(
+    tmp_path: Path,
+) -> None:
+    plan_path = _write_plan_repository(tmp_path)
+    payload = _valid_task_plan()
+    payload["steps"][0]["depends_on"] = ["tests"]
+
+    with pytest.raises(PlanError, match="unknown or later steps"):
+        parse_task_plan(payload, repository=tmp_path, plan_path=plan_path)
+
+    payload = _valid_task_plan()
+    payload["steps"][0]["editable_files"] = ["task-plan.json"]
+    with pytest.raises(PlanError, match="Protected file"):
+        parse_task_plan(payload, repository=tmp_path, plan_path=plan_path)
+
+    payload = _valid_task_plan()
+    payload["schema_version"] = True
+    with pytest.raises(PlanError, match="schema version"):
+        parse_task_plan(payload, repository=tmp_path, plan_path=plan_path)
+
+    payload = _valid_task_plan()
+    payload["steps"][0]["editable_files"] = [
+        "runtime/parser.py",
+        "./runtime/parser.py",
+    ]
+    with pytest.raises(PlanError, match="duplicate path aliases"):
+        parse_task_plan(payload, repository=tmp_path, plan_path=plan_path)
+
+
+def test_plan_step_task_freezes_hash_scope_and_acceptance_criteria(
+    tmp_path: Path,
+) -> None:
+    plan = load_task_plan(_write_plan_repository(tmp_path), repository=tmp_path)
+
+    task = render_step_task(plan, plan.step("implementation"))
+
+    assert f"Plan hash: {plan.plan_hash}" in task
+    assert "- runtime/parser.py" in task
+    assert "The error identifies the invalid token." in task
+    assert "Modify only the editable files listed above." in task
+
+
+def test_run_plan_step_requires_hash_and_declared_dependencies(
+    tmp_path: Path,
+) -> None:
+    plan_path = _write_plan_repository(tmp_path)
+    plan = load_task_plan(plan_path, repository=tmp_path)
+    summary = SimpleNamespace(
+        status="awaiting_approval",
+        to_json=lambda: '{"status": "awaiting_approval"}',
+    )
+    arguments = SimpleNamespace(
+        plan=plan_path,
+        step_id="tests",
+        approve_plan_hash=plan.plan_hash,
+        completed_step=["implementation"],
+        max_steps=8,
+    )
+
+    with (
+        patch.object(local_coder, "ROOT", tmp_path),
+        patch("runtime.orchestrator.AgentOrchestrator") as orchestrator,
+    ):
+        orchestrator.return_value.run.return_value = summary
+        assert local_coder.handle_run_plan_step(arguments) == 0
+
+    config = orchestrator.call_args.args[0]
+    assert config.expected_changed_paths == ("tests/test_parser.py",)
+    task = orchestrator.return_value.run.call_args.args[0]
+    assert "Step ID: tests" in task
+    assert f"Plan hash: {plan.plan_hash}" in task
+
+
+def test_run_plan_step_rejects_unapproved_hash(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    plan_path = _write_plan_repository(tmp_path)
+    arguments = SimpleNamespace(
+        plan=plan_path,
+        step_id="implementation",
+        approve_plan_hash="0" * 64,
+        completed_step=None,
+        max_steps=8,
+    )
+
+    with patch.object(local_coder, "ROOT", tmp_path):
+        assert local_coder.handle_run_plan_step(arguments) == 1
+
+    assert "Approved plan hash does not match" in capsys.readouterr().err
+
+
 def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -> None:
     from smolagents import CodeAgent
 
@@ -638,6 +802,80 @@ def _initialize_edit_test_repository(worktree_path: Path) -> None:
         ["git", "add", "README.md", "TASK.md"], cwd=worktree_path, check=True
     )
     subprocess.run(["git", "commit", "-qm", "baseline"], cwd=worktree_path, check=True)
+
+
+def test_atomic_editor_rejects_requests_outside_predeclared_scope(
+    tmp_path: Path,
+) -> None:
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+    (worktree_path / "README.md").write_text("before\n", encoding="utf-8")
+    (worktree_path / "other.py").write_text("value = 1\n", encoding="utf-8")
+    task_file = worktree_path / "TASK.md"
+    task_file.write_text("# Task\n", encoding="utf-8")
+    _initialize_edit_test_repository(worktree_path)
+    store = StateStore(tmp_path / "agent.db")
+    run_id = store.create_run(
+        task="Edit README.md",
+        mode="agentic",
+        repository=tmp_path,
+        base_branch="main",
+    )
+    context = ToolContext(
+        root=tmp_path,
+        worktree=Worktree(worktree_path, "agent/test", "main"),
+        run_id=run_id,
+        state=store,
+        task_file=task_file,
+        allowed_edit_paths=frozenset({"README.md"}),
+    )
+
+    with (
+        patch("runtime.tools.request_and_apply") as request_and_apply,
+        pytest.raises(RuntimeError, match="outside the predeclared scope: other.py"),
+    ):
+        context.apply_atomic_edit("Change another file", "other.py")
+
+    request_and_apply.assert_not_called()
+    assert context.scope_violations == {"other.py"}
+    assert store.tool_call_error_count(
+        run_id, tool_name="apply_atomic_edit"
+    ) == 1
+
+
+def test_atomic_editor_normalizes_approved_scope_aliases(tmp_path: Path) -> None:
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+    editable = worktree_path / "README.md"
+    editable.write_text("before\n", encoding="utf-8")
+    task_file = worktree_path / "TASK.md"
+    task_file.write_text("# Task\n", encoding="utf-8")
+    _initialize_edit_test_repository(worktree_path)
+    store = StateStore(tmp_path / "agent.db")
+    run_id = store.create_run(
+        task="Edit README.md",
+        mode="agentic",
+        repository=tmp_path,
+        base_branch="main",
+    )
+    context = ToolContext(
+        root=tmp_path,
+        worktree=Worktree(worktree_path, "agent/test", "main"),
+        run_id=run_id,
+        state=store,
+        task_file=task_file,
+        allowed_edit_paths=frozenset({"README.md"}),
+    )
+
+    def fake_editor(**_: object) -> list[str]:
+        editable.write_text("after\n", encoding="utf-8")
+        return ["./README.md"]
+
+    with patch("runtime.tools.request_and_apply", side_effect=fake_editor):
+        result = context.apply_atomic_edit("Change one line", "./README.md")
+
+    assert result == "Atomic edit applied to: ./README.md"
+    assert context.scope_violations == set()
 
 
 def test_atomic_editor_rejects_success_without_an_edit(tmp_path: Path) -> None:

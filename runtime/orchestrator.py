@@ -157,6 +157,11 @@ class AgentOrchestrator:
                 state=self.state,
                 task_file=task_file,
                 agent_role="orchestrator",
+                allowed_edit_paths=(
+                    frozenset(self.config.expected_changed_paths)
+                    if self.config.expected_changed_paths is not None
+                    else None
+                ),
             )
             skills = discover_skills(worktree.path / ".local-coder" / "skills")
             bundle = build_agent_bundle(

@@ -55,6 +55,22 @@ Inspect the audit trail:
 
 Then review the preserved worktree manually before committing or merging.
 
+## Run a trusted task-plan step
+
+Broad requests can be decomposed by a human or stronger external planner into a strict
+JSON plan. The local runtime validates and hashes the complete plan, then executes only one
+explicitly selected atomic step:
+
+```bash
+./local-coder.py validate-plan task-plan.json
+./local-coder.py run-plan-step task-plan.json STEP_ID \
+  --approve-plan-hash SHA256_FROM_VALIDATE_PLAN
+```
+
+Later steps require explicit `--completed-step` attestations for declared dependencies.
+The selected step's editable files are enforced as the editor scope. See
+[docs/TASK_PLANS.md](docs/TASK_PLANS.md) for the schema and operator procedure.
+
 ## Run a recursive-improvement campaign
 
 The trusted evaluator can mine one bounded brief, compare clean committed generations,

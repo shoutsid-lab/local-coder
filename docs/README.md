@@ -6,6 +6,7 @@
 - [Validation history](VALIDATION_HISTORY.md) — concise evidence behind current controls.
 - [Recursive improvement](RECURSIVE_IMPROVEMENT.md) — evidence-gated campaign and paired
   evaluation operations.
+- [Trusted task plans](TASK_PLANS.md) — hash-approved, one-step-at-a-time decomposition.
 - [Upstream baseline](UPSTREAM.json) — original GitHub baseline and verified blob IDs.
 
 The active implementation direction and next work remain in the root

@@ -27,6 +27,7 @@ PIPELINE_CONTROLS = {
     "docs/CONVENTIONS.md",
     "docs/PIPELINE.md",
     "docs/RECURSIVE_IMPROVEMENT.md",
+    "docs/TASK_PLANS.md",
     "docs/UPSTREAM.json",
     "docs/VALIDATION_HISTORY.md",
     "litellm-config.yaml",
