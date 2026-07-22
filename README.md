@@ -215,5 +215,7 @@ LIVE_E2E_KEEP_WORKTREE=1 make live-e2e
 ./local-coder.py optimize-gepa \
   --dataset .local-coder/gepa-datasets/planner-seed-v1 \
   --role planner \
-  --output .local-coder/gepa-runs/planner-seed-v1
+  --max-metric-calls 60 \
+  --allow-perfect-only \
+  --output .local-coder/gepa-runs/planner-seed-v1-bounded
 ```

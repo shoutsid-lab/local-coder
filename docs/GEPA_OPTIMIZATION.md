@@ -57,10 +57,17 @@ With llama.cpp and LiteLLM already running:
   --dataset .local-coder/gepa-datasets/latest \
   --role planner \
   --reflection-route local-plan \
-  --auto light \
+  --max-metric-calls 60 \
+  --no-improvement-patience 6 \
+  --reflection-max-tokens 512 \
   --seed 0 \
   --output .local-coder/gepa-runs/planner-001
 ```
+
+When neither `--auto` nor `--max-metric-calls` is supplied, the bounded default is 60
+metric calls. `--auto light|medium|heavy` remains available as an explicit operator
+choice, but its DSPy-compatible budget is converted to a concrete metric-call ceiling
+so the same early-stop guard remains active.
 
 The output additionally contains `candidate.json`. The report records the frozen
 baseline replay score, GEPA validation scores, metric-call counts, route identities,
@@ -121,17 +128,43 @@ operator action:
   --cleanup-successful-worktrees
 ```
 
-Run the first planner-only optimization from the collected corpus:
+The seed corpus contains only successful examples. A real optimization therefore
+fails closed by default; an operator must explicitly acknowledge a null-result
+experiment with `--allow-perfect-only`:
 
 ```bash
 ./local-coder.py optimize-gepa \
   --dataset .local-coder/gepa-datasets/planner-seed-v1 \
   --role planner \
   --reflection-route local-plan \
-  --auto light \
+  --max-metric-calls 60 \
+  --allow-perfect-only \
   --seed 0 \
-  --output .local-coder/gepa-runs/planner-seed-v1
+  --output .local-coder/gepa-runs/planner-seed-v1-bounded
 ```
 
-The candidate remains inert. Activation and promotion stay `not_performed`; campaign
-integration and trusted holdout evaluation remain Phase 4 work.
+The candidate remains inert. Activation and promotion stay `not_performed`. Holdout
+examples are excluded from GEPA and scored only after optimization has finished.
+
+## Optimization hygiene and null results
+
+The runner protects small local models and tiny corpora from unbounded reflection:
+
+- a frozen development baseline of `1.0` skips GEPA entirely unless the operator
+  supplies `--force-search-perfect-baseline`;
+- a concrete metric-call ceiling is always active;
+- repeated non-improving iterations trigger early stopping;
+- reflection completions default to 512 tokens rather than the normal role limit;
+- replay/example scaffolding, oversized instructions, and mechanically repeated lines
+  cause the optimized candidate to be rejected; and
+- perfect-only training sets require `--allow-perfect-only`.
+
+The report makes null results explicit with `winning_candidate`, `candidate_changed`,
+`candidate_accepted`, `improvement`, `search_performed`, `perfect_baseline`, and
+`optimization_outcome`. When GEPA does not strictly improve the development score,
+`candidate.json` contains the original program.
+
+After candidate selection, the runner evaluates the baseline and selected candidate on
+the role's offline holdout split. The holdout records are never supplied to GEPA, its
+reflection model, or candidate selection. The report records
+`exposed_during_optimization: false`, score deltas, and separate metric-call accounting.

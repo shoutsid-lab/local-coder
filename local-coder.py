@@ -332,6 +332,12 @@ def handle_optimize_gepa(args: argparse.Namespace) -> int:
             dry_run=args.dry_run,
             reflection_route=args.reflection_route,
             auto=args.auto,
+            max_metric_calls=args.max_metric_calls,
+            no_improvement_patience=args.no_improvement_patience,
+            reflection_max_tokens=args.reflection_max_tokens,
+            max_instruction_chars=args.max_instruction_chars,
+            allow_perfect_only=args.allow_perfect_only,
+            force_search_perfect_baseline=args.force_search_perfect_baseline,
             seed=args.seed,
             num_threads=args.num_threads,
         )
@@ -1028,10 +1034,44 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("local-fast", "local-plan", "local-review"),
         default="local-plan",
     )
-    gepa_optimize_parser.add_argument(
+    budget_group = gepa_optimize_parser.add_mutually_exclusive_group()
+    budget_group.add_argument(
         "--auto",
         choices=("light", "medium", "heavy"),
-        default="light",
+        help="Use DSPy-compatible preset budgeting instead of the bounded default.",
+    )
+    budget_group.add_argument(
+        "--max-metric-calls",
+        type=int,
+        help="Bound GEPA metric calls; defaults to 60 when --auto is omitted.",
+    )
+    gepa_optimize_parser.add_argument(
+        "--no-improvement-patience",
+        type=int,
+        default=6,
+        help="Stop after this many non-improving GEPA iterations.",
+    )
+    gepa_optimize_parser.add_argument(
+        "--reflection-max-tokens",
+        type=int,
+        default=512,
+        help="Maximum completion tokens for the reflection model.",
+    )
+    gepa_optimize_parser.add_argument(
+        "--max-instruction-chars",
+        type=int,
+        default=1600,
+        help="Reject optimized predictor instructions larger than this limit.",
+    )
+    gepa_optimize_parser.add_argument(
+        "--allow-perfect-only",
+        action="store_true",
+        help="Explicitly permit a null-result run with no imperfect examples.",
+    )
+    gepa_optimize_parser.add_argument(
+        "--force-search-perfect-baseline",
+        action="store_true",
+        help="Run GEPA even when the frozen development baseline is already 1.0.",
     )
     gepa_optimize_parser.add_argument("--seed", type=int, default=0)
     gepa_optimize_parser.add_argument("--num-threads", type=int, default=1)

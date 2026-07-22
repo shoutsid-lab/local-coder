@@ -66,7 +66,7 @@ gepa-dataset-check:
 	$(PYTHON) -m pytest -q --tb=short tests/test_gepa_dataset.py
 
 gepa-runner-check:
-	$(PYTHON) -m pytest -q --tb=short tests/test_verification_evidence.py tests/test_gepa_runner.py
+	$(PYTHON) -m pytest -q --tb=short tests/test_verification_evidence.py tests/test_gepa_runner.py tests/test_gepa_optimization_hygiene.py
 
 gepa-experiment-check:
 	$(PYTHON) -m pytest -q --tb=short tests/test_gepa_experiment.py

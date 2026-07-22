@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import inspect
 import json
+import math
 import os
 import tempfile
 from collections import Counter
@@ -18,7 +20,25 @@ from runtime.dspy_lm import DSPY_ROUTES, build_dspy_lm
 
 from .gepa_dataset import GepaDatasetError, load_gepa_dataset
 
-GEPA_RUN_SCHEMA_VERSION = 1
+GEPA_RUN_SCHEMA_VERSION = 2
+DEFAULT_MAX_METRIC_CALLS = 60
+DEFAULT_NO_IMPROVEMENT_PATIENCE = 6
+DEFAULT_REFLECTION_MAX_TOKENS = 512
+DEFAULT_MAX_INSTRUCTION_CHARS = 1600
+AUTO_CANDIDATES = {"light": 6, "medium": 12, "heavy": 18}
+REFLECTION_GUARD = (
+    "Reflection constraints: ground proposals only in the supplied task, typed "
+    "inputs, repository evidence, and audit feedback. Do not invent occurrence "
+    "counts, filesystem metadata, or unstated constraints. Prefer a concise "
+    "role-level instruction over replaying the example verbatim."
+)
+FORBIDDEN_CANDIDATE_MARKERS = (
+    "## Inputs",
+    "### task",
+    "## Generated Outputs",
+    "## Additional Information",
+    "GEPA corpus case:",
+)
 ROLE_INPUT_FIELDS = {
     "explorer": ("task", "delegated_task", "repository_evidence"),
     "planner": ("task", "delegated_task", "repository_evidence"),
@@ -67,6 +87,52 @@ ROLE_ROUTES = {
 
 class GepaRunnerError(ValueError):
     """Raised when an offline optimization run cannot proceed safely."""
+
+
+class BoundedNoImprovementStopper:
+    """Stop GEPA on the metric budget or repeated non-improving iterations."""
+
+    def __init__(self, max_metric_calls: int, patience: int | None) -> None:
+        self.max_metric_calls = max_metric_calls
+        self.patience = patience
+        self.best_score = float("-inf")
+        self.iterations_without_improvement = 0
+        self.last_iteration: int | None = None
+        self.reason: str | None = None
+
+    def __call__(self, state: Any) -> bool:
+        total = int(getattr(state, "total_num_evals", 0) or 0)
+        if total >= self.max_metric_calls:
+            self.reason = "metric_budget"
+            return True
+        if self.patience is None:
+            return False
+        iteration = getattr(state, "i", None)
+        if iteration is None or iteration == self.last_iteration:
+            return False
+        self.last_iteration = int(iteration)
+        scores = getattr(state, "program_full_scores_val_set", None) or []
+        current = max(float(value) for value in scores) if scores else 0.0
+        if current > self.best_score:
+            self.best_score = current
+            self.iterations_without_improvement = 0
+        else:
+            self.iterations_without_improvement += 1
+        if self.iterations_without_improvement >= self.patience:
+            self.reason = "no_improvement"
+            return True
+        return False
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "enabled": self.patience is not None,
+            "patience": self.patience,
+            "reason": self.reason,
+            "iterations_without_improvement": self.iterations_without_improvement,
+            "best_observed_score": (
+                None if self.best_score == float("-inf") else self.best_score
+            ),
+        }
 
 
 def _canonical_json(value: Any) -> str:
@@ -133,7 +199,8 @@ def build_gepa_metric(role: str, *, dspy_module: Any) -> Callable[..., Any]:
         feedback = (
             f"Audited replay for role {role}. Mismatched fields: {mismatch_text}. "
             f"Historical outcome score: {audit_score:.1f}. "
-            f"Reviewer feedback: {getattr(gold, 'audit_feedback', '')}"
+            f"Reviewer feedback: {getattr(gold, 'audit_feedback', '')} "
+            f"{REFLECTION_GUARD}"
         )
         prediction_type = getattr(dspy_module, "Prediction", None)
         if prediction_type is None:
@@ -185,6 +252,11 @@ def assess_dataset_readiness(
         float(record["outcome"].get("score", 0.0)) >= 1.0 for record in selected
     )
     imperfect = len(selected) - successful
+    imperfect_train = sum(
+        record.get("split") == "train"
+        and float(record["outcome"].get("score", 0.0)) < 1.0
+        for record in selected
+    )
     blockers: list[str] = []
     warnings: list[str] = []
     if splits["train"] < 2:
@@ -193,8 +265,8 @@ def assess_dataset_readiness(
         blockers.append("role requires at least one development example")
     if len(tasks) < 3:
         blockers.append("role requires at least three distinct authoritative tasks")
-    if imperfect == 0:
-        warnings.append("dataset has no imperfect audited examples for reflection")
+    if imperfect_train == 0:
+        warnings.append("dataset has no imperfect training examples for reflection")
     if splits["holdout"] == 0:
         warnings.append("dataset has no offline holdout examples for later comparison")
     return {
@@ -209,6 +281,7 @@ def assess_dataset_readiness(
             "successful": successful,
             "imperfect": imperfect,
         },
+        "imperfect_train": imperfect_train,
         "blockers": blockers,
         "warnings": warnings,
     }
@@ -244,7 +317,7 @@ def _score_value(result: Any) -> float:
     return float(getattr(result, "score"))
 
 
-def _evaluate_baseline(
+def _evaluate_program(
     program: Any,
     examples: list[Any],
     metric: Callable[..., Any],
@@ -256,12 +329,7 @@ def _evaluate_baseline(
         inputs = {field: getattr(example, field) for field in input_fields}
         prediction = program(**inputs)
         score = _score_value(metric(example, prediction))
-        scores.append(
-            {
-                "example_id": getattr(example, "example_id"),
-                "score": score,
-            }
-        )
+        scores.append({"example_id": getattr(example, "example_id"), "score": score})
     return {
         "aggregate_score": mean(item["score"] for item in scores) if scores else 0.0,
         "examples": scores,
@@ -281,6 +349,109 @@ def _detailed_result_summary(program: Any) -> dict[str, Any]:
         "total_metric_calls": getattr(details, "total_metric_calls", None),
         "num_full_val_evals": getattr(details, "num_full_val_evals", None),
         "seed": getattr(details, "seed", None),
+    }
+
+
+def _program_predictor_count(program: Any) -> int:
+    predictors = getattr(program, "predictors", None)
+    if callable(predictors):
+        return max(1, len(list(predictors())))
+    named = getattr(program, "named_predictors", None)
+    if callable(named):
+        return max(1, len(list(named())))
+    return 1
+
+
+def _auto_metric_budget(
+    *,
+    auto: str,
+    predictor_count: int,
+    valset_size: int,
+    minibatch_size: int = 35,
+    full_eval_steps: int = 5,
+) -> int:
+    candidates = AUTO_CANDIDATES[auto]
+    trials = int(
+        max(
+            2 * (predictor_count * 2) * math.log2(candidates),
+            1.5 * candidates,
+        )
+    )
+    total = valset_size + candidates * 5 + trials * minibatch_size
+    periodic_fulls = (trials + 1) // full_eval_steps + 1
+    extra_final = 1 if trials < full_eval_steps else 0
+    return total + (periodic_fulls + extra_final) * valset_size
+
+
+def _build_lm(
+    factory: Callable[..., Any],
+    route: str,
+    *,
+    max_tokens: int | None = None,
+) -> Any:
+    if max_tokens is None:
+        return factory(route)
+    try:
+        parameters = inspect.signature(factory).parameters.values()
+    except (TypeError, ValueError):
+        parameters = ()
+    accepts_keyword = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        or parameter.name == "max_tokens"
+        for parameter in parameters
+    )
+    if accepts_keyword:
+        return factory(route, max_tokens=max_tokens)
+    return factory(route)
+
+
+def _program_instructions(program: Any) -> dict[str, str]:
+    named = getattr(program, "named_predictors", None)
+    if not callable(named):
+        return {}
+    instructions: dict[str, str] = {}
+    for name, predictor in named():
+        signature = getattr(predictor, "signature", None)
+        instructions[str(name)] = str(getattr(signature, "instructions", ""))
+    return instructions
+
+
+def assess_candidate_instructions(
+    baseline: Mapping[str, str],
+    candidate: Mapping[str, str],
+    *,
+    max_instruction_chars: int,
+) -> dict[str, Any]:
+    """Reject oversized or mechanically repetitive optimized instructions."""
+    reasons: list[str] = []
+    if not candidate:
+        reasons.append("candidate predictor instructions were unavailable")
+    for name, text in candidate.items():
+        if len(text) > max_instruction_chars:
+            reasons.append(
+                f"{name} instruction has {len(text)} characters; "
+                f"limit is {max_instruction_chars}"
+            )
+        lines = [" ".join(line.split()) for line in text.splitlines() if line.strip()]
+        counts = Counter(lines)
+        repeated = sorted(
+            line for line, count in counts.items() if count > 2 and len(line) >= 20
+        )
+        if repeated:
+            reasons.append(f"{name} instruction repeats substantive lines")
+        markers = [marker for marker in FORBIDDEN_CANDIDATE_MARKERS if marker in text]
+        if markers:
+            reasons.append(
+                f"{name} instruction embeds replay/example scaffolding: "
+                + ", ".join(markers)
+            )
+    return {
+        "changed": dict(candidate) != dict(baseline),
+        "safe": not reasons,
+        "reasons": reasons,
+        "baseline_hash": stable_hash(dict(baseline)),
+        "candidate_hash": stable_hash(dict(candidate)),
+        "max_instruction_chars": max_instruction_chars,
     }
 
 
@@ -336,11 +507,17 @@ def run_gepa_optimization(
     role: str,
     dry_run: bool = False,
     reflection_route: str = "local-plan",
-    auto: str = "light",
+    auto: str | None = None,
+    max_metric_calls: int | None = None,
+    no_improvement_patience: int | None = DEFAULT_NO_IMPROVEMENT_PATIENCE,
+    reflection_max_tokens: int = DEFAULT_REFLECTION_MAX_TOKENS,
+    max_instruction_chars: int = DEFAULT_MAX_INSTRUCTION_CHARS,
+    allow_perfect_only: bool = False,
+    force_search_perfect_baseline: bool = False,
     seed: int = 0,
     num_threads: int = 1,
     dspy_module: Any | None = None,
-    lm_factory: Callable[[str], Any] = build_dspy_lm,
+    lm_factory: Callable[..., Any] = build_dspy_lm,
 ) -> dict[str, Any]:
     """Validate or run one offline GEPA optimization without activation."""
     if reflection_route not in DSPY_ROUTES:
@@ -348,8 +525,18 @@ def run_gepa_optimization(
             f"Unsupported reflection route: {reflection_route}. "
             f"Choose one of {sorted(DSPY_ROUTES)}."
         )
-    if auto not in {"light", "medium", "heavy"}:
+    if auto is not None and auto not in AUTO_CANDIDATES:
         raise GepaRunnerError("GEPA auto budget must be light, medium, or heavy.")
+    if auto is not None and max_metric_calls is not None:
+        raise GepaRunnerError("Choose either GEPA auto or max_metric_calls, not both.")
+    if max_metric_calls is not None and max_metric_calls <= 0:
+        raise GepaRunnerError("GEPA max_metric_calls must be positive.")
+    if no_improvement_patience is not None and no_improvement_patience <= 0:
+        raise GepaRunnerError("GEPA no-improvement patience must be positive.")
+    if reflection_max_tokens <= 0:
+        raise GepaRunnerError("GEPA reflection_max_tokens must be positive.")
+    if max_instruction_chars <= 0:
+        raise GepaRunnerError("GEPA max_instruction_chars must be positive.")
     if num_threads <= 0:
         raise GepaRunnerError("GEPA num_threads must be positive.")
     dataset = dataset.resolve()
@@ -361,21 +548,39 @@ def run_gepa_optimization(
     except GepaDatasetError as exc:
         raise GepaRunnerError(str(exc)) from exc
     readiness = assess_dataset_readiness(records, role=role)
+    requested_max_metric_calls = max_metric_calls
+    if auto is None and max_metric_calls is None:
+        requested_max_metric_calls = DEFAULT_MAX_METRIC_CALLS
     report: dict[str, Any] = {
         "schema_version": GEPA_RUN_SCHEMA_VERSION,
-        "dataset": str(dataset.resolve()),
+        "dataset": str(dataset),
         "dataset_hash": dataset_manifest["dataset_hash"],
         "dataset_schema_version": dataset_manifest.get("schema_version"),
         "role": role,
         "student_route": ROLE_ROUTES.get(role),
         "reflection_route": reflection_route,
-        "auto": auto,
+        "budget": {
+            "auto": auto,
+            "requested_max_metric_calls": requested_max_metric_calls,
+            "effective_max_metric_calls": None,
+            "no_improvement_patience": no_improvement_patience,
+        },
+        "reflection": {
+            "max_tokens": reflection_max_tokens,
+            "guard": REFLECTION_GUARD,
+        },
+        "candidate_policy": {
+            "max_instruction_chars": max_instruction_chars,
+            "allow_perfect_only": allow_perfect_only,
+            "force_search_perfect_baseline": force_search_perfect_baseline,
+        },
         "seed": seed,
         "num_threads": num_threads,
         "dry_run": dry_run,
         "readiness": readiness,
         "baseline": None,
         "optimization": None,
+        "holdout": None,
         "activation": "not_performed",
         "promotion": "not_performed",
     }
@@ -385,6 +590,11 @@ def run_gepa_optimization(
     if not readiness["ready"]:
         joined = "; ".join(readiness["blockers"])
         raise GepaRunnerError(f"Dataset is not ready for role {role}: {joined}")
+    if readiness["imperfect_train"] == 0 and not allow_perfect_only:
+        raise GepaRunnerError(
+            "Dataset has no imperfect training examples. Pass --allow-perfect-only "
+            "to run an explicit null-result experiment."
+        )
     if dspy_module is None:
         try:
             import dspy as dspy_module
@@ -392,51 +602,180 @@ def run_gepa_optimization(
             raise GepaRunnerError(
                 "DSPy is not installed. Run `make agent-install`."
             ) from exc
-    train_records = [
-        record
-        for record in records
-        if record.get("role") == role and record.get("split") == "train"
-    ]
-    dev_records = [
-        record
-        for record in records
-        if record.get("role") == role and record.get("split") == "dev"
-    ]
-    trainset = to_role_dspy_examples(train_records, role=role, dspy_module=dspy_module)
-    devset = to_role_dspy_examples(dev_records, role=role, dspy_module=dspy_module)
+    role_records = [record for record in records if record.get("role") == role]
+    split_records = {
+        split: [record for record in role_records if record.get("split") == split]
+        for split in ("train", "dev", "holdout")
+    }
+    trainset = to_role_dspy_examples(
+        split_records["train"], role=role, dspy_module=dspy_module
+    )
+    devset = to_role_dspy_examples(
+        split_records["dev"], role=role, dspy_module=dspy_module
+    )
+    holdoutset = to_role_dspy_examples(
+        split_records["holdout"], role=role, dspy_module=dspy_module
+    )
     metric = build_gepa_metric(role, dspy_module=dspy_module)
     student = _role_program(role)
-    student_lm = lm_factory(ROLE_ROUTES[role])
-    reflection_lm = lm_factory(reflection_route)
+    student_lm = _build_lm(lm_factory, ROLE_ROUTES[role])
     set_lm = getattr(student, "set_lm", None)
     if callable(set_lm):
         set_lm(student_lm)
+    effective_max_metric_calls = requested_max_metric_calls
+    if auto is not None:
+        effective_max_metric_calls = _auto_metric_budget(
+            auto=auto,
+            predictor_count=_program_predictor_count(student),
+            valset_size=len(devset),
+        )
+    assert effective_max_metric_calls is not None
+    report["budget"]["effective_max_metric_calls"] = effective_max_metric_calls
+    stopper = BoundedNoImprovementStopper(
+        effective_max_metric_calls,
+        no_improvement_patience,
+    )
+    baseline_instructions = _program_instructions(student)
     adapter = dspy_module.JSONAdapter()
-    with tempfile.TemporaryDirectory(prefix="local-coder-gepa-log-") as log_dir:
+    with dspy_module.context(adapter=adapter, track_usage=True):
+        baseline = _evaluate_program(
+            student,
+            devset,
+            metric,
+            input_fields=ROLE_INPUT_FIELDS[role],
+        )
+    perfect_baseline = baseline["aggregate_score"] >= 1.0
+    search_performed = not perfect_baseline or force_search_perfect_baseline
+    if search_performed:
+        reflection_lm = _build_lm(
+            lm_factory,
+            reflection_route,
+            max_tokens=reflection_max_tokens,
+        )
+        with tempfile.TemporaryDirectory(prefix="local-coder-gepa-log-") as log_dir:
+            with dspy_module.context(adapter=adapter, track_usage=True):
+                optimizer = dspy_module.GEPA(
+                    metric=metric,
+                    reflection_lm=reflection_lm,
+                    max_metric_calls=effective_max_metric_calls,
+                    num_threads=num_threads,
+                    track_stats=True,
+                    log_dir=log_dir,
+                    seed=seed,
+                    gepa_kwargs={"stop_callbacks": stopper},
+                )
+                optimized = optimizer.compile(student, trainset=trainset, valset=devset)
+        details = _detailed_result_summary(optimized)
+    else:
+        stopper.reason = "perfect_baseline"
+        optimized = student
+        details = {
+            "val_aggregate_scores": [baseline["aggregate_score"]],
+            "best_index": 0,
+            "best_score": baseline["aggregate_score"],
+            "total_metric_calls": 0,
+            "num_full_val_evals": 0,
+            "seed": seed,
+        }
+    proposed_instructions = _program_instructions(optimized)
+    safety = assess_candidate_instructions(
+        baseline_instructions,
+        proposed_instructions,
+        max_instruction_chars=max_instruction_chars,
+    )
+    best_score = details.get("best_score")
+    improvement = (
+        float(best_score) - float(baseline["aggregate_score"])
+        if best_score is not None
+        else 0.0
+    )
+    accept_candidate = bool(safety["changed"] and safety["safe"] and improvement > 0)
+    selected = optimized if accept_candidate else student
+    if not search_performed:
+        outcome = "baseline_perfect_no_search"
+    elif improvement <= 0:
+        outcome = "no_improvement"
+    elif not safety["safe"]:
+        outcome = "rejected_unsafe_candidate"
+    elif accept_candidate:
+        outcome = "improved_candidate"
+    else:
+        outcome = "no_improvement"
+    details.update(
+        {
+            "baseline_score": baseline["aggregate_score"],
+            "improvement": improvement,
+            "winning_candidate": "optimized" if accept_candidate else "baseline",
+            "candidate_changed": safety["changed"],
+            "candidate_safe": safety["safe"],
+            "candidate_accepted": accept_candidate,
+            "candidate_rejection_reasons": safety["reasons"],
+            "optimization_outcome": outcome,
+            "search_performed": search_performed,
+            "perfect_baseline": perfect_baseline,
+            "instruction_hashes": {
+                "baseline": safety["baseline_hash"],
+                "proposed": safety["candidate_hash"],
+                "selected": stable_hash(_program_instructions(selected)),
+            },
+            "early_stopping": stopper.summary(),
+        }
+    )
+    holdout: dict[str, Any]
+    if holdoutset:
         with dspy_module.context(adapter=adapter, track_usage=True):
-            baseline = _evaluate_baseline(
+            baseline_holdout = _evaluate_program(
                 student,
-                devset,
+                holdoutset,
                 metric,
                 input_fields=ROLE_INPUT_FIELDS[role],
             )
-            optimizer = dspy_module.GEPA(
-                metric=metric,
-                reflection_lm=reflection_lm,
-                auto=auto,
-                num_threads=num_threads,
-                track_stats=True,
-                log_dir=log_dir,
-                seed=seed,
-            )
-            optimized = optimizer.compile(student, trainset=trainset, valset=devset)
+            if selected is student:
+                selected_holdout = baseline_holdout
+                metric_calls = len(holdoutset)
+            else:
+                selected_holdout = _evaluate_program(
+                    selected,
+                    holdoutset,
+                    metric,
+                    input_fields=ROLE_INPUT_FIELDS[role],
+                )
+                metric_calls = len(holdoutset) * 2
+        holdout = {
+            "evaluated_after_optimization": True,
+            "exposed_during_optimization": False,
+            "count": len(holdoutset),
+            "baseline": baseline_holdout,
+            "selected_candidate": selected_holdout,
+            "delta": (
+                selected_holdout["aggregate_score"]
+                - baseline_holdout["aggregate_score"]
+            ),
+            "metric_calls": metric_calls,
+        }
+    else:
+        holdout = {
+            "evaluated_after_optimization": False,
+            "exposed_during_optimization": False,
+            "count": 0,
+            "reason": "dataset has no holdout examples for the selected role",
+            "metric_calls": 0,
+        }
     report["baseline"] = baseline
-    report["optimization"] = _detailed_result_summary(optimized)
+    report["optimization"] = details
+    report["holdout"] = holdout
+    report["metric_call_accounting"] = {
+        "baseline_dev": len(devset),
+        "gepa_reported": details.get("total_metric_calls"),
+        "post_optimization_holdout": holdout["metric_calls"],
+    }
 
     def write_candidate(path: Path) -> None:
-        optimized.save(str(path))
+        selected.save(str(path))
 
     manifest = _write_run_directory(
-        output, report=report, candidate_writer=write_candidate
+        output,
+        report=report,
+        candidate_writer=write_candidate,
     )
     return {"manifest": manifest, "report": report}

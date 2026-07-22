@@ -49,6 +49,9 @@ class FakeProgram:
     def __call__(self, **inputs: object) -> FakePrediction:
         return FakePrediction(**self.outputs[str(inputs["task"])])
 
+    def save(self, path: str) -> None:
+        Path(path).write_text('{"baseline":true}\n', encoding="utf-8")
+
 
 class FakeOptimized:
     def __init__(self) -> None:
@@ -256,9 +259,11 @@ def test_actual_runner_saves_candidate_and_scores_without_activation(
             role="planner",
             reflection_route="local-review",
             auto="light",
+            allow_perfect_only=True,
+            force_search_perfect_baseline=True,
             seed=3,
             dspy_module=FAKE_DSPY,
-            lm_factory=lambda route: lm_calls.append(route) or f"lm:{route}",
+            lm_factory=lambda route, **_kwargs: lm_calls.append(route) or f"lm:{route}",
         )
 
     assert lm_calls == ["local-plan", "local-review"]
@@ -267,8 +272,12 @@ def test_actual_runner_saves_candidate_and_scores_without_activation(
     assert result["report"]["optimization"]["best_score"] == 0.9
     assert result["report"]["activation"] == "not_performed"
     assert result["report"]["promotion"] == "not_performed"
+    assert result["report"]["optimization"]["optimization_outcome"] == (
+        "no_improvement"
+    )
+    assert result["report"]["optimization"]["winning_candidate"] == "baseline"
     assert (output / "candidate.json").read_text(encoding="utf-8") == (
-        '{"compiled":true}\n'
+        '{"baseline":true}\n'
     )
     assert "candidate.json" in result["manifest"]["files"]
 
