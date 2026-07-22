@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .dspy_lm import build_dspy_lm
+from .dspy_trace import record_dspy_trace
 from .editor import load_editable_files
 from .models import AuditedModel, ModelRegistry, ModelUsageBudget
 from .skills import (
@@ -318,13 +319,43 @@ class ReadOnlyEvidenceAgent:
                     response=response,
                     evidence=evidence,
                 )
+                output = {
+                    "findings": _prediction_value(prediction, "findings"),
+                    "relevant_files": _prediction_value(prediction, "relevant_files"),
+                    "constraints": _prediction_value(prediction, "constraints"),
+                    "unresolved_questions": _prediction_value(
+                        prediction, "unresolved_questions"
+                    ),
+                }
             elif self.name == "planner":
                 response = _format_planner_prediction(
                     prediction,
                     worktree=self.context.worktree.path,
                 )
+                output = {
+                    "instruction": _prediction_value(prediction, "instruction"),
+                    "editable_files": _prediction_value(prediction, "editable_files"),
+                    "acceptance_criteria": _prediction_value(
+                        prediction, "acceptance_criteria"
+                    ),
+                    "depends_on": _prediction_value(prediction, "depends_on"),
+                }
             else:
                 raise RuntimeError(f"Unsupported DSPy evidence role: {self.name}")
+            if self.state is not None and self.run_id is not None:
+                record_dspy_trace(
+                    self.state,
+                    self.run_id,
+                    role=self.name,
+                    program=self.program_name,
+                    route=self.model_route,
+                    inputs={
+                        "task": authoritative_task,
+                        "delegated_task": task,
+                        "repository_evidence": evidence,
+                    },
+                    output=output,
+                )
             metadata["status"] = "success"
             return response
         except Exception as exc:
@@ -556,11 +587,28 @@ class DSPyImplementerAgent:
             )
             if self.usage_budget is not None:
                 self.usage_budget.record_usage(prompt_tokens, completion_tokens)
+            edits = _prediction_value(prediction, "edits")
             result = self.context.apply_prepared_atomic_edits(
                 task,
                 ",".join(editable_files),
-                _prediction_value(prediction, "edits"),
+                edits,
             )
+            if self.state is not None and self.run_id is not None:
+                record_dspy_trace(
+                    self.state,
+                    self.run_id,
+                    role=self.name,
+                    program=self.program_name,
+                    route=self.model_route,
+                    inputs={
+                        "task": authoritative_task,
+                        "instruction": task,
+                        "editable_files": editable_files,
+                        "file_contents": file_contents,
+                    },
+                    output={"edits": edits},
+                    metadata={"editor_result": result},
+                )
             metadata["status"] = "success"
             return f"Implementation succeeded: {result}"
         except Exception as exc:
@@ -672,14 +720,37 @@ class DSPyRepairerAgent:
             if self.usage_budget is not None:
                 self.usage_budget.record_usage(prompt_tokens, completion_tokens)
             diagnosis = _repair_diagnosis(prediction)
+            edits = _prediction_value(prediction, "edits")
             result = self.context.apply_prepared_atomic_edits(
                 task,
                 ",".join(editable_files),
-                _prediction_value(prediction, "edits"),
+                edits,
                 source="dspy-repairer",
             )
             verification = self.context.run_verification()
-            if not verification.startswith("Verification: PASS"):
+            repair_passed = verification.startswith("Verification: PASS")
+            if self.state is not None and self.run_id is not None:
+                record_dspy_trace(
+                    self.state,
+                    self.run_id,
+                    role=self.name,
+                    program=self.program_name,
+                    route=self.model_route,
+                    inputs={
+                        "task": authoritative_task,
+                        "delegated_task": task,
+                        "verification_output": verification_output,
+                        "diff": diff,
+                        "editable_files": editable_files,
+                        "file_contents": file_contents,
+                    },
+                    output={"diagnosis": diagnosis, "edits": edits},
+                    metadata={
+                        "editor_result": result,
+                        "repair_verification_passed": repair_passed,
+                    },
+                )
+            if not repair_passed:
                 status = "failed"
                 metadata["status"] = "repair_verification_failed"
                 return (

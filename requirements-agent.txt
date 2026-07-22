@@ -1,2 +1,3 @@
 smolagents[litellm]>=1.26,<2
 dspy>=3.2.1,<4
+gepa[dspy]==0.0.27

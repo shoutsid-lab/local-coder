@@ -1,6 +1,13 @@
 """Typed DSPy role programs used behind fixed local-coder adapters."""
 
 from .explorer import ExplorerProgram, ExplorerSignature, run_explorer_program
+from .gepa_dataset import (
+    GepaDatasetError,
+    build_gepa_examples,
+    export_gepa_dataset,
+    load_gepa_dataset,
+    to_dspy_examples,
+)
 from .implementer import (
     AtomicEditSpec,
     ImplementerProgram,
@@ -14,6 +21,11 @@ from .reviewer import ReviewerProgram, ReviewerSignature, run_reviewer_program
 __all__ = [
     "ExplorerProgram",
     "ExplorerSignature",
+    "GepaDatasetError",
+    "build_gepa_examples",
+    "export_gepa_dataset",
+    "load_gepa_dataset",
+    "to_dspy_examples",
     "AtomicEditSpec",
     "ImplementerProgram",
     "ImplementerSignature",

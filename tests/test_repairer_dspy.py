@@ -217,3 +217,11 @@ def test_dspy_repairer_applies_one_batch_and_reverifies(tmp_path: Path) -> None:
         "adapter": "JSONAdapter",
         "status": "success",
     }
+    traces = [
+        json.loads(artifact["content"])
+        for artifact in details["artifacts"]
+        if artifact["kind"] == "dspy_trace"
+    ]
+    assert traces[-1]["role"] == "repairer"
+    assert traces[-1]["metadata"]["repair_verification_passed"] is True
+    assert traces[-1]["output"]["edits"][0]["path"] == "canary.txt"

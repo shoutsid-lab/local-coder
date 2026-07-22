@@ -20,3 +20,4 @@ REVIEW.json
 .coverage
 htmlcov/
 .local-coder/live-e2e/
+.local-coder/gepa-datasets/

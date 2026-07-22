@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from .dspy_trace import record_dspy_trace
 from .editor import apply_edits, parse_edit_payload, request_and_apply
 from .state import StateStore
 
@@ -454,6 +455,7 @@ class ToolContext:
             output_path = run_dir / "REVIEW.json"
             metrics_path = run_dir / "REVIEW.metrics.json"
             self.last_review_verdict = None
+            review_payload: dict[str, Any] | None = None
             if output_path.exists():
                 output_path.unlink()
             if metrics_path.exists():
@@ -483,7 +485,12 @@ class ToolContext:
                     content=review_text,
                 )
                 try:
-                    self.last_review_verdict = json.loads(review_text).get("verdict")
+                    decoded_review = json.loads(review_text)
+                    if isinstance(decoded_review, dict):
+                        review_payload = decoded_review
+                        self.last_review_verdict = decoded_review.get("verdict")
+                    else:
+                        self.last_review_verdict = None
                 except json.JSONDecodeError:
                     self.last_review_verdict = None
             if metrics_path.exists():
@@ -499,6 +506,29 @@ class ToolContext:
             }:
                 message = combined or "Reviewer did not produce a valid verdict."
                 raise RuntimeError(message)
+            details = self.state.run_details(self.run_id) or {}
+            verification_rows = details.get("verification") or []
+            if review_payload is not None and verification_rows:
+                latest_verification = verification_rows[-1]
+                record_dspy_trace(
+                    self.state,
+                    self.run_id,
+                    role="reviewer",
+                    program="ReviewerProgram",
+                    route="local-review",
+                    inputs={
+                        "task": self.task_file.read_text(encoding="utf-8"),
+                        "changed_files": sorted(
+                            collect_changed_paths(self.worktree.path)
+                        ),
+                        "verification_passed": bool(latest_verification.get("passed")),
+                        "verification_output": str(
+                            latest_verification.get("output") or ""
+                        ),
+                        "diff": collect_uncommitted_diff(self.worktree.path),
+                    },
+                    output=review_payload,
+                )
             return combined or f"Reviewer exited with status {result.returncode}."
 
         return self._recorded("review_diff", {}, operation)

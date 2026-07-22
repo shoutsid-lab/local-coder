@@ -26,6 +26,7 @@ STATE_PATH = ROOT / ".local-coder" / "state" / "agent.db"
 VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
 DEVELOPMENT_SUITE = ROOT / "evaluation" / "suites" / "atomic-v1.json"
 HOLDOUT_STORAGE = ROOT / ".local-coder" / "holdout"
+GEPA_DATASET_PATH = ROOT / ".local-coder" / "gepa-datasets" / "latest"
 
 
 def ensure_project_python() -> None:
@@ -264,6 +265,27 @@ def handle_analyze_runs(args: argparse.Namespace) -> int:
             return 1
         records.append(details)
     print(json.dumps(analyze_run_records(records), indent=2, sort_keys=True))
+    return 0
+
+
+def handle_export_gepa_dataset(args: argparse.Namespace) -> int:
+    """Export complete typed DSPy traces without mutating audit state."""
+    from runtime.dspy_programs.gepa_dataset import (
+        GepaDatasetError,
+        export_gepa_dataset,
+    )
+
+    try:
+        manifest = export_gepa_dataset(
+            args.database,
+            args.output,
+            run_ids=args.run_id,
+            limit=args.limit,
+        )
+    except GepaDatasetError as exc:
+        print(f"GEPA dataset export failed closed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(manifest, indent=2, sort_keys=True))
     return 0
 
 
@@ -867,6 +889,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Specific run ID to analyze; may be repeated.",
     )
     analyze_parser.set_defaults(handler=handle_analyze_runs)
+
+    gepa_export_parser = subparsers.add_parser(
+        "export-gepa-dataset",
+        help="Export complete audited DSPy traces for offline GEPA work.",
+    )
+    gepa_export_parser.add_argument(
+        "--database",
+        type=Path,
+        default=STATE_PATH,
+        help="SQLite audit database to inspect read-only.",
+    )
+    gepa_export_parser.add_argument(
+        "--output",
+        type=Path,
+        default=GEPA_DATASET_PATH,
+        help="Destination directory for the manifest and JSONL splits.",
+    )
+    gepa_export_parser.add_argument("--limit", type=int, default=100)
+    gepa_export_parser.add_argument(
+        "--run-id",
+        action="append",
+        help="Specific run ID to export; may be repeated.",
+    )
+    gepa_export_parser.set_defaults(handler=handle_export_gepa_dataset)
 
     rotate_parser = subparsers.add_parser(
         "rotate-holdout",

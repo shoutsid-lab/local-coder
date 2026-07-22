@@ -838,6 +838,13 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
         "adapter": "JSONAdapter",
         "status": "success",
     }
+    explorer_traces = [
+        json.loads(artifact["content"])
+        for artifact in details["artifacts"]
+        if artifact["kind"] == "dspy_trace"
+        and json.loads(artifact["content"])["role"] == "explorer"
+    ]
+    assert explorer_traces[-1]["output"]["relevant_files"] == ["README.md"]
 
     planner = bundle.managed[1]
 
@@ -889,6 +896,13 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
         "adapter": "JSONAdapter",
         "status": "success",
     }
+    planner_traces = [
+        json.loads(artifact["content"])
+        for artifact in details["artifacts"]
+        if artifact["kind"] == "dspy_trace"
+        and json.loads(artifact["content"])["role"] == "planner"
+    ]
+    assert planner_traces[-1]["output"]["editable_files"] == ["README.md"]
 
     implementer = bundle.managed[2]
 
@@ -949,6 +963,13 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
         "adapter": "JSONAdapter",
         "status": "success",
     }
+    implementer_traces = [
+        json.loads(artifact["content"])
+        for artifact in details["artifacts"]
+        if artifact["kind"] == "dspy_trace"
+        and json.loads(artifact["content"])["role"] == "implementer"
+    ]
+    assert implementer_traces[-1]["output"]["edits"][0]["path"] == "README.md"
     assert [call.args for call in activate.call_args_list] == [
         ("explore-repository",),
         ("plan-change",),
@@ -1467,22 +1488,64 @@ def test_review_diff_uses_project_python(tmp_path: Path) -> None:
         task_file=task_file,
     )
 
+    store.add_verification(
+        run_id,
+        command="make verify",
+        passed=True,
+        output="149 passed",
+        duration_ms=1.0,
+    )
+
     def successful_review(*_: object, **__: object) -> SimpleNamespace:
         (run_dir / "REVIEW.json").write_text(
-            '{"verdict": "pass"}',
+            json.dumps(
+                {
+                    "verdict": "pass",
+                    "summary": "The audited diff matches the task.",
+                    "issues": [],
+                    "unrelated_changes": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (run_dir / "REVIEW.metrics.json").write_text(
+            json.dumps(
+                {
+                    "route": "local-review",
+                    "prompt_tokens": 3,
+                    "completion_tokens": 2,
+                    "metadata": {
+                        "source": "dspy-reviewer",
+                        "program": "ReviewerProgram",
+                        "adapter": "JSONAdapter",
+                        "status": "success",
+                    },
+                }
+            ),
             encoding="utf-8",
         )
         return SimpleNamespace(returncode=0, stdout="reviewed", stderr="")
 
-    with patch(
-        "runtime.tools.command",
-        side_effect=successful_review,
-    ) as command:
+    with (
+        patch("runtime.tools.command", side_effect=successful_review) as command,
+        patch("runtime.tools.collect_changed_paths", return_value={"README.md"}),
+        patch("runtime.tools.collect_uncommitted_diff", return_value="diff"),
+    ):
         assert context.review_diff() == "reviewed"
 
     assert command.call_args.args[0][0] == local_coder.sys.executable
     assert command.call_args.args[0][1] == "./review-diff.py"
     assert context.last_review_verdict == "pass"
+    details = store.run_details(run_id)
+    assert details is not None
+    traces = [
+        json.loads(artifact["content"])
+        for artifact in details["artifacts"]
+        if artifact["kind"] == "dspy_trace"
+    ]
+    assert traces[-1]["role"] == "reviewer"
+    assert traces[-1]["inputs"]["verification_passed"] is True
+    assert traces[-1]["output"]["verdict"] == "pass"
 
 
 def test_review_diff_discards_stale_verdict_after_failure(tmp_path: Path) -> None:

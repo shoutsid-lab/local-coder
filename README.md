@@ -15,7 +15,7 @@ machine used to build this repository.
 - A **validated native editor** remains the only component allowed to apply strict
   exact edits proposed by the DSPy implementer or repairer.
 - **Git worktrees** isolate every agentic run.
-- **SQLite** records runs, agents, tool calls, artifacts, verification, and metrics.
+- **SQLite** records runs, agents, typed DSPy traces, tool calls, artifacts, verification, and metrics.
 - **Black, Flake8, pytest, protected tests, and `git diff --check`** remain authoritative.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the complete design,
@@ -63,6 +63,22 @@ Inspect the audit trail:
 ```
 
 Then review the preserved worktree independently before committing or merging.
+
+## Export an offline GEPA dataset
+
+Complete typed DSPy traces can be exported from the audit database without starting
+model services or changing live programs:
+
+```bash
+./local-coder.py export-gepa-dataset \
+  --output .local-coder/gepa-datasets/latest
+make gepa-dataset-check
+```
+
+The exporter opens SQLite read-only, excludes incomplete or protected evaluator
+material, groups identical tasks into deterministic train/dev/holdout splits, and
+writes a hash-stamped manifest plus JSONL files. See
+[docs/GEPA_DATASET.md](docs/GEPA_DATASET.md).
 
 ## Run a trusted task-plan step
 
