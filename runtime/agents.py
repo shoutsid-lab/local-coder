@@ -240,7 +240,9 @@ def _build_agent(
                     first_action = (
                         "Your first action must call apply_atomic_edit exactly once, "
                         "using "
-                        f"instruction={task!r} and editable_files={first_file!r}."
+                        f"instruction={task!r} and editable_files={first_file!r}. "
+                        "If that call fails, do not retry it with identical arguments; "
+                        "finish with a concise failure report."
                     )
                 else:
                     first_action = "Your first action must call run_verification()."

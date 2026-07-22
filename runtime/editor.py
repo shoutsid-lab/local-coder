@@ -246,8 +246,13 @@ def request_edits(
 Generate the smallest exact search/replace edits needed for this atomic task.
 
 Rules:
-- Return JSON only, matching the supplied schema.
-- Use only approved paths from the schema.
+- Return exactly one JSON object with this shape:
+  {{"edits":[{{"path":"<approved path>",
+  "old_text":"<exact existing text>",
+  "new_text":"<replacement text>"}}]}}
+- The top-level object must contain only `edits`.
+- Each edit must contain only `path`, `old_text`, and `new_text`.
+- Use only approved paths from the constrained schema.
 - old_text must be a verbatim, non-empty substring of the supplied file.
 - Include enough surrounding text for old_text to match exactly once.
 - Preserve all unrelated content.
@@ -280,7 +285,11 @@ Approved file contents:
         "max_tokens": 4096,
         "response_format": {
             "type": "json_schema",
-            "schema": edit_schema(list(contents)),
+            "json_schema": {
+                "name": "atomic_edits",
+                "strict": True,
+                "schema": edit_schema(list(contents)),
+            },
         },
     }
     request = urllib.request.Request(
@@ -309,17 +318,32 @@ Approved file contents:
             raise TypeError("Editor content is not text.")
     except (KeyError, IndexError, TypeError) as exc:
         raise EditorError("The editor returned an invalid response envelope.") from exc
-    status = "success"
+    try:
+        edits = parse_edit_content(content)
+    except EditorError as exc:
+        status = "error"
+        parse_error: EditorError | None = exc
+    else:
+        status = "success"
+        parse_error = None
     if metrics_callback is not None:
         usage = result.get("usage", {})
+        metadata: dict[str, Any] = {
+            "status": status,
+            "source": "native-editor",
+        }
+        if parse_error is not None:
+            metadata["response_excerpt"] = content[:2000]
         metrics_callback(
             route=model,
             prompt_tokens=usage.get("prompt_tokens"),
             completion_tokens=usage.get("completion_tokens"),
             duration_ms=(time.perf_counter() - started) * 1000,
-            metadata={"status": status, "source": "native-editor"},
+            metadata=metadata,
         )
-    return parse_edit_content(content)
+    if parse_error is not None:
+        raise parse_error
+    return edits
 
 
 def request_and_apply(

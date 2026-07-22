@@ -1,5 +1,6 @@
 import inspect
 import importlib.util
+import io
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from runtime.editor import (
     apply_edits,
     parse_edit_content,
     request_and_apply,
+    request_edits,
 )
 from runtime.models import (
     AuditedModel,
@@ -327,6 +329,112 @@ def test_native_editor_rejects_prose_around_json() -> None:
         )
 
 
+def test_native_editor_sends_strict_nested_json_schema() -> None:
+    response = io.BytesIO(
+        json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "edits": [
+                                        {
+                                            "path": "README.md",
+                                            "old_text": "before",
+                                            "new_text": "after",
+                                        }
+                                    ]
+                                }
+                            )
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            }
+        ).encode("utf-8")
+    )
+    metrics: list[dict[str, object]] = []
+
+    with patch(
+        "runtime.editor.urllib.request.urlopen", return_value=response
+    ) as open_url:
+        edits = request_edits(
+            instruction="Replace one exact word",
+            contents={"README.md": "before\n"},
+            task="Change before to after",
+            metrics_callback=lambda **values: metrics.append(values),
+        )
+
+    request = open_url.call_args.args[0]
+    payload = json.loads(request.data.decode("utf-8"))
+    response_format = payload["response_format"]
+    assert response_format["type"] == "json_schema"
+    assert set(response_format) == {"type", "json_schema"}
+    assert response_format["json_schema"]["name"] == "atomic_edits"
+    assert response_format["json_schema"]["strict"] is True
+    assert response_format["json_schema"]["schema"] == {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["edits"],
+        "properties": {
+            "edits": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 8,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["path", "old_text", "new_text"],
+                    "properties": {
+                        "path": {"type": "string", "enum": ["README.md"]},
+                        "old_text": {"type": "string", "minLength": 1},
+                        "new_text": {"type": "string"},
+                    },
+                },
+            }
+        },
+    }
+    prompt = payload["messages"][1]["content"]
+    assert "Return exactly one JSON object with this shape" in prompt
+    assert "The top-level object must contain only `edits`" in prompt
+    assert edits == [AtomicEdit("README.md", "before", "after")]
+    assert metrics[0]["metadata"] == {
+        "status": "success",
+        "source": "native-editor",
+    }
+
+
+def test_native_editor_audits_malformed_response_excerpt() -> None:
+    malformed = '{"edits": [], "comment": "not allowed"}'
+    response = io.BytesIO(
+        json.dumps(
+            {
+                "choices": [{"message": {"content": malformed}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            }
+        ).encode("utf-8")
+    )
+    metrics: list[dict[str, object]] = []
+
+    with (
+        patch("runtime.editor.urllib.request.urlopen", return_value=response),
+        pytest.raises(EditorError, match="contain only `edits`"),
+    ):
+        request_edits(
+            instruction="Replace one exact word",
+            contents={"README.md": "before\n"},
+            task="Change before to after",
+            metrics_callback=lambda **values: metrics.append(values),
+        )
+
+    assert metrics[0]["metadata"] == {
+        "status": "error",
+        "source": "native-editor",
+        "response_excerpt": malformed,
+    }
+
+
 def test_native_editor_applies_only_exact_unique_matches(tmp_path: Path) -> None:
     editable = tmp_path / "README.md"
     editable.write_text("before\n", encoding="utf-8")
@@ -635,6 +743,7 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
     with patch.object(implementer, "run", return_value="done") as run:
         implementer("Replace one sentence in README.md")
     assert "apply_atomic_edit exactly once" in run.call_args.args[0]
+    assert "do not retry it with identical arguments" in run.call_args.args[0]
     assert "editable_files='README.md'" in run.call_args.args[0]
     assert implementer.instructions.startswith("# Atomic Implementation")
     assert [call.args for call in activate.call_args_list] == [
@@ -757,6 +866,61 @@ def test_state_store_records_run_and_verification(tmp_path: Path) -> None:
     assert details["verification"][0]["passed"] == 1
     assert store.tool_call_error_count(run_id) == 1
     assert store.tool_call_error_count(run_id, tool_name="apply_atomic_edit") == 1
+
+
+def test_no_diff_skips_verification_and_ignores_manager_success_claim(
+    tmp_path: Path,
+) -> None:
+    from runtime.orchestrator import AgentOrchestrator, OrchestratorConfig
+
+    repository = tmp_path / "repository"
+    worktree_path = tmp_path / "worktree"
+    repository.mkdir()
+    worktree_path.mkdir()
+    orchestrator = AgentOrchestrator(OrchestratorConfig(repository=repository))
+    bundle = SimpleNamespace(
+        manager=SimpleNamespace(
+            run=lambda *_args, **_kwargs: "Task completed successfully."
+        )
+    )
+
+    with (
+        patch.object(orchestrator, "_service_preflight"),
+        patch.object(orchestrator, "_run_identity", return_value=("abc", "def", "ghi")),
+        patch("runtime.orchestrator.current_branch", return_value="main"),
+        patch(
+            "runtime.orchestrator.create_worktree",
+            return_value=Worktree(worktree_path, "agent/test", "main"),
+        ),
+        patch("runtime.orchestrator.discover_skills", return_value={}),
+        patch("runtime.orchestrator.build_agent_bundle", return_value=bundle),
+        patch.object(ToolContext, "inspect_diff", return_value="No uncommitted diff."),
+        patch.object(ToolContext, "run_verification") as run_verification,
+        patch.object(ToolContext, "review_diff") as review_diff,
+    ):
+        summary = orchestrator.run("Make one exact change")
+
+    assert summary.status == "no_changes"
+    assert summary.verification_passed is False
+    assert "Task completed successfully" not in summary.result
+    assert "did not produce a reviewable diff" in summary.result
+    assert "verification skipped" in summary.result.lower()
+    run_verification.assert_not_called()
+    review_diff.assert_not_called()
+
+
+def test_no_diff_with_editor_error_requires_attention() -> None:
+    from runtime.orchestrator import determine_run_status
+
+    status = determine_run_status(
+        verification_passed=False,
+        has_diff=False,
+        review_verdict=None,
+        has_scope_violations=False,
+        editor_error_count=1,
+    )
+
+    assert status == "needs_attention"
 
 
 def test_rejected_editor_attempt_forces_needs_attention() -> None:
