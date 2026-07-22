@@ -15,6 +15,8 @@ from typing import Any, Callable
 from .editor import request_and_apply
 from .state import StateStore
 
+TRUSTED_READ_PREFIXES = ("evaluation/holdout/", "evaluation/oracles/")
+
 
 @dataclass(frozen=True)
 class Worktree:
@@ -173,6 +175,9 @@ class ToolContext:
     scope_violations: set[str] = field(default_factory=set)
 
     def _safe_path(self, relative: str) -> Path:
+        normalized = Path(relative).as_posix().lstrip("./")
+        if normalized.startswith(TRUSTED_READ_PREFIXES):
+            raise ValueError(f"Path is restricted to the trusted evaluator: {relative}")
         candidate = (self.worktree.path / relative).resolve()
         root = self.worktree.path.resolve()
         if candidate != root and root not in candidate.parents:
@@ -300,6 +305,9 @@ class ToolContext:
                 editable_files=files,
                 task=task,
                 protected_files={task_relative},
+                metrics_callback=lambda **metrics: self.state.add_model_metrics(
+                    self.run_id, **metrics
+                ),
             )
             changed_after = collect_changed_paths(self.worktree.path)
             unexpected = (changed_after - changed_before - set(files)) | (
@@ -354,9 +362,12 @@ class ToolContext:
             run_dir = self.worktree.path / ".local-coder" / "runs" / self.run_id
             run_dir.mkdir(parents=True, exist_ok=True)
             output_path = run_dir / "REVIEW.json"
+            metrics_path = run_dir / "REVIEW.metrics.json"
             self.last_review_verdict = None
             if output_path.exists():
                 output_path.unlink()
+            if metrics_path.exists():
+                metrics_path.unlink()
             result = command(
                 [
                     sys.executable,
@@ -365,6 +376,8 @@ class ToolContext:
                     str(self.task_file),
                     "--output",
                     str(output_path),
+                    "--metrics-output",
+                    str(metrics_path),
                 ],
                 cwd=self.worktree.path,
             )
@@ -382,6 +395,12 @@ class ToolContext:
                 try:
                     self.last_review_verdict = json.loads(review_text).get("verdict")
                 except json.JSONDecodeError:
+                    self.last_review_verdict = None
+            if metrics_path.exists():
+                try:
+                    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+                    self.state.add_model_metrics(self.run_id, **metrics)
+                except (json.JSONDecodeError, TypeError, ValueError):
                     self.last_review_verdict = None
             if self.last_review_verdict not in {
                 "pass",

@@ -1,5 +1,5 @@
 PYTHON := .venv/bin/python
-PYTHON_FILES := local-coder.py review-diff.py run-editor.py runtime/*.py tests/*.py
+PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runtime/*.py tests/*.py
 
 .PHONY: health format format-check lint agent-check agent-install agent-smoke handoff-check test verify \
 	metrics review review-cached skills runs
@@ -19,6 +19,11 @@ lint:
 agent-check:
 	$(PYTHON) -m py_compile $(PYTHON_FILES)
 	$(PYTHON) -m json.tool docs/UPSTREAM.json >/dev/null
+	$(PYTHON) -m json.tool evaluation/suites/atomic-v1.json >/dev/null
+	@if [ "$(CANDIDATE_EVALUATION)" != "1" ]; then \
+		$(PYTHON) -m json.tool evaluation/holdout/atomic-holdout-v1.json >/dev/null; \
+		$(PYTHON) -m json.tool evaluation/oracles/atomic-holdout-v1.json >/dev/null; \
+	fi
 
 agent-install:
 	$(PYTHON) -m pip install -r requirements-agent.txt
@@ -28,7 +33,8 @@ agent-smoke:
 
 handoff-check: verify agent-smoke
 	@test -f AGENTS.md -a -f HANDOFF.md -a -f docs/ARCHITECTURE.md \
-		-a -f docs/PIPELINE.md -a -f docs/CONVENTIONS.md
+		-a -f docs/PIPELINE.md -a -f docs/CONVENTIONS.md \
+		-a -f docs/RECURSIVE_IMPROVEMENT.md
 	@test -z "$$(git status --porcelain)" || (echo "Handoff check failed: working tree is not clean."; git status --short; exit 1)
 
 test:

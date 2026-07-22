@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import traceback
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -12,7 +13,7 @@ from .agents import build_agent_bundle
 from .models import ModelRegistry
 from .skills import discover_skills
 from .state import StateStore
-from .tools import ToolContext, Worktree, create_worktree, current_branch
+from .tools import ToolContext, Worktree, command, create_worktree, current_branch
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class OrchestratorConfig:
     max_steps: int = 12
     keep_worktree: bool = True
     mode: str = "agentic"
+    expected_changed_paths: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -86,16 +88,46 @@ class AgentOrchestrator:
         if not self.models.litellm_available():
             raise RuntimeError("LiteLLM is not listening on port 4000.")
 
+    def _run_identity(self) -> tuple[str, str, str]:
+        """Return baseline, model-route, and harness-configuration identities."""
+        baseline = command(["git", "rev-parse", "HEAD"], cwd=self.root, check=True)
+        model_config = (self.root / "litellm-config.yaml").read_bytes()
+        model_hash = hashlib.sha256(model_config).hexdigest()
+        hasher = hashlib.sha256()
+        for relative in (
+            "requirements-agent.txt",
+            "runtime/agents.py",
+            "runtime/editor.py",
+            "runtime/orchestrator.py",
+            "runtime/tools.py",
+        ):
+            hasher.update(relative.encode("utf-8"))
+            hasher.update((self.root / relative).read_bytes())
+        return baseline.stdout.strip(), model_hash, hasher.hexdigest()
+
     def run(self, task: str) -> RunSummary:
         if self.config.mode != "agentic":
             raise ValueError("Only agentic mode is currently supported.")
         self._service_preflight()
         base_branch = current_branch(self.root)
+        baseline_commit, model_hash, configuration_hash = self._run_identity()
         run_id = self.state.create_run(
             task=task,
             mode=self.config.mode,
             repository=self.root,
             base_branch=base_branch,
+        )
+        self.state.set_run_context(
+            run_id,
+            baseline_commit=baseline_commit,
+            expected_changed_paths=(
+                list(self.config.expected_changed_paths)
+                if self.config.expected_changed_paths is not None
+                else None
+            ),
+            suite_hash=None,
+            model_hash=model_hash,
+            configuration_hash=configuration_hash,
         )
         worktree: Worktree | None = None
         try:
@@ -147,7 +179,19 @@ Required process:
 7. Finish with the branch, worktree, changed files, verification result,
    and review verdict.
 """.strip()
-            result: Any = bundle.manager.run(prompt, reset=True)
+            manager_step = self.state.start_step(
+                run_id,
+                agent_role="orchestrator",
+                summary="Manager coordination",
+            )
+            manager_status = "completed"
+            try:
+                result: Any = bundle.manager.run(prompt, reset=True)
+            except Exception:
+                manager_status = "failed"
+                raise
+            finally:
+                self.state.complete_step(manager_step, status=manager_status)
             verification_output = context.run_verification()
             verification_passed = verification_output.startswith("Verification: PASS")
             diff = context.inspect_diff()

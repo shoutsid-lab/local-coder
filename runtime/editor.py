@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 API_URL = "http://127.0.0.1:4000/v1/chat/completions"
 MAX_FILE_BYTES = 32_000
@@ -25,6 +26,7 @@ PIPELINE_CONTROLS = {
     "docs/ARCHITECTURE.md",
     "docs/CONVENTIONS.md",
     "docs/PIPELINE.md",
+    "docs/RECURSIVE_IMPROVEMENT.md",
     "docs/UPSTREAM.json",
     "docs/VALIDATION_HISTORY.md",
     "litellm-config.yaml",
@@ -34,6 +36,7 @@ PIPELINE_CONTROLS = {
     "requirements-agent.txt",
     "run-editor.py",
 }
+PIPELINE_CONTROL_PREFIXES = ("evaluation/",)
 
 
 class EditorError(RuntimeError):
@@ -126,6 +129,7 @@ def _is_protected(relative: str, extra: set[str]) -> bool:
         path.name.endswith("_contract.py")
         or path.name == "TASK.md"
         or normalized in PIPELINE_CONTROLS
+        or normalized.startswith(PIPELINE_CONTROL_PREFIXES)
         or normalized in extra
     )
 
@@ -230,6 +234,7 @@ def request_edits(
     task: str,
     model: str = "local-fast",
     api_url: str = API_URL,
+    metrics_callback: Callable[..., None] | None = None,
 ) -> list[AtomicEdit]:
     """Ask local-fast for strict exact replacements against approved contents."""
     context = "\n\n".join(
@@ -285,6 +290,9 @@ Approved file contents:
         },
         method="POST",
     )
+    started = time.perf_counter()
+    result: dict[str, Any] | None = None
+    status = "error"
     try:
         with urllib.request.urlopen(request, timeout=600) as response:
             result = json.load(response)
@@ -299,6 +307,16 @@ Approved file contents:
             raise TypeError("Editor content is not text.")
     except (KeyError, IndexError, TypeError) as exc:
         raise EditorError("The editor returned an invalid response envelope.") from exc
+    status = "success"
+    if metrics_callback is not None:
+        usage = result.get("usage", {})
+        metrics_callback(
+            route=model,
+            prompt_tokens=usage.get("prompt_tokens"),
+            completion_tokens=usage.get("completion_tokens"),
+            duration_ms=(time.perf_counter() - started) * 1000,
+            metadata={"status": status, "source": "native-editor"},
+        )
     return parse_edit_content(content)
 
 
@@ -309,6 +327,7 @@ def request_and_apply(
     editable_files: list[str],
     task: str,
     protected_files: set[str] | None = None,
+    metrics_callback: Callable[..., None] | None = None,
 ) -> list[str]:
     """Request, validate, and apply one atomic local-fast edit batch."""
     contents = load_editable_files(
@@ -320,6 +339,7 @@ def request_and_apply(
         instruction=instruction,
         contents=contents,
         task=task,
+        metrics_callback=metrics_callback,
     )
     updated = validate_edits(contents, edits)
     changed = [path for path in editable_files if updated[path] != contents[path]]

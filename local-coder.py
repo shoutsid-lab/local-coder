@@ -8,6 +8,7 @@ import json
 import os
 import shlex
 import socket
+import sqlite3
 import subprocess
 import sys
 import urllib.error
@@ -21,6 +22,9 @@ LITELLM_HOST = "127.0.0.1"
 LITELLM_PORT = 4000
 STATE_PATH = ROOT / ".local-coder" / "state" / "agent.db"
 VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
+DEVELOPMENT_SUITE = ROOT / "evaluation" / "suites" / "atomic-v1.json"
+HOLDOUT_SUITE = ROOT / "evaluation" / "holdout" / "atomic-holdout-v1.json"
+HOLDOUT_ORACLE = ROOT / "evaluation" / "oracles" / "atomic-holdout-v1.json"
 
 
 def ensure_project_python() -> None:
@@ -146,6 +150,9 @@ def handle_run(args: argparse.Namespace) -> int:
         max_steps=args.max_steps,
         keep_worktree=True,
         mode="agentic",
+        expected_changed_paths=(
+            tuple(args.expected_file) if args.expected_file else None
+        ),
     )
     summary = AgentOrchestrator(config).run(args.task)
     print(summary.to_json())
@@ -174,6 +181,376 @@ def handle_show_run(args: argparse.Namespace) -> int:
         return 1
     print(json.dumps(details, indent=2))
     return 0
+
+
+def handle_analyze_runs(args: argparse.Namespace) -> int:
+    """Normalize recorded runs without mutating their SQLite database."""
+    from evaluation.outcomes import analyze_run_records
+    from runtime.state import StateStore
+
+    try:
+        store = StateStore(args.database.resolve(), read_only=True)
+    except FileNotFoundError:
+        print(f"Run database does not exist: {args.database}", file=sys.stderr)
+        return 1
+    run_ids = args.run_id or [row["id"] for row in store.recent_runs(args.limit)]
+    records = []
+    for run_id in run_ids:
+        details = store.run_details(run_id)
+        if details is None:
+            print(f"Unknown run ID: {run_id}", file=sys.stderr)
+            return 1
+        records.append(details)
+    print(json.dumps(analyze_run_records(records), indent=2, sort_keys=True))
+    return 0
+
+
+def _evaluation_budget(args: argparse.Namespace):
+    from evaluation.supervisor import EvaluationBudget
+
+    return EvaluationBudget(
+        campaign_wall_seconds=args.campaign_seconds,
+        process_wall_seconds=args.process_seconds,
+        max_processes=args.max_processes,
+        max_output_bytes=args.max_output_bytes,
+        max_memory_mb=args.max_memory_mb,
+        max_file_mb=args.max_file_mb,
+        max_disk_mb=args.max_disk_mb,
+        max_prompt_tokens=args.max_prompt_tokens,
+        max_completion_tokens=args.max_completion_tokens,
+        max_model_calls=args.max_model_calls,
+    )
+
+
+def _load_evaluation_inputs(args: argparse.Namespace):
+    from evaluation.manifests import load_holdout_oracle, load_suite
+
+    development = load_suite(
+        args.development_suite,
+        expected_visibility="development",
+    )
+    holdout = load_suite(args.holdout_suite, expected_visibility="holdout")
+    oracle, oracle_hash = load_holdout_oracle(args.holdout_oracle, holdout)
+    return development, holdout, oracle, oracle_hash
+
+
+def handle_evaluate(args: argparse.Namespace) -> int:
+    """Run and record one bounded paired generation evaluation."""
+    from evaluation.scorecard import build_scorecard
+    from evaluation.supervisor import EvaluationError, evaluate_pair
+    from runtime.state import StateStore
+
+    try:
+        development, holdout, oracle, oracle_hash = _load_evaluation_inputs(args)
+        budget = _evaluation_budget(args)
+        state = StateStore(args.database.resolve())
+        if args.campaign_id is not None:
+            campaign = state.campaign_details(args.campaign_id)
+            approved = (
+                [brief for brief in campaign["briefs"] if brief["status"] == "approved"]
+                if campaign is not None
+                else []
+            )
+            if len(approved) != 1:
+                raise ValueError("Campaign requires one approved brief.")
+            allowed_candidate_paths = set(json.loads(approved[0]["allowed_files"]))
+            acceptance_cases = {
+                metric["case_id"]
+                for metric in json.loads(approved[0]["acceptance_metrics"])
+            }
+            if set(args.target_case) != acceptance_cases:
+                raise ValueError("Target cases do not match the approved brief.")
+            if args.allowed_file and set(args.allowed_file) != allowed_candidate_paths:
+                raise ValueError("CLI allowed paths do not match the approved brief.")
+        else:
+            if not args.allowed_file:
+                raise ValueError("Standalone evaluation requires --allowed-file.")
+            allowed_candidate_paths = set(args.allowed_file)
+        evaluation = evaluate_pair(
+            trusted_root=ROOT,
+            baseline=args.baseline,
+            candidate=args.candidate,
+            development=development,
+            holdout=holdout,
+            holdout_oracle=oracle,
+            holdout_oracle_hash=oracle_hash,
+            repetitions=args.repetitions,
+            budget=budget,
+            allowed_candidate_paths=allowed_candidate_paths,
+            expected_environment_hash=args.expected_environment_hash,
+            state=state,
+            campaign_id=args.campaign_id,
+        )
+        scorecard = build_scorecard(
+            evaluation,
+            target_case_ids=args.target_case,
+        )
+        if evaluation.evaluation_id is not None:
+            state.complete_evaluation(
+                evaluation.evaluation_id,
+                status="completed",
+                scorecard=scorecard.to_dict(),
+            )
+    except (EvaluationError, ValueError) as exc:
+        print(f"Evaluation failed closed: {exc}", file=sys.stderr)
+        return 1
+    report = evaluation.to_dict(redact_holdout=True)
+    report["scorecard"] = scorecard.to_dict()
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0
+
+
+def handle_create_campaign(args: argparse.Namespace) -> int:
+    """Mine one failure class and create one pending human-approved campaign brief."""
+    from dataclasses import asdict
+
+    from evaluation.manifests import load_suite
+    from evaluation.miner import campaign_candidate_limit, mine_improvement_brief
+    from evaluation.outcomes import normalize_run, stable_hash
+    from evaluation.supervisor import committed_generation
+    from runtime.editor import PIPELINE_CONTROLS
+    from runtime.state import StateStore
+
+    store = StateStore(args.database.resolve())
+    records = []
+    for run_id in args.run_id:
+        details = store.run_details(run_id)
+        if details is None:
+            print(f"Unknown run ID: {run_id}", file=sys.stderr)
+            return 1
+        records.append(normalize_run(details))
+    development = load_suite(
+        args.development_suite,
+        expected_visibility="development",
+    )
+    holdout = load_suite(args.holdout_suite, expected_visibility="holdout")
+    suite_hash = stable_hash(
+        {
+            "development": development.manifest_hash,
+            "holdout": holdout.manifest_hash,
+        }
+    )
+    budget = asdict(_evaluation_budget(args))
+    forbidden = set(PIPELINE_CONTROLS) | {
+        "evaluation/",
+        "tests/test_architecture_contract.py",
+        "tests/test_evaluation_contract.py",
+    }
+    metrics = tuple(
+        {
+            "case_id": case_id,
+            "measure": "paired_pass_count",
+            "direction": "increase",
+        }
+        for case_id in args.target_case
+    )
+    try:
+        baseline_commit = committed_generation(args.baseline)
+        brief = mine_improvement_brief(
+            records,
+            baseline_commit=baseline_commit,
+            allowed_files=args.allowed_file,
+            forbidden_files=forbidden,
+            acceptance_metrics=metrics,
+            suite_hash=suite_hash,
+            budget=budget,
+            rollback_condition=args.rollback_condition,
+        )
+        campaign_id = store.create_campaign(
+            baseline_commit=baseline_commit,
+            suite_hash=suite_hash,
+            budget=budget,
+            max_candidates=campaign_candidate_limit(store),
+        )
+        store.add_improvement_brief(campaign_id, brief.to_dict())
+    except ValueError as exc:
+        print(f"Campaign creation failed closed: {exc}", file=sys.stderr)
+        return 1
+    print(
+        json.dumps(
+            {"campaign_id": campaign_id, "brief": brief.to_dict()},
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def handle_approve_brief(args: argparse.Namespace) -> int:
+    """Record explicit human approval of a pending improvement brief."""
+    from runtime.state import StateStore
+
+    try:
+        StateStore(args.database.resolve()).approve_improvement_brief(
+            args.brief_id,
+            actor=args.actor,
+            rationale=args.rationale,
+        )
+    except ValueError as exc:
+        print(f"Brief approval failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({"brief_id": args.brief_id, "status": "approved"}))
+    return 0
+
+
+def handle_build_candidate(args: argparse.Namespace) -> int:
+    """Build one uncommitted campaign candidate through the existing orchestrator."""
+    from evaluation.miner import ExperimentOverlay
+    from runtime.orchestrator import AgentOrchestrator, OrchestratorConfig
+    from runtime.state import StateStore
+
+    store = StateStore(STATE_PATH)
+    campaign = store.campaign_details(args.campaign_id)
+    if campaign is None or campaign["status"] != "active":
+        print(
+            "Candidate build failed: campaign is missing or inactive.", file=sys.stderr
+        )
+        return 1
+    briefs = [brief for brief in campaign["briefs"] if brief["status"] == "approved"]
+    if len(briefs) != 1:
+        print(
+            "Candidate build failed: one approved brief is required.", file=sys.stderr
+        )
+        return 1
+    brief = briefs[0]
+    try:
+        overlay_values = dict(item.split("=", 1) for item in (args.overlay or []))
+        overlay = (
+            ExperimentOverlay.from_mapping(overlay_values) if overlay_values else None
+        )
+        allowed_files = json.loads(brief["allowed_files"])
+        acceptance_metrics = json.loads(brief["acceptance_metrics"])
+        brief_budget = json.loads(brief["budget"])
+        forbidden_files = json.loads(brief["forbidden_files"])
+        build_id = store.create_candidate_build(
+            args.campaign_id,
+            brief_id=brief["id"],
+            overlay_hash=overlay.overlay_hash if overlay is not None else None,
+            overlay=dict(overlay.values) if overlay is not None else None,
+        )
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        print(f"Candidate build failed closed: {exc}", file=sys.stderr)
+        return 1
+    task = "\n".join(
+        (
+            f"Implement approved recursive-improvement brief {brief['id']}.",
+            f"Failure class: {brief['failure_class']}",
+            f"Falsifiable hypothesis: {brief['hypothesis']}",
+            f"Editable files exactly: {json.dumps(allowed_files)}",
+            f"Forbidden files: {json.dumps(forbidden_files)}",
+            f"Acceptance metrics: {json.dumps(acceptance_metrics, sort_keys=True)}",
+            f"Rollback condition: {brief['rollback_condition']}",
+            (
+                f"In-memory overlay identity: {overlay.overlay_hash}"
+                if overlay is not None
+                else "No in-memory overlay."
+            ),
+            "Leave all changes uncommitted for human inspection.",
+        )
+    )
+    try:
+        summary = AgentOrchestrator(
+            OrchestratorConfig(
+                repository=ROOT,
+                max_steps=min(args.max_steps, brief_budget["max_model_calls"]),
+                keep_worktree=True,
+                mode="agentic",
+                expected_changed_paths=tuple(allowed_files),
+            )
+        ).run(task)
+        store.complete_candidate_build(
+            build_id,
+            run_id=summary.run_id,
+            status=summary.status,
+            branch=summary.branch,
+            worktree=summary.worktree,
+        )
+    except Exception as exc:
+        store.complete_candidate_build(
+            build_id,
+            run_id=None,
+            status="failed",
+            branch=None,
+            worktree=None,
+        )
+        print(f"Candidate build failed closed: {exc}", file=sys.stderr)
+        return 1
+    print(
+        json.dumps(
+            {"build_id": build_id, "run": json.loads(summary.to_json())},
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return (
+        0
+        if summary.status in {"awaiting_approval", "needs_attention", "no_changes"}
+        else 1
+    )
+
+
+def handle_record_decision(args: argparse.Namespace) -> int:
+    """Record a human recommendation decision without changing Git state."""
+    from runtime.state import StateStore
+
+    try:
+        StateStore(args.database.resolve()).record_promotion_decision(
+            args.evaluation_id,
+            actor=args.actor,
+            decision=args.decision,
+            rationale=args.rationale,
+        )
+    except (ValueError, sqlite3.IntegrityError) as exc:
+        print(f"Decision recording failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({"evaluation_id": args.evaluation_id, "decision": args.decision}))
+    return 0
+
+
+def handle_close_campaign(args: argparse.Namespace) -> int:
+    """Close a decided campaign from its stored safety and regression evidence."""
+    from runtime.state import StateStore
+
+    try:
+        status = StateStore(args.database.resolve()).close_campaign_from_evidence(
+            args.campaign_id
+        )
+    except ValueError as exc:
+        print(f"Campaign close failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({"campaign_id": args.campaign_id, "status": status}))
+    return 0
+
+
+def handle_show_campaign(args: argparse.Namespace) -> int:
+    """Show persisted campaign lineage and decisions."""
+    from runtime.state import StateStore
+
+    details = StateStore(args.database.resolve(), read_only=True).campaign_details(
+        args.campaign_id
+    )
+    if details is None:
+        print(f"Unknown campaign ID: {args.campaign_id}", file=sys.stderr)
+        return 1
+    print(json.dumps(details, indent=2, sort_keys=True))
+    return 0
+
+
+def add_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add shared immutable-suite and hard-budget arguments."""
+    parser.add_argument("--development-suite", type=Path, default=DEVELOPMENT_SUITE)
+    parser.add_argument("--holdout-suite", type=Path, default=HOLDOUT_SUITE)
+    parser.add_argument("--holdout-oracle", type=Path, default=HOLDOUT_ORACLE)
+    parser.add_argument("--campaign-seconds", type=int, default=1800)
+    parser.add_argument("--process-seconds", type=int, default=180)
+    parser.add_argument("--max-processes", type=int, default=64)
+    parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
+    parser.add_argument("--max-memory-mb", type=int, default=2048)
+    parser.add_argument("--max-file-mb", type=int, default=64)
+    parser.add_argument("--max-disk-mb", type=int, default=512)
+    parser.add_argument("--max-prompt-tokens", type=int, default=200_000)
+    parser.add_argument("--max-completion-tokens", type=int, default=100_000)
+    parser.add_argument("--max-model-calls", type=int, default=64)
 
 
 def handle_skills(_: argparse.Namespace) -> int:
@@ -213,6 +590,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=12,
         help="Maximum manager-agent steps.",
     )
+    run_parser.add_argument(
+        "--expected-file",
+        action="append",
+        help="Predeclare an expected changed path; may be repeated.",
+    )
     run_parser.set_defaults(handler=handle_run)
 
     runs_parser = subparsers.add_parser("runs", help="List recent audited runs.")
@@ -222,6 +604,111 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser = subparsers.add_parser("show-run", help="Show one audited run.")
     show_parser.add_argument("run_id")
     show_parser.set_defaults(handler=handle_show_run)
+
+    analyze_parser = subparsers.add_parser(
+        "analyze-runs",
+        help="Normalize historical run outcomes without model services or writes.",
+    )
+    analyze_parser.add_argument(
+        "--database",
+        type=Path,
+        default=STATE_PATH,
+        help="SQLite audit database to inspect read-only.",
+    )
+    analyze_parser.add_argument("--limit", type=int, default=20)
+    analyze_parser.add_argument(
+        "--run-id",
+        action="append",
+        help="Specific run ID to analyze; may be repeated.",
+    )
+    analyze_parser.set_defaults(handler=handle_analyze_runs)
+
+    evaluate_parser = subparsers.add_parser(
+        "evaluate",
+        help="Run a bounded trusted baseline/candidate comparison.",
+    )
+    evaluate_parser.add_argument("--baseline", type=Path, required=True)
+    evaluate_parser.add_argument("--candidate", type=Path, required=True)
+    evaluate_parser.add_argument("--database", type=Path, default=STATE_PATH)
+    evaluate_parser.add_argument("--campaign-id")
+    evaluate_parser.add_argument(
+        "--allowed-file",
+        action="append",
+        help="Predeclared candidate path; required without a campaign.",
+    )
+    evaluate_parser.add_argument("--repetitions", type=int, default=1)
+    evaluate_parser.add_argument("--expected-environment-hash")
+    evaluate_parser.add_argument(
+        "--target-case",
+        action="append",
+        required=True,
+        help="Predeclared case whose paired pass count must improve.",
+    )
+    add_evaluation_arguments(evaluate_parser)
+    evaluate_parser.set_defaults(handler=handle_evaluate)
+
+    campaign_parser = subparsers.add_parser(
+        "create-campaign",
+        help="Create one bounded campaign and one pending improvement brief.",
+    )
+    campaign_parser.add_argument("--baseline", type=Path, required=True)
+    campaign_parser.add_argument("--database", type=Path, default=STATE_PATH)
+    campaign_parser.add_argument("--run-id", action="append", required=True)
+    campaign_parser.add_argument("--allowed-file", action="append", required=True)
+    campaign_parser.add_argument("--target-case", action="append", required=True)
+    campaign_parser.add_argument("--rollback-condition", required=True)
+    add_evaluation_arguments(campaign_parser)
+    campaign_parser.set_defaults(handler=handle_create_campaign)
+
+    approve_parser = subparsers.add_parser(
+        "approve-brief",
+        help="Record explicit human approval for one campaign brief.",
+    )
+    approve_parser.add_argument("brief_id")
+    approve_parser.add_argument("--actor", required=True)
+    approve_parser.add_argument("--rationale", required=True)
+    approve_parser.add_argument("--database", type=Path, default=STATE_PATH)
+    approve_parser.set_defaults(handler=handle_approve_brief)
+
+    build_candidate_parser = subparsers.add_parser(
+        "build-candidate",
+        help="Build one approved candidate and leave its worktree uncommitted.",
+    )
+    build_candidate_parser.add_argument("campaign_id")
+    build_candidate_parser.add_argument("--max-steps", type=int, default=12)
+    build_candidate_parser.add_argument(
+        "--overlay",
+        action="append",
+        help="Allowlisted in-memory KEY=VALUE prompt/skill variant.",
+    )
+    build_candidate_parser.set_defaults(handler=handle_build_candidate)
+
+    decision_parser = subparsers.add_parser(
+        "record-decision",
+        help="Record a human promotion recommendation without changing Git.",
+    )
+    decision_parser.add_argument("evaluation_id")
+    decision_parser.add_argument("decision", choices=("promote", "reject"))
+    decision_parser.add_argument("--actor", required=True)
+    decision_parser.add_argument("--rationale", required=True)
+    decision_parser.add_argument("--database", type=Path, default=STATE_PATH)
+    decision_parser.set_defaults(handler=handle_record_decision)
+
+    close_parser = subparsers.add_parser(
+        "close-campaign",
+        help="Close a decided campaign from stored gate evidence.",
+    )
+    close_parser.add_argument("campaign_id")
+    close_parser.add_argument("--database", type=Path, default=STATE_PATH)
+    close_parser.set_defaults(handler=handle_close_campaign)
+
+    show_campaign_parser = subparsers.add_parser(
+        "show-campaign",
+        help="Show campaign lineage, briefs, evaluations, and decisions.",
+    )
+    show_campaign_parser.add_argument("campaign_id")
+    show_campaign_parser.add_argument("--database", type=Path, default=STATE_PATH)
+    show_campaign_parser.set_defaults(handler=handle_show_campaign)
 
     skills_parser = subparsers.add_parser("skills", help="List loaded agent skills.")
     skills_parser.set_defaults(handler=handle_skills)

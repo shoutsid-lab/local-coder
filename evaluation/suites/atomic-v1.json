@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "suite_id": "atomic-v1",
+  "visibility": "development",
+  "cases": [
+    {"id": "exact-edit", "scenario": "exact_edit", "oracle": {"changed": ["sample.txt"], "content": "after\n"}},
+    {"id": "multi-edit-atomicity", "scenario": "multi_edit_atomicity", "oracle": {"error": "EditorError", "first": "first before\n", "second": "second before\n"}},
+    {"id": "missing-match", "scenario": "missing_match", "oracle": {"error": "EditorError", "content": "before\n"}},
+    {"id": "ambiguous-match", "scenario": "ambiguous_match", "oracle": {"error": "EditorError", "content": "same\nsame\n"}},
+    {"id": "scope-leakage", "scenario": "scope_leakage", "oracle": {"error": "EditorError", "outside": "outside\n"}},
+    {"id": "malformed-editor-output", "scenario": "malformed_editor_output", "oracle": {"error": "EditorError"}},
+    {"id": "malformed-reviewer-output", "scenario": "malformed_reviewer_output", "oracle": {"error": "ReviewError"}},
+    {"id": "verification-failure", "scenario": "verification_failure", "oracle": {"returncode": 7}},
+    {"id": "complete-diff-capture", "scenario": "complete_diff_capture", "oracle": {"tracked": true, "untracked": true, "symlink": true}}
+  ]
+}

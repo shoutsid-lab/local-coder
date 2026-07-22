@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 import socket
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
+
+from .state import StateStore
 
 
 @dataclass(frozen=True)
@@ -17,6 +20,52 @@ class ModelRoute:
     alias: str
     max_tokens: int = 2048
     temperature: float = 0.0
+
+
+class AuditedModel:
+    """Delegate to a smolagents model while recording available usage metrics."""
+
+    def __init__(
+        self,
+        model: Any,
+        *,
+        route: str,
+        state: StateStore,
+        run_id: str,
+    ) -> None:
+        self._model = model
+        self._route = route
+        self._state = state
+        self._run_id = run_id
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._model, name)
+
+    def generate(self, *args: Any, **kwargs: Any) -> Any:
+        """Generate one response and persist known token counts."""
+        started = time.perf_counter()
+        metadata: dict[str, Any] = {}
+        try:
+            response = self._model.generate(*args, **kwargs)
+            usage = getattr(response, "token_usage", None)
+            prompt_tokens = getattr(usage, "input_tokens", None)
+            completion_tokens = getattr(usage, "output_tokens", None)
+            metadata["status"] = "success"
+            return response
+        except Exception as exc:
+            prompt_tokens = None
+            completion_tokens = None
+            metadata.update(status="error", error_type=type(exc).__name__)
+            raise
+        finally:
+            self._state.add_model_metrics(
+                self._run_id,
+                route=self._route,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                duration_ms=(time.perf_counter() - started) * 1000,
+                metadata=metadata,
+            )
 
 
 class ModelRegistry:

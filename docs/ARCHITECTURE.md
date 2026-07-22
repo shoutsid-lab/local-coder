@@ -24,6 +24,18 @@ llama.cpp :8080
 Qwen2.5-Coder-3B Q4_K_M
 ```
 
+The separate trusted improvement path is:
+
+```text
+normalized audit evidence → one approved brief → committed candidate
+        ↓
+networkless read-only baseline/candidate sandboxes
+        ↓
+candidate verification + base-owned development/holdout contracts
+        ↓
+lexicographic scorecard → human decision record
+```
+
 Every run receives an isolated Git worktree. Agents can only use the narrow tools exposed
 by `runtime/tools.py`; there is no unrestricted shell tool. Source edits pass through
 `runtime/editor.py`, which requests strict JSON search/replace operations, validates
@@ -53,11 +65,16 @@ behind planning or review to change without changing the harness.
 
 ## Trusted improvement boundary
 
-Recursive improvement is generational rather than online self-modification. A future
-trusted evaluator will run outside candidate worktrees, compare immutable baseline and
-candidate generations, and produce a recommendation only. Candidates must not control
+Recursive improvement is generational rather than online self-modification. The trusted
+evaluator runs outside candidate worktrees, compares immutable baseline and candidate
+generations, and produces a recommendation only. Candidates must not control
 their evaluator, contracts, holdout cases, or promotion policy. A human remains the sole
 authority for commits, merges, pushes, and promotion.
+
+`evaluation/supervisor.py` uses bubblewrap to expose only candidate runtime inputs to
+base-owned contract workers. Candidate-owned verification receives a read-only checkout,
+an ephemeral size-bounded `/tmp`, no network, and the trusted Python environment. The
+evaluator never supplies an unrestricted shell command.
 
 The direct reviewer and native repair CLI remain available as focused debugging
 utilities. They use the same read-only review and native editor boundaries as the agent

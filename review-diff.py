@@ -6,10 +6,11 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parent
 API_URL = "http://127.0.0.1:4000/v1/chat/completions"
@@ -234,6 +235,7 @@ def call_reviewer(
     diff: str,
     verification_passed: bool,
     verification_output: str,
+    metrics_callback: Callable[..., None] | None = None,
 ) -> dict[str, Any]:
     prompt = f"""
 Review this code change without editing any files.
@@ -310,6 +312,7 @@ Git diff:
         method="POST",
     )
 
+    started = time.perf_counter()
     try:
         with urllib.request.urlopen(request, timeout=600) as response:
             result = json.load(response)
@@ -334,6 +337,16 @@ Git diff:
         raise ReviewError(
             "The reviewer returned an invalid structured response."
         ) from exc
+
+    if metrics_callback is not None:
+        usage = result.get("usage", {})
+        metrics_callback(
+            route=model,
+            prompt_tokens=usage.get("prompt_tokens"),
+            completion_tokens=usage.get("completion_tokens"),
+            duration_ms=(time.perf_counter() - started) * 1000,
+            metadata={"status": "success", "source": "read-only-reviewer"},
+        )
 
     return review
 
@@ -374,6 +387,12 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_OUTPUT,
     )
 
+    parser.add_argument(
+        "--metrics-output",
+        type=Path,
+        help="Optional private sidecar for model usage audit data.",
+    )
+
     return parser.parse_args()
 
 
@@ -389,6 +408,7 @@ def main() -> int:
 
         verification_passed, verification_output = run_verification()
 
+        metrics: dict[str, Any] = {}
         review = call_reviewer(
             model=args.model,
             task=task,
@@ -396,12 +416,18 @@ def main() -> int:
             diff=diff,
             verification_passed=verification_passed,
             verification_output=verification_output,
+            metrics_callback=lambda **values: metrics.update(values),
         )
 
         args.output.write_text(
             json.dumps(review, indent=2) + "\n",
             encoding="utf-8",
         )
+        if args.metrics_output is not None:
+            args.metrics_output.write_text(
+                json.dumps(metrics, indent=2) + "\n",
+                encoding="utf-8",
+            )
 
         print(json.dumps(review, indent=2))
         print()

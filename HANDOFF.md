@@ -53,24 +53,31 @@ The existing runtime has proven:
   unavailable review;
 - SQLite records for runs, roles, tool calls, artifacts, and verification.
 
-The current audit corpus is small and heterogeneous. It exposes process failures but is
-not yet a fitness dataset. Model-metric and step tables exist but are not populated or
-fully returned by run inspection.
+The current audit corpus remains small and heterogeneous. New runs populate step and
+model-metric records where APIs expose usage, while historical missing values remain
+unknown. Run inspection now returns the complete evidence needed for normalization.
 
-## Main gap
+## Recursive-improvement control plane
 
-The repository can safely execute and record one bounded run. It cannot yet:
+The trusted control plane is implemented under `evaluation/`:
 
-- normalize outcomes across runs;
-- define a trustworthy fitness function;
-- compare baseline and candidate generations;
-- enforce campaign-wide time, token, process, or disk budgets;
-- separate development cases from candidate-inaccessible holdout oracles;
-- record candidate lineage, environment identity, or promotion decisions;
-- turn repeated failures into bounded improvement briefs.
+- historical runs normalize into versioned outcomes without treating missing metrics as
+  zero;
+- schema-versioned SQLite migrations preserve old run data and record run identity,
+  campaigns, briefs, paired cases, scorecards, approvals, and decisions;
+- development cases and holdout oracles are loaded and hashed independently;
+- candidate verification and base-owned contracts run sequentially in networkless,
+  read-only bubblewrap sandboxes with time, process, memory, output, file, disk, token,
+  and model-call budgets;
+- the failure miner emits one deterministic brief from allowlisted structured facts;
+- campaigns require explicit human brief approval and allow one candidate until ten
+  clean campaigns justify a maximum of three;
+- promotion scorecards apply ordered safety, correctness, regression, control,
+  improvement, efficiency, and human-authority gates.
 
-Adding more agent autonomy before this control plane exists would optimize against noisy,
-candidate-controlled evidence.
+The system recommends promotion but does not commit, merge, push, promote, create an
+evaluation worktree, or clean one up. See
+[`docs/RECURSIVE_IMPROVEMENT.md`](docs/RECURSIVE_IMPROVEMENT.md) for the operator flow.
 
 ## Target loop
 
@@ -114,9 +121,9 @@ hashes.
 - Do not download a larger model or change a hardware profile without explicit user
   authorization and benchmark evidence.
 
-## Working roadmap
+## Implemented roadmap
 
-### 1. Trusted measurement layer
+### 1. Trusted measurement layer — implemented
 
 Add a read-only `evaluation/` package and CLI reporting commands. Normalize every run into
 a structured outcome containing:
@@ -131,7 +138,7 @@ Use additive, versioned SQLite migrations. Wire the existing `steps` and `model_
 tables before creating overlapping storage. The first slice must work without model
 services and must not mutate a repository or create a worktree.
 
-### 2. Frozen paired evaluator
+### 2. Frozen paired evaluator — implemented
 
 Create a small development suite and a separate candidate-inaccessible holdout suite.
 Cover exact edits, multi-edit atomicity, missing and ambiguous matches, scope leakage,
@@ -142,7 +149,7 @@ manifest and oracle hashes, repetitions, environment identity, budgets, and per-
 results. Trusted base-owned contracts must run against the candidate in addition to the
 candidate's own verification command.
 
-### 3. Failure miner and improvement brief
+### 3. Failure miner and improvement brief — implemented
 
 Cluster normalized failures and emit exactly one strict improvement brief with:
 
@@ -155,7 +162,7 @@ Cluster normalized failures and emit exactly one strict improvement brief with:
 Initially a human approves every brief. New cases derived from real failures enter the
 visible development suite first; only a human can promote them to holdout.
 
-### 4. Candidate experiments
+### 4. Candidate experiments — implemented boundary
 
 Start with low-risk improvement surfaces:
 
@@ -170,7 +177,7 @@ existing native editor and remain uncommitted until human review. A human-create
 experiment commit is required before full generational comparison under the current
 no-automatic-commit policy.
 
-### 5. Promotion scorecard
+### 5. Promotion scorecard — implemented
 
 Promotion is lexicographic, never a scalar tradeoff:
 
@@ -182,23 +189,39 @@ Promotion is lexicographic, never a scalar tradeoff:
 6. **Efficiency:** time, tokens, model calls, and tool calls remain within budget.
 7. **Authority:** a human explicitly commits and promotes the candidate.
 
-### 6. Bounded recursion
+### 6. Bounded recursion — implemented
 
 Begin with one proposal and one candidate per campaign. Increase to a maximum of three
 iterations only after at least ten clean campaigns with zero safety regressions. Archive
 lineage, patches, hypotheses, scorecards, and human decisions. Do not retain unlimited
 active worktrees or allow an unbounded daemon loop.
 
-## First implementation slice
-
-Build only the read-only measurement and comparison substrate:
+## Delivered artifacts
 
 - `evaluation/outcomes.py` — normalized outcomes and failure taxonomy;
 - `evaluation/supervisor.py` — trusted baseline/candidate command runner with hard limits;
 - `evaluation/suites/atomic-v1.json` — visible development cases;
+- `evaluation/holdout/` and `evaluation/oracles/` — separately mounted trusted holdout
+  inputs;
+- `evaluation/miner.py` and `evaluation/scorecard.py` — one-brief mining and ordered
+  promotion gates;
 - additive state methods and schema versioning in `runtime/state.py`;
-- read-only `analyze-runs` and `evaluate` CLI commands;
+- read-only analysis and repository-read-only `evaluate` CLI commands;
 - protected `tests/test_evaluation_contract.py` and deterministic unit tests.
+
+## Remaining hardening
+
+The control-plane checkpoint is usable but recursive improvement is not yet complete.
+Next work must:
+
+- bind an evaluation to a specific recorded candidate-build ID and include rejected
+  edits, retries, `needs_attention`, and fresh-review evidence in the control gate;
+- replace latest-schema bootstrapping with ordered transactional migrations and explicit
+  compatibility checks for partially migrated databases;
+- enforce candidate-build token/model budgets from recorded usage and add a kernel-level
+  PID/cgroup ceiling for sandbox descendants;
+- move or rotate holdout material outside candidate Git history when stronger secrecy
+  than the current read/search denylist and sandbox mount isolation is required.
 
 Acceptance criteria:
 
@@ -216,8 +239,10 @@ Acceptance criteria:
 ```bash
 make verify
 make agent-smoke
+./local-coder.py analyze-runs
 ./local-coder.py status
-./local-coder.py run "Implement one atomic task with explicit files and acceptance criteria"
+./local-coder.py run --expected-file FILE \
+  "Implement one atomic task with explicit files and acceptance criteria"
 ```
 
 Inspect every returned worktree, run record, diff, verification result, and fresh review

@@ -46,6 +46,8 @@ documents for detail.
   contract change.
 - Do not edit `.local-coder/state/`, `.local-coder/runs/`, `.worktrees/`, generated
   `REVIEW.json` files, or trusted evaluation holdout/oracle data.
+- Treat all of `evaluation/` and `tests/test_evaluation_contract.py` as protected trusted
+  controls during candidate runs.
 - Do not commit virtual environments, secrets, legacy Aider histories, SQLite databases,
   or generated worktrees.
 

@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from .models import ModelRegistry
+from .models import AuditedModel, ModelRegistry
 from .skills import Skill
 from .state import StateStore
 from .tools import ToolContext, build_smol_tools
@@ -29,6 +29,8 @@ class ReadOnlyEvidenceAgent:
     skill: Skill
     context: ToolContext
     model: Any
+    state: StateStore | None = None
+    run_id: str | None = None
 
     def __call__(
         self,
@@ -37,6 +39,16 @@ class ReadOnlyEvidenceAgent:
         **_: Any,
     ) -> str:
         del additional_args
+        step_id = (
+            self.state.start_step(
+                self.run_id,
+                agent_role=self.name,
+                summary="Read-only evidence request",
+            )
+            if self.state is not None and self.run_id is not None
+            else None
+        )
+        status = "completed"
         authoritative_task = self.context.task_file.read_text(encoding="utf-8")
         named_files = list(
             dict.fromkeys(
@@ -55,29 +67,37 @@ class ReadOnlyEvidenceAgent:
         if not evidence:
             evidence.append(self.context.list_files("*"))
 
-        response = self.model.generate(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        f"{self.skill.instructions}\n\n"
-                        "Return concise plain text only. You have no tools and must "
-                        "not emit code, tool calls, or editing instructions. Base "
-                        "the response only on the supplied repository evidence."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Authoritative task:\n{authoritative_task}\n\n"
-                        f"Delegated task:\n{task}\n\n"
-                        f"Repository evidence:\n{'\n\n'.join(evidence)}"
-                    ),
-                },
-            ],
-            tools_to_call_from=None,
-        )
-        return str(response.content)
+        try:
+            response = self.model.generate(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            f"{self.skill.instructions}\n\n"
+                            "Return concise plain text only. You have no tools and "
+                            "must "
+                            "not emit code, tool calls, or editing instructions. Base "
+                            "the response only on the supplied repository evidence."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Authoritative task:\n{authoritative_task}\n\n"
+                            f"Delegated task:\n{task}\n\n"
+                            f"Repository evidence:\n{'\n\n'.join(evidence)}"
+                        ),
+                    },
+                ],
+                tools_to_call_from=None,
+            )
+            return str(response.content)
+        except Exception:
+            status = "failed"
+            raise
+        finally:
+            if self.state is not None and step_id is not None:
+                self.state.complete_step(step_id, status=status)
 
 
 @dataclass
@@ -87,6 +107,8 @@ class ReadOnlyReviewAgent:
     name: str
     description: str
     context: ToolContext
+    state: StateStore | None = None
+    run_id: str | None = None
 
     def __call__(
         self,
@@ -95,13 +117,30 @@ class ReadOnlyReviewAgent:
         **_: Any,
     ) -> str:
         del task, additional_args
-        diff = self.context.inspect_diff()
-        verification = self.context.run_verification()
+        step_id = (
+            self.state.start_step(
+                self.run_id,
+                agent_role=self.name,
+                summary="Fixed read-only review gates",
+            )
+            if self.state is not None and self.run_id is not None
+            else None
+        )
+        status = "completed"
         try:
-            review = self.context.review_diff()
-        except RuntimeError as exc:
-            review = f"Review unavailable: {exc}"
-        return f"{diff}\n\n{verification}\n\n{review}"
+            diff = self.context.inspect_diff()
+            verification = self.context.run_verification()
+            try:
+                review = self.context.review_diff()
+            except RuntimeError as exc:
+                review = f"Review unavailable: {exc}"
+            return f"{diff}\n\n{verification}\n\n{review}"
+        except Exception:
+            status = "failed"
+            raise
+        finally:
+            if self.state is not None and step_id is not None:
+                self.state.complete_step(step_id, status=status)
 
 
 def _build_agent(
@@ -129,6 +168,12 @@ def _build_agent(
             additional_args: dict[str, Any] | None = None,
             **kwargs: Any,
         ) -> Any:
+            step_id = state.start_step(
+                run_id,
+                agent_role=role,
+                summary="Managed code-agent request",
+            )
+            status = "completed"
             authoritative_task = context.task_file.read_text(encoding="utf-8")
             named_files = re.findall(r"[\w./-]+\.[A-Za-z0-9]+", task)
             first_file = named_files[0] if named_files else None
@@ -152,12 +197,18 @@ def _build_agent(
                 f"Authoritative task:\n{authoritative_task}\n\n"
                 f"Delegated task:\n{task}"
             )
-            return self.run(
-                constrained_task,
-                reset=True,
-                additional_args=additional_args,
-                **kwargs,
-            )
+            try:
+                return self.run(
+                    constrained_task,
+                    reset=True,
+                    additional_args=additional_args,
+                    **kwargs,
+                )
+            except Exception:
+                status = "failed"
+                raise
+            finally:
+                state.complete_step(step_id, status=status)
 
     role_context = ToolContext(
         root=context.root,
@@ -180,17 +231,31 @@ def _build_agent(
             description=skill.description,
             skill=skill,
             context=role_context,
-            model=models.build(skill.model),
+            model=AuditedModel(
+                models.build(skill.model),
+                route=skill.model,
+                state=state,
+                run_id=run_id,
+            ),
+            state=state,
+            run_id=run_id,
         )
     if role == "reviewer":
         return ReadOnlyReviewAgent(
             name=role,
             description=skill.description,
             context=role_context,
+            state=state,
+            run_id=run_id,
         )
     return ManagedCodeAgent(
         tools=build_smol_tools(role_context, skill.tools),
-        model=models.build(skill.model),
+        model=AuditedModel(
+            models.build(skill.model),
+            route=skill.model,
+            state=state,
+            run_id=run_id,
+        ),
         instructions=skill.instructions,
         max_steps=skill.max_steps,
         name=role,
@@ -253,7 +318,12 @@ def build_agent_bundle(
         tools=build_smol_tools(
             context, ("git_status", "inspect_diff", "run_verification")
         ),
-        model=models.build("local-plan"),
+        model=AuditedModel(
+            models.build("local-plan"),
+            route="local-plan",
+            state=state,
+            run_id=run_id,
+        ),
         managed_agents=list(managed),
         instructions=(
             "Every action must be valid Python inside <code> tags. Call each managed "

@@ -74,6 +74,7 @@ The following files are not editable during implementation repairs:
 * `HANDOFF.md`
 * `docs/ARCHITECTURE.md`
 * `docs/PIPELINE.md`
+* `docs/RECURSIVE_IMPROVEMENT.md`
 * `docs/CONVENTIONS.md`
 * `docs/UPSTREAM.json`
 * `docs/VALIDATION_HISTORY.md`
@@ -172,3 +173,18 @@ architecture is fixed unless the user explicitly changes it. `make verify` is th
 gate; `make handoff-check` is the final clean-tree handoff gate. Recursive-improvement
 work must additionally follow the trusted evaluator, holdout, and promotion boundaries
 defined in `HANDOFF.md`.
+
+## Recursive Improvement Pipeline
+
+The full operator procedure is documented in `docs/RECURSIVE_IMPROVEMENT.md`. Its hard
+boundaries are:
+
+1. `analyze-runs` opens SQLite read-only and emits hashes and structured facts, not raw
+   untrusted prompts.
+2. `create-campaign` mines exactly one failure class and records one pending brief.
+3. A human approves the brief before an evaluation can join the campaign.
+4. Baseline and candidate must be clean commits and run sequentially under the same
+   environment hash and immutable suite hashes.
+5. Candidate-owned verification cannot replace base-owned contracts or holdout oracles.
+6. A scorecard can only recommend promotion; a human separately records the decision and
+   performs any Git action outside the evaluator.

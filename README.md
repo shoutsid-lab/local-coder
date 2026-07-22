@@ -50,9 +50,27 @@ Inspect the audit trail:
 ```bash
 ./local-coder.py runs
 ./local-coder.py show-run RUN_ID
+./local-coder.py analyze-runs --limit 20
 ```
 
 Then review the preserved worktree manually before committing or merging.
+
+## Run a recursive-improvement campaign
+
+The trusted evaluator can mine one bounded brief, compare clean committed generations,
+and recommend—but never perform—promotion:
+
+```bash
+./local-coder.py create-campaign --help
+./local-coder.py approve-brief --help
+./local-coder.py build-candidate --help
+./local-coder.py evaluate --help
+./local-coder.py record-decision --help
+./local-coder.py close-campaign --help
+```
+
+See [docs/RECURSIVE_IMPROVEMENT.md](docs/RECURSIVE_IMPROVEMENT.md) for the complete
+human-gated procedure and sandbox guarantees.
 
 ## Focused fallback commands
 
