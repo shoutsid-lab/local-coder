@@ -80,6 +80,29 @@ def edit_schema(editable_files: list[str]) -> dict[str, Any]:
     }
 
 
+def parse_edit_payload(payload: Any) -> list[AtomicEdit]:
+    """Parse one strict in-memory edit payload from DSPy or JSON."""
+    if not isinstance(payload, dict) or set(payload) != {"edits"}:
+        raise EditorError("The editor response must contain only `edits`.")
+    raw_edits = payload["edits"]
+    if not isinstance(raw_edits, list) or not 1 <= len(raw_edits) <= MAX_EDITS:
+        raise EditorError("The editor returned an invalid number of edits.")
+    edits: list[AtomicEdit] = []
+    for raw in raw_edits:
+        if hasattr(raw, "model_dump"):
+            raw = raw.model_dump()
+        if not isinstance(raw, dict) or set(raw) != {
+            "path",
+            "old_text",
+            "new_text",
+        }:
+            raise EditorError("Each edit must contain path, old_text, and new_text.")
+        if not all(isinstance(raw[field], str) for field in raw):
+            raise EditorError("Every edit field must be text.")
+        edits.append(AtomicEdit(**raw))
+    return edits
+
+
 def parse_edit_content(content: str) -> list[AtomicEdit]:
     """Parse strict JSON, allowing one exact Markdown JSON fence."""
     candidate = content.strip()
@@ -92,23 +115,7 @@ def parse_edit_content(content: str) -> list[AtomicEdit]:
         payload = json.loads(candidate)
     except json.JSONDecodeError as exc:
         raise EditorError("The editor returned invalid JSON.") from exc
-    if not isinstance(payload, dict) or set(payload) != {"edits"}:
-        raise EditorError("The editor response must contain only `edits`.")
-    raw_edits = payload["edits"]
-    if not isinstance(raw_edits, list) or not 1 <= len(raw_edits) <= MAX_EDITS:
-        raise EditorError("The editor returned an invalid number of edits.")
-    edits: list[AtomicEdit] = []
-    for raw in raw_edits:
-        if not isinstance(raw, dict) or set(raw) != {
-            "path",
-            "old_text",
-            "new_text",
-        }:
-            raise EditorError("Each edit must contain path, old_text, and new_text.")
-        if not all(isinstance(raw[field], str) for field in raw):
-            raise EditorError("Every edit field must be text.")
-        edits.append(AtomicEdit(**raw))
-    return edits
+    return parse_edit_payload(payload)
 
 
 def _safe_file(root: Path, relative: str) -> Path:

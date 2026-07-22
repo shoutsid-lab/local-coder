@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from .editor import request_and_apply
+from .editor import apply_edits, parse_edit_payload, request_and_apply
 from .state import StateStore
 
 TRUSTED_READ_PREFIXES = ("evaluation/holdout/", "evaluation/oracles/")
@@ -296,30 +296,64 @@ class ToolContext:
 
         return self._recorded("inspect_diff", {}, operation)
 
+    def _approved_edit_scope(
+        self, editable_files: str
+    ) -> tuple[list[str], set[str], list[Path]]:
+        """Return validated editable paths under the predeclared scope."""
+        files = [item.strip() for item in editable_files.split(",") if item.strip()]
+        if not files:
+            raise ValueError("At least one editable file is required.")
+        normalized_files = {self._normalized_path(item) for item in files}
+        if len(normalized_files) != len(files):
+            raise ValueError("Editable file paths must be unique after normalization.")
+        if self.allowed_edit_paths is not None:
+            allowed = {self._normalized_path(item) for item in self.allowed_edit_paths}
+            disallowed = normalized_files - allowed
+            if disallowed:
+                self.scope_violations.update(disallowed)
+                paths = ", ".join(sorted(disallowed))
+                raise RuntimeError(
+                    f"Edit request is outside the predeclared scope: {paths}"
+                )
+        editable_paths = [self._safe_path(item) for item in files]
+        return files, normalized_files, editable_paths
+
+    def _verify_edit_result(
+        self,
+        *,
+        normalized_files: set[str],
+        editable_paths: list[Path],
+        before: list[bytes],
+        changed_before: set[str],
+        changed: list[str],
+    ) -> str:
+        """Enforce exact scope and a real file change after native-editor writes."""
+        changed_after = collect_changed_paths(self.worktree.path)
+        unexpected = (changed_after - changed_before - normalized_files) | (
+            changed_after & self.scope_violations
+        )
+        if unexpected:
+            self.scope_violations.update(unexpected)
+            paths = ", ".join(sorted(unexpected))
+            raise RuntimeError(
+                f"Editor changed paths outside the editable scope: {paths}"
+            )
+        if not changed or all(
+            path.read_bytes() == original
+            for path, original in zip(editable_paths, before)
+        ):
+            raise RuntimeError(
+                "Editor reported success but did not change an editable file."
+            )
+        return f"Atomic edit applied to: {', '.join(changed)}"
+
     def apply_atomic_edit(self, instruction: str, editable_files: str) -> str:
         """Generate and apply one validated local-fast edit batch."""
 
         def operation() -> str:
-            files = [item.strip() for item in editable_files.split(",") if item.strip()]
-            if not files:
-                raise ValueError("At least one editable file is required.")
-            normalized_files = {self._normalized_path(item) for item in files}
-            if len(normalized_files) != len(files):
-                raise ValueError(
-                    "Editable file paths must be unique after normalization."
-                )
-            if self.allowed_edit_paths is not None:
-                allowed = {
-                    self._normalized_path(item) for item in self.allowed_edit_paths
-                }
-                disallowed = normalized_files - allowed
-                if disallowed:
-                    self.scope_violations.update(disallowed)
-                    paths = ", ".join(sorted(disallowed))
-                    raise RuntimeError(
-                        f"Edit request is outside the predeclared scope: {paths}"
-                    )
-            editable_paths = [self._safe_path(item) for item in files]
+            files, normalized_files, editable_paths = self._approved_edit_scope(
+                editable_files
+            )
             before = [path.read_bytes() for path in editable_paths]
             changed_before = collect_changed_paths(self.worktree.path)
             task = self.task_file.read_text(encoding="utf-8")
@@ -334,28 +368,57 @@ class ToolContext:
                     self.run_id, **metrics
                 ),
             )
-            changed_after = collect_changed_paths(self.worktree.path)
-            unexpected = (changed_after - changed_before - normalized_files) | (
-                changed_after & self.scope_violations
+            return self._verify_edit_result(
+                normalized_files=normalized_files,
+                editable_paths=editable_paths,
+                before=before,
+                changed_before=changed_before,
+                changed=changed,
             )
-            if unexpected:
-                self.scope_violations.update(unexpected)
-                paths = ", ".join(sorted(unexpected))
-                raise RuntimeError(
-                    f"Editor changed paths outside the editable scope: {paths}"
-                )
-            if not changed or all(
-                path.read_bytes() == original
-                for path, original in zip(editable_paths, before)
-            ):
-                raise RuntimeError(
-                    "Editor reported success but did not change an editable file."
-                )
-            return f"Atomic edit applied to: {', '.join(changed)}"
 
         return self._recorded(
             "apply_atomic_edit",
             {"instruction": instruction, "editable_files": editable_files},
+            operation,
+        )
+
+    def apply_prepared_atomic_edits(
+        self,
+        instruction: str,
+        editable_files: str,
+        raw_edits: Any,
+    ) -> str:
+        """Validate and apply a DSPy-proposed batch through the native editor."""
+
+        def operation() -> str:
+            files, normalized_files, editable_paths = self._approved_edit_scope(
+                editable_files
+            )
+            before = [path.read_bytes() for path in editable_paths]
+            changed_before = collect_changed_paths(self.worktree.path)
+            task_relative = str(self.task_file.relative_to(self.worktree.path))
+            edits = parse_edit_payload({"edits": raw_edits})
+            changed = apply_edits(
+                self.worktree.path,
+                files,
+                edits,
+                protected_files={task_relative},
+            )
+            return self._verify_edit_result(
+                normalized_files=normalized_files,
+                editable_paths=editable_paths,
+                before=before,
+                changed_before=changed_before,
+                changed=changed,
+            )
+
+        return self._recorded(
+            "apply_atomic_edit",
+            {
+                "instruction": instruction,
+                "editable_files": editable_files,
+                "source": "dspy-implementer",
+            },
             operation,
         )
 

@@ -188,6 +188,16 @@ def dspy_planner_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
     )
 
 
+def dspy_implementer_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
+    """Return unique audited DSPy implementer backend markers."""
+    return dspy_role_backends(
+        model_metrics,
+        route="local-fast",
+        source="dspy-implementer",
+        program="ImplementerProgram",
+    )
+
+
 def dspy_reviewer_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
     """Return unique audited DSPy reviewer backend markers."""
     return dspy_role_backends(
@@ -324,6 +334,7 @@ def main() -> int:
     routes = sorted({metric["route"] for metric in details["model_metrics"]})
     explorer_backends = dspy_explorer_backends(details["model_metrics"])
     planner_backends = dspy_planner_backends(details["model_metrics"])
+    implementer_backends = dspy_implementer_backends(details["model_metrics"])
     reviewer_backends = dspy_reviewer_backends(details["model_metrics"])
     worktree_value = details.get("worktree")
     worktree = Path(worktree_value) if worktree_value else None
@@ -345,6 +356,7 @@ def main() -> int:
         and routes == ["local-fast", "local-plan", "local-review"]
         and explorer_backends == ["ExplorerProgram/JSONAdapter"]
         and planner_backends == ["PlannerProgram/JSONAdapter"]
+        and implementer_backends == ["ImplementerProgram/JSONAdapter"]
         and reviewer_backends == ["ReviewerProgram/JSONAdapter"]
         and changed == [EXPECTED_FILE]
         and TARGET_SENTINEL in edited
@@ -375,6 +387,7 @@ def main() -> int:
         "model_routes": routes,
         "explorer_backends": explorer_backends,
         "planner_backends": planner_backends,
+        "implementer_backends": implementer_backends,
         "reviewer_backends": reviewer_backends,
         "changed_files": changed,
         "report": str(report_path),

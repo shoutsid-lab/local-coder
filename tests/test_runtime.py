@@ -750,6 +750,7 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
     from smolagents import CodeAgent
 
     from runtime.agents import (
+        DSPyImplementerAgent,
         ReadOnlyEvidenceAgent,
         ReadOnlyReviewAgent,
         build_agent_bundle,
@@ -786,11 +787,10 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
     parameters = inspect.signature(bundle.managed[0].__call__).parameters
 
     assert all(isinstance(agent, ReadOnlyEvidenceAgent) for agent in bundle.managed[:2])
-    assert all(isinstance(agent, CodeAgent) for agent in bundle.managed[2:4])
+    assert isinstance(bundle.managed[2], DSPyImplementerAgent)
+    assert isinstance(bundle.managed[3], CodeAgent)
     assert isinstance(bundle.managed[4], ReadOnlyReviewAgent)
-    assert all(
-        agent.python_executor.timeout_seconds == 600 for agent in bundle.managed[2:4]
-    )
+    assert bundle.managed[3].python_executor.timeout_seconds == 600
     assert "additional_args" in parameters
     assert bundle.manager.python_executor.timeout_seconds == 600
     assert bundle.manager.planning_interval is None
@@ -894,27 +894,63 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
 
     implementer = bundle.managed[2]
 
-    def record_success(*_: object, **__: object) -> str:
-        store.log_tool_call(
-            run_id,
-            agent_role="implementer",
-            tool_name="apply_atomic_edit",
-            arguments={"editable_files": "README.md"},
-            output="Atomic edit applied to: README.md",
-            status="success",
-            duration_ms=1.0,
-        )
-        return "Failed to apply atomic edit: generated final-answer error"
+    def implementer_usage() -> dict[str, dict[str, int]]:
+        return {
+            "openai/local-fast": {
+                "prompt_tokens": 17,
+                "completion_tokens": 12,
+            }
+        }
 
-    with patch.object(implementer, "run", side_effect=record_success) as run:
+    implementer_prediction = SimpleNamespace(
+        edits=[
+            SimpleNamespace(
+                path="README.md",
+                old_text="# local-coder",
+                new_text="# local-coder updated",
+                model_dump=lambda: {
+                    "path": "README.md",
+                    "old_text": "# local-coder",
+                    "new_text": "# local-coder updated",
+                },
+            )
+        ],
+        get_lm_usage=implementer_usage,
+    )
+    with (
+        patch.object(
+            implementer,
+            "program_runner",
+            return_value=implementer_prediction,
+        ) as run_implementer,
+        patch.object(
+            implementer.context,
+            "apply_prepared_atomic_edits",
+            return_value="Atomic edit applied to: README.md",
+        ) as apply_prepared,
+    ):
         implementation_result = implementer("Replace one sentence in README.md")
     assert implementation_result == (
         "Implementation succeeded: Atomic edit applied to: README.md"
     )
-    assert "apply_atomic_edit exactly once" in run.call_args.args[0]
-    assert "do not retry it with identical arguments" in run.call_args.args[0]
-    assert "editable_files='README.md'" in run.call_args.args[0]
-    assert implementer.instructions.startswith("# Atomic Implementation")
+    assert run_implementer.call_args.kwargs["editable_files"] == ["README.md"]
+    assert "# local-coder" in run_implementer.call_args.kwargs["file_contents"][0]
+    assert apply_prepared.call_args.args[:2] == (
+        "Replace one sentence in README.md",
+        "README.md",
+    )
+    details = store.run_details(run_id)
+    assert details is not None
+    implementer_metric = details["model_metrics"][-1]
+    assert implementer_metric["route"] == "local-fast"
+    assert implementer_metric["prompt_tokens"] == 17
+    assert implementer_metric["completion_tokens"] == 12
+    assert json.loads(implementer_metric["metadata"]) == {
+        "source": "dspy-implementer",
+        "program": "ImplementerProgram",
+        "adapter": "JSONAdapter",
+        "status": "success",
+    }
     assert [call.args for call in activate.call_args_list] == [
         ("explore-repository",),
         ("plan-change",),
@@ -1219,6 +1255,91 @@ def test_atomic_editor_rejects_requests_outside_predeclared_scope(
 
     request_and_apply.assert_not_called()
     assert context.scope_violations == {"other.py"}
+    assert store.tool_call_error_count(run_id, tool_name="apply_atomic_edit") == 1
+
+
+def test_prepared_atomic_edits_use_native_editor_and_existing_audit_name(
+    tmp_path: Path,
+) -> None:
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+    editable = worktree_path / "README.md"
+    editable.write_text("before\n", encoding="utf-8")
+    task_file = worktree_path / "TASK.md"
+    task_file.write_text("# Task\n", encoding="utf-8")
+    _initialize_edit_test_repository(worktree_path)
+    store = StateStore(tmp_path / "agent.db")
+    run_id = store.create_run(
+        task="Edit README.md",
+        mode="agentic",
+        repository=tmp_path,
+        base_branch="main",
+    )
+    context = ToolContext(
+        root=tmp_path,
+        worktree=Worktree(worktree_path, "agent/test", "main"),
+        run_id=run_id,
+        state=store,
+        task_file=task_file,
+        agent_role="implementer",
+        allowed_edit_paths=frozenset({"README.md"}),
+    )
+
+    result = context.apply_prepared_atomic_edits(
+        "Replace the exact line",
+        "README.md",
+        [
+            SimpleNamespace(
+                model_dump=lambda: {
+                    "path": "README.md",
+                    "old_text": "before",
+                    "new_text": "after",
+                }
+            )
+        ],
+    )
+
+    assert result == "Atomic edit applied to: README.md"
+    assert editable.read_text(encoding="utf-8") == "after\n"
+    details = store.run_details(run_id)
+    assert details is not None
+    tool_call = details["tool_calls"][-1]
+    assert tool_call["tool_name"] == "apply_atomic_edit"
+    assert tool_call["agent_role"] == "implementer"
+    assert tool_call["status"] == "success"
+    assert json.loads(tool_call["arguments"])["source"] == "dspy-implementer"
+
+
+def test_prepared_atomic_edits_fail_closed_on_invalid_shape(tmp_path: Path) -> None:
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+    (worktree_path / "README.md").write_text("before\n", encoding="utf-8")
+    task_file = worktree_path / "TASK.md"
+    task_file.write_text("# Task\n", encoding="utf-8")
+    _initialize_edit_test_repository(worktree_path)
+    store = StateStore(tmp_path / "agent.db")
+    run_id = store.create_run(
+        task="Edit README.md",
+        mode="agentic",
+        repository=tmp_path,
+        base_branch="main",
+    )
+    context = ToolContext(
+        root=tmp_path,
+        worktree=Worktree(worktree_path, "agent/test", "main"),
+        run_id=run_id,
+        state=store,
+        task_file=task_file,
+        agent_role="implementer",
+    )
+
+    with pytest.raises(EditorError, match="Each edit must contain"):
+        context.apply_prepared_atomic_edits(
+            "Replace the exact line",
+            "README.md",
+            [{"path": "README.md", "old_text": "before"}],
+        )
+
     assert store.tool_call_error_count(run_id, tool_name="apply_atomic_edit") == 1
 
 

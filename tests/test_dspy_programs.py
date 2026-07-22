@@ -190,3 +190,46 @@ def test_live_e2e_requires_all_read_only_dspy_backend_markers() -> None:
     assert dspy_explorer_backends(metrics) == ["ExplorerProgram/JSONAdapter"]
     assert dspy_planner_backends(metrics) == ["PlannerProgram/JSONAdapter"]
     assert dspy_reviewer_backends(metrics) == ["ReviewerProgram/JSONAdapter"]
+
+
+def test_implementer_signature_and_program_contract() -> None:
+    dspy = pytest.importorskip("dspy")
+    from runtime.dspy_programs.implementer import (
+        ImplementerProgram,
+        ImplementerSignature,
+    )
+
+    assert list(ImplementerSignature.input_fields) == [
+        "task",
+        "instruction",
+        "editable_files",
+        "file_contents",
+    ]
+    assert list(ImplementerSignature.output_fields) == ["edits"]
+    program = ImplementerProgram()
+    assert isinstance(program.predict, dspy.Predict)
+    assert not isinstance(program.predict, dspy.ChainOfThought)
+
+
+def test_live_e2e_requires_dspy_implementer_backend_marker() -> None:
+    from runtime.live_e2e import dspy_implementer_backends
+
+    metrics = [
+        {
+            "route": "local-fast",
+            "metadata": '{"source":"dspy-implementer","program":'
+            '"ImplementerProgram","adapter":"JSONAdapter"}',
+        },
+        {
+            "route": "local-fast",
+            "metadata": '{"source":"dspy-implementer","program":'
+            '"ImplementerProgram","adapter":"JSONAdapter"}',
+        },
+        {
+            "route": "local-plan",
+            "metadata": '{"source":"dspy-implementer","program":'
+            '"ImplementerProgram","adapter":"JSONAdapter"}',
+        },
+    ]
+
+    assert dspy_implementer_backends(metrics) == ["ImplementerProgram/JSONAdapter"]

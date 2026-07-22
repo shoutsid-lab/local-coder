@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from .dspy_lm import build_dspy_lm
+from .editor import load_editable_files
 from .models import AuditedModel, ModelRegistry, ModelUsageBudget
 from .skills import (
     Skill,
@@ -343,6 +345,138 @@ class ReadOnlyEvidenceAgent:
                 self.state.complete_step(step_id, status=status)
 
 
+def _implementer_files(task: str, context: ToolContext) -> list[str]:
+    """Resolve one or two approved existing files from a delegated edit request."""
+    named = list(dict.fromkeys(re.findall(r"[\w./-]+\.[A-Za-z0-9]+", task)))
+    if not named and context.allowed_edit_paths is not None:
+        named = sorted(context.allowed_edit_paths)
+    paths = _repository_paths(
+        named,
+        field_name="implementer editable_files",
+        worktree=context.worktree.path,
+        minimum=1,
+        maximum=2,
+    )
+    if context.allowed_edit_paths is not None:
+        allowed = {
+            context._normalized_path(item) for item in context.allowed_edit_paths
+        }
+        disallowed = {context._normalized_path(item) for item in paths} - allowed
+        if disallowed:
+            context.scope_violations.update(disallowed)
+            joined = ", ".join(sorted(disallowed))
+            raise RuntimeError(
+                f"Edit request is outside the predeclared scope: {joined}"
+            )
+    return paths
+
+
+@dataclass
+class DSPyImplementerAgent:
+    """Generate typed edits with DSPy, then delegate all writes to the editor."""
+
+    name: str
+    description: str
+    activate_skill: Callable[[], Skill]
+    context: ToolContext
+    model_route: str
+    lm_factory: Callable[[], Any]
+    program_runner: Callable[..., Any]
+    program_name: str
+    state: StateStore | None = None
+    run_id: str | None = None
+    usage_budget: ModelUsageBudget | None = None
+    _lm: Any | None = field(default=None, init=False, repr=False)
+
+    def _language_model(self) -> Any:
+        if self._lm is None:
+            self._lm = self.lm_factory()
+        return self._lm
+
+    def __call__(
+        self,
+        task: str,
+        additional_args: dict[str, Any] | None = None,
+        **_: Any,
+    ) -> str:
+        del additional_args
+        step_id = (
+            self.state.start_step(
+                self.run_id,
+                agent_role=self.name,
+                summary="DSPy implementer request",
+            )
+            if self.state is not None and self.run_id is not None
+            else None
+        )
+        status = "completed"
+        prompt_tokens: int | None = None
+        completion_tokens: int | None = None
+        started = time.perf_counter()
+        metadata: dict[str, Any] = {
+            "source": "dspy-implementer",
+            "program": self.program_name,
+            "adapter": "JSONAdapter",
+        }
+        try:
+            self.activate_skill()
+            authoritative_task = self.context.task_file.read_text(encoding="utf-8")
+            editable_files = _implementer_files(task, self.context)
+            try:
+                task_relative = str(
+                    self.context.task_file.relative_to(self.context.worktree.path)
+                )
+            except ValueError:
+                protected_files: set[str] = set()
+            else:
+                protected_files = {task_relative}
+            contents = load_editable_files(
+                self.context.worktree.path,
+                editable_files,
+                protected_files=protected_files,
+            )
+            file_contents = [
+                f"--- {path} ---\n{contents[path]}" for path in editable_files
+            ]
+            if self.usage_budget is not None:
+                self.usage_budget.reserve_call()
+            prediction = self.program_runner(
+                lm=self._language_model(),
+                task=authoritative_task,
+                instruction=task,
+                editable_files=editable_files,
+                file_contents=file_contents,
+            )
+            prompt_tokens, completion_tokens = _prediction_usage(
+                prediction, self.model_route
+            )
+            if self.usage_budget is not None:
+                self.usage_budget.record_usage(prompt_tokens, completion_tokens)
+            result = self.context.apply_prepared_atomic_edits(
+                task,
+                ",".join(editable_files),
+                _prediction_value(prediction, "edits"),
+            )
+            metadata["status"] = "success"
+            return f"Implementation succeeded: {result}"
+        except Exception as exc:
+            status = "failed"
+            metadata.update(status="error", error_type=type(exc).__name__)
+            raise
+        finally:
+            if self.state is not None and self.run_id is not None:
+                self.state.add_model_metrics(
+                    self.run_id,
+                    route=self.model_route,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    duration_ms=(time.perf_counter() - started) * 1000,
+                    metadata=metadata,
+                )
+            if self.state is not None and step_id is not None:
+                self.state.complete_step(step_id, status=status)
+
+
 @dataclass
 class ReadOnlyReviewAgent:
     """Run the fixed review gates without exposing a code executor."""
@@ -537,7 +671,6 @@ def _build_agent(
         model_route=model_route,
     )
     if role in {"explorer", "planner"}:
-        from .dspy_lm import build_dspy_lm
         from .dspy_programs.explorer import run_explorer_program
         from .dspy_programs.planner import run_planner_program
 
@@ -564,6 +697,31 @@ def _build_agent(
             lm_factory=lm_factory,
             program_runner=program_runner,
             program_name=program_name,
+            state=state,
+            run_id=run_id,
+            usage_budget=usage_budget,
+        )
+    if role == "implementer":
+        from .dspy_programs.implementer import run_implementer_program
+
+        def implementer_lm_factory() -> Any:
+            route = models.routes[model_route]
+            return build_dspy_lm(
+                model_route,
+                api_base=models.api_base,
+                api_key=models.api_key,
+                max_tokens=route.max_tokens,
+            )
+
+        return DSPyImplementerAgent(
+            name=role,
+            description=description,
+            activate_skill=activate,
+            context=role_context,
+            model_route=model_route,
+            lm_factory=implementer_lm_factory,
+            program_runner=run_implementer_program,
+            program_name="ImplementerProgram",
             state=state,
             run_id=run_id,
             usage_budget=usage_budget,
