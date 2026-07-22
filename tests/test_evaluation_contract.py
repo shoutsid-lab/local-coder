@@ -162,7 +162,7 @@ def test_committed_candidate_cannot_allowlist_trusted_controls() -> None:
     assert result.failure == "policy"
 
 
-def test_scorecard_can_only_recommend_human_promotion() -> None:
+def test_scorecard_recommends_actor_neutral_promotion() -> None:
     evaluation = PairedEvaluation(
         baseline_commit="base",
         candidate_commit="candidate",
@@ -178,10 +178,16 @@ def test_scorecard_can_only_recommend_human_promotion() -> None:
 
     scorecard = build_scorecard(evaluation, target_case_ids=["target"])
 
-    assert scorecard.recommendation == "eligible_for_human_promotion"
-    assert scorecard.gates[-1].name == "authority"
-    assert scorecard.gates[-1].passed is None
-    assert "human" in scorecard.gates[-1].evidence["required"]
+    assert scorecard.recommendation == "eligible_for_promotion"
+    assert tuple(gate.name for gate in scorecard.gates) == (
+        "safety",
+        "correctness",
+        "regression",
+        "control",
+        "improvement",
+        "efficiency",
+    )
+    assert all(gate.passed is True for gate in scorecard.gates)
 
 
 def test_campaign_scorecard_fails_closed_without_build_trajectory() -> None:

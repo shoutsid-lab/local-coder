@@ -5,7 +5,7 @@
 Recursive improvement changes generations of the harness, never the running generation
 in place. The trusted checkout owns normalization, manifests, contract workers, oracles,
 budgets, and scorecards. Candidate source is mounted read-only and without network access.
-The audit database records recommendations and human decisions but performs no Git action.
+The audit database records recommendations and authorization decisions but performs no Git action.
 
 ## 1. Analyze evidence
 
@@ -17,7 +17,7 @@ The command opens SQLite in read-only mode. Historical gaps remain JSON `null`/`
 they are never converted to zero. Raw task, tool, and model text is hashed or classified
 before it can influence a brief.
 
-Before creating a campaign, provision a human-controlled holdout rotation from files
+Before creating a campaign, provision an operator-controlled holdout rotation from files
 that are outside this repository:
 
 ```bash
@@ -47,7 +47,7 @@ target case, and a rollback condition:
   --holdout-oracle .local-coder/holdout/2026-07-rotation/oracle.json
 
 ./local-coder.py approve-brief BRIEF_ID \
-  --actor "HUMAN NAME" \
+  --actor "review-model" \
   --rationale "The bounded hypothesis and file scope are acceptable."
 ```
 
@@ -59,8 +59,9 @@ ceiling then becomes three.
 
 Prompt and skill ideas can be represented by `ExperimentOverlay` in memory. Source
 changes must use the existing isolated worktree and native atomic editor. The evaluator
-does not create, commit, merge, push, delete, or promote a candidate. A human must inspect
-and commit an experiment before generational comparison.
+does not create, commit, merge, push, delete, or promote a candidate. An authorized actor
+must inspect and commit an experiment before generational comparison. The actor may be a
+trusted service or more capable model independent from the candidate.
 
 ```bash
 ./local-coder.py build-candidate CAMPAIGN_ID \
@@ -108,16 +109,17 @@ evaluations derive allowed paths from the approved brief and reject a conflictin
 scope. Any protected or undeclared changed path fails the first safety gate.
 
 The scorecard is ordered and non-scalar: safety, correctness, regression, control,
-improvement, efficiency, then authority. Failure at an earlier gate cannot be traded for
-an efficiency or target-metric gain. Campaign control and efficiency gates incorporate
+improvement, then efficiency. Failure at an earlier gate cannot be traded for an
+efficiency or target-metric gain. Promotion authorization is recorded separately from
+the technical scorecard. Campaign control and efficiency gates incorporate
 the recorded build trajectory, including rejected edits, tool failures, bounded retries,
 terminal status, fresh review, and model usage.
 
-## 5. Record the human decision
+## 5. Record the authorization decision
 
 ```bash
 ./local-coder.py record-decision EVALUATION_ID reject \
-  --actor "HUMAN NAME" \
+  --actor "review-model" \
   --rationale "The predeclared improvement gate did not pass."
 
 ./local-coder.py close-campaign CAMPAIGN_ID
@@ -125,12 +127,12 @@ terminal status, fresh review, and model usage.
 ./local-coder.py audit-campaign CAMPAIGN_ID
 ```
 
-Recording `promote` does not alter Git. The human must independently commit, merge, or
-otherwise promote an accepted candidate. Worktree retention and cleanup also remain
-manual.
+Recording `promote` does not alter Git. An authorized actor must independently commit,
+merge, or otherwise promote an accepted candidate. Worktree retention and cleanup remain
+explicit operations.
 
 `audit-campaign` opens SQLite read-only and fails closed unless the campaign has one
 approved brief, bounded build lineage, frozen suite/holdout/environment identity, paired
 case evidence, hash-valid candidate patch and trajectory artifacts, ordered scorecards,
-one human decision per evaluation, and a terminal status consistent with safety and
-regression evidence.
+one authorization decision per evaluation, and a terminal status consistent with safety
+and regression evidence.

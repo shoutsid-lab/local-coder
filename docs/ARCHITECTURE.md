@@ -33,7 +33,7 @@ networkless read-only baseline/candidate sandboxes
         ↓
 candidate verification + base-owned development/holdout contracts
         ↓
-lexicographic scorecard → human decision record
+lexicographic scorecard → authorized decision record
 ```
 
 Every run receives an isolated Git worktree. Agents can only use the narrow tools exposed
@@ -68,8 +68,9 @@ behind planning or review to change without changing the harness.
 Recursive improvement is generational rather than online self-modification. The trusted
 evaluator runs outside candidate worktrees, compares immutable baseline and candidate
 generations, and produces a recommendation only. Candidates must not control
-their evaluator, contracts, holdout cases, or promotion policy. A human remains the sole
-authority for commits, merges, pushes, and promotion.
+their evaluator, contracts, holdout cases, or promotion policy. Promotion authority may
+be delegated to a trusted external actor, including a more capable model, but never to the
+candidate being evaluated.
 
 `evaluation/supervisor.py` uses bubblewrap to expose only candidate runtime inputs to
 base-owned contract workers. Candidate-owned verification receives a read-only checkout,
@@ -87,7 +88,7 @@ changes.
 
 Completed campaign lineage can be checked with the read-only `audit-campaign` command.
 The audit verifies bounded builds, paired evidence, archived artifact hashes, scorecard
-ordering, and human decisions without invoking Git or modifying SQLite.
+ordering, and authorization decisions without invoking Git or modifying SQLite.
 
 The direct reviewer and native repair CLI remain available as focused debugging
 utilities. They use the same read-only review and native editor boundaries as the agent

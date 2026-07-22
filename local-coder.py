@@ -166,7 +166,7 @@ def handle_run(args: argparse.Namespace) -> int:
 
 
 def handle_validate_plan(args: argparse.Namespace) -> int:
-    """Validate and hash one human-authored atomic task plan read-only."""
+    """Validate and hash one externally authored atomic task plan read-only."""
     from runtime.plans import PlanError, load_task_plan, plan_summary
 
     try:
@@ -179,7 +179,7 @@ def handle_validate_plan(args: argparse.Namespace) -> int:
 
 
 def handle_run_plan_step(args: argparse.Namespace) -> int:
-    """Run exactly one manually selected, hash-approved plan step."""
+    """Run exactly one explicitly selected, hash-approved plan step."""
     from runtime.orchestrator import AgentOrchestrator, OrchestratorConfig
     from runtime.plans import PlanError, load_task_plan, render_step_task
 
@@ -419,7 +419,7 @@ def handle_evaluate(args: argparse.Namespace) -> int:
     report = evaluation.to_dict(redact_holdout=True)
     report["scorecard"] = scorecard.to_dict()
     print(json.dumps(report, indent=2, sort_keys=True))
-    return 0 if scorecard.recommendation == "eligible_for_human_promotion" else 2
+    return 0 if scorecard.recommendation == "eligible_for_promotion" else 2
 
 
 def handle_rotate_holdout(args: argparse.Namespace) -> int:
@@ -483,7 +483,7 @@ def handle_rotate_holdout(args: argparse.Namespace) -> int:
 
 
 def handle_create_campaign(args: argparse.Namespace) -> int:
-    """Mine one failure class and create one pending human-approved campaign brief."""
+    """Mine one failure class and create one pending campaign brief."""
     from dataclasses import asdict
 
     from evaluation.miner import campaign_candidate_limit, mine_improvement_brief
@@ -568,7 +568,7 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
 
 
 def handle_approve_brief(args: argparse.Namespace) -> int:
-    """Record explicit human approval of a pending improvement brief."""
+    """Record explicit actor approval of a pending improvement brief."""
     from runtime.state import StateStore
 
     try:
@@ -636,7 +636,7 @@ def handle_build_candidate(args: argparse.Namespace) -> int:
                 if overlay is not None
                 else "No in-memory overlay."
             ),
-            "Leave all changes uncommitted for human inspection.",
+            "Leave all changes uncommitted for independent inspection.",
         )
     )
     try:
@@ -684,7 +684,7 @@ def handle_build_candidate(args: argparse.Namespace) -> int:
 
 
 def handle_record_decision(args: argparse.Namespace) -> int:
-    """Record a human recommendation decision without changing Git state."""
+    """Record an authorization decision without changing Git state."""
     from runtime.state import StateStore
 
     try:
@@ -808,14 +808,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate_plan_parser = subparsers.add_parser(
         "validate-plan",
-        help="Validate and hash a human-authored atomic task plan read-only.",
+        help="Validate and hash an externally authored atomic task plan read-only.",
     )
     validate_plan_parser.add_argument("plan", type=Path)
     validate_plan_parser.set_defaults(handler=handle_validate_plan)
 
     run_plan_parser = subparsers.add_parser(
         "run-plan-step",
-        help="Run one manually selected, hash-approved atomic plan step.",
+        help="Run one explicitly selected, hash-approved atomic plan step.",
     )
     run_plan_parser.add_argument("plan", type=Path)
     run_plan_parser.add_argument("step_id")
@@ -827,7 +827,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_plan_parser.add_argument(
         "--completed-step",
         action="append",
-        help="Manually attest one completed prior dependency; may be repeated.",
+        help="Attest one completed prior dependency; may be repeated.",
     )
     run_plan_parser.add_argument(
         "--max-steps",
@@ -915,7 +915,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     approve_parser = subparsers.add_parser(
         "approve-brief",
-        help="Record explicit human approval for one campaign brief.",
+        help="Record explicit actor approval for one campaign brief.",
     )
     approve_parser.add_argument("brief_id")
     approve_parser.add_argument("--actor", required=True)
@@ -938,7 +938,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     decision_parser = subparsers.add_parser(
         "record-decision",
-        help="Record a human promotion recommendation without changing Git.",
+        help="Record a promotion decision without changing Git.",
     )
     decision_parser.add_argument("evaluation_id")
     decision_parser.add_argument("decision", choices=("promote", "reject"))

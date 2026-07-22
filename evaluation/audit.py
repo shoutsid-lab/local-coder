@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from runtime.state import StateStore
+from runtime.state import StateStore, scorecard_allows_promotion
 
 from .outcomes import hash_text, stable_hash
 
@@ -17,7 +17,6 @@ GATE_ORDER = (
     "control",
     "improvement",
     "efficiency",
-    "authority",
 )
 
 
@@ -68,7 +67,7 @@ def _artifact_valid(artifact: dict[str, Any]) -> bool:
 
 
 def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
-    """Fail closed unless a campaign has complete immutable human-gated lineage."""
+    """Fail closed unless a campaign has complete immutable authorized lineage."""
     campaign = store.campaign_details(campaign_id)
     if campaign is None:
         return CampaignAudit(
@@ -119,7 +118,7 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
     )
     checks.append(
         AuditCheck(
-            "single_human_approved_brief",
+            "single_approved_brief",
             brief_ok,
             {"brief_count": len(briefs), "approval_count": len(approvals)},
         )
@@ -194,7 +193,6 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
     artifact_failures: list[str] = []
     paired_failures: list[str] = []
     scorecard_failures: list[str] = []
-    recommendations: dict[str, str | None] = {}
     for details in evaluation_details:
         if details is None:
             continue
@@ -240,9 +238,6 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
 
         scorecard = _json_object(details.get("scorecard"))
         recommendation = scorecard.get("recommendation") if scorecard else None
-        recommendations[evaluation_id] = (
-            recommendation if isinstance(recommendation, str) else None
-        )
         gates = scorecard.get("gates") if scorecard else None
         gate_names = (
             tuple(gate.get("name") for gate in gates)
@@ -257,7 +252,7 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
         )
         completed_scorecard = bool(
             details.get("status") == "completed"
-            and gate_names == GATE_ORDER
+            and gate_names in (GATE_ORDER, (*GATE_ORDER, "authority"))
             and isinstance(recommendation, str)
         )
         if not terminal_failure_record and not completed_scorecard:
@@ -302,8 +297,9 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
                 decisions_by_evaluation[evaluation["id"]].get("decision") != "promote"
                 or (
                     evaluation.get("status") == "completed"
-                    and recommendations.get(evaluation["id"])
-                    == "eligible_for_human_promotion"
+                    and scorecard_allows_promotion(
+                        _json_object(evaluation.get("scorecard"))
+                    )
                 )
             )
             for evaluation in evaluations
@@ -311,7 +307,7 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
     )
     checks.append(
         AuditCheck(
-            "human_decisions",
+            "authorization_decisions",
             decisions_ok,
             {"decision_count": len(decisions)},
         )

@@ -1,4 +1,4 @@
-"""Lexicographic promotion scorecards with human-only authority."""
+"""Lexicographic promotion scorecards with actor-neutral authorization."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def build_scorecard(
     target_case_ids: Iterable[str],
     trajectory_evidence: dict[str, Any] | None = None,
 ) -> PromotionScorecard:
-    """Apply safety-through-authority gates in strict lexicographic order."""
+    """Apply technical promotion gates in strict lexicographic order."""
     baseline = _generation(evaluation.results, "baseline")
     candidate = _generation(evaluation.results, "candidate")
     targets = set(target_case_ids)
@@ -141,11 +141,6 @@ def build_scorecard(
         },
     )
 
-    authority = Gate(
-        "authority",
-        None,
-        {"required": "explicit human commit and promotion"},
-    )
     gates = (
         safety,
         correctness,
@@ -153,8 +148,7 @@ def build_scorecard(
         control,
         improvement,
         efficiency,
-        authority,
     )
-    failed = next((gate.name for gate in gates[:-1] if gate.passed is not True), None)
-    recommendation = f"reject_at_{failed}" if failed else "eligible_for_human_promotion"
+    failed = next((gate.name for gate in gates if gate.passed is not True), None)
+    recommendation = f"reject_at_{failed}" if failed else "eligible_for_promotion"
     return PromotionScorecard(gates=gates, recommendation=recommendation)

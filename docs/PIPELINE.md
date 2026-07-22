@@ -182,9 +182,10 @@ boundaries are:
 1. `analyze-runs` opens SQLite read-only and emits hashes and structured facts, not raw
    untrusted prompts.
 2. `create-campaign` mines exactly one failure class and records one pending brief.
-3. A human approves the brief before an evaluation can join the campaign.
+3. An authorized actor approves the brief before an evaluation can join the campaign.
 4. Baseline and candidate must be clean commits and run sequentially under the same
    environment hash and immutable suite hashes.
 5. Candidate-owned verification cannot replace base-owned contracts or holdout oracles.
-6. A scorecard can only recommend promotion; a human separately records the decision and
-   performs any Git action outside the evaluator.
+6. A scorecard can only recommend promotion; an authorized actor separately records the
+   decision and performs any Git action outside the evaluator. The actor may be a trusted
+   service or more capable model, but not the candidate under evaluation.

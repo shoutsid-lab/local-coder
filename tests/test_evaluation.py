@@ -34,7 +34,7 @@ from evaluation.supervisor import (
     evaluate_pair,
 )
 from runtime.migrations import MIGRATIONS, MigrationError
-from runtime.state import SCHEMA_VERSION, StateStore
+from runtime.state import SCHEMA_VERSION, StateStore, scorecard_allows_promotion
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -362,6 +362,26 @@ def test_failure_miner_emits_one_deterministic_bounded_brief() -> None:
     assert first.evidence_run_ids == ("run-1",)
 
 
+def test_legacy_authority_gate_remains_promotion_compatible() -> None:
+    scorecard = {
+        "recommendation": "legacy_promotion_recommendation",
+        "gates": [
+            {"name": name, "passed": True}
+            for name in (
+                "safety",
+                "correctness",
+                "regression",
+                "control",
+                "improvement",
+                "efficiency",
+            )
+        ]
+        + [{"name": "authority", "passed": None}]
+    }
+
+    assert scorecard_allows_promotion(scorecard) is True
+
+
 def test_campaign_starts_with_one_candidate_until_ten_clean_runs(
     tmp_path: Path,
 ) -> None:
@@ -380,7 +400,7 @@ def test_campaign_starts_with_one_candidate_until_ten_clean_runs(
     assert campaign_candidate_limit(store) == 3
 
 
-def test_campaign_requires_one_human_approved_brief(tmp_path: Path) -> None:
+def test_campaign_requires_one_approved_brief(tmp_path: Path) -> None:
     store = StateStore(tmp_path / "agent.db")
     campaign_id = store.create_campaign(
         baseline_commit="base",
@@ -405,7 +425,7 @@ def test_campaign_requires_one_human_approved_brief(tmp_path: Path) -> None:
     }
     store.add_improvement_brief(campaign_id, brief)
 
-    with pytest.raises(ValueError, match="human-approved brief"):
+    with pytest.raises(ValueError, match="approved brief"):
         store.create_evaluation(
             campaign_id=campaign_id,
             baseline_commit="base",
@@ -420,7 +440,7 @@ def test_campaign_requires_one_human_approved_brief(tmp_path: Path) -> None:
 
     store.approve_improvement_brief(
         "brief",
-        actor="human",
+        actor="review-model",
         rationale="The bounded hypothesis is safe to evaluate.",
     )
     run_id = store.create_run(
@@ -501,7 +521,7 @@ def test_campaign_evaluation_requires_frozen_holdout_and_environment(
     store.add_improvement_brief(campaign_id, brief)
     store.approve_improvement_brief(
         brief["id"],
-        actor="human",
+        actor="review-model",
         rationale="Freeze all trusted evaluation identities.",
     )
     run_id = store.create_run(
@@ -551,7 +571,7 @@ def test_campaign_evaluation_requires_frozen_holdout_and_environment(
 
 
 def test_complete_recursive_campaign_control_cycle(tmp_path: Path) -> None:
-    """Demonstrate lineage through human decision without performing a Git action."""
+    """Demonstrate actor-neutral lineage without performing a Git action."""
     store = StateStore(tmp_path / "campaign.db")
     budget = {
         "campaign_wall_seconds": 30,
@@ -588,7 +608,7 @@ def test_complete_recursive_campaign_control_cycle(tmp_path: Path) -> None:
     }
     store.add_improvement_brief(campaign_id, brief)
     store.approve_improvement_brief(
-        brief["id"], actor="human", rationale="Bounded and falsifiable."
+        brief["id"], actor="review-model", rationale="Bounded and falsifiable."
     )
     run_id = store.create_run(
         task="Implement approved brief",
@@ -721,18 +741,18 @@ def test_complete_recursive_campaign_control_cycle(tmp_path: Path) -> None:
     )
     store.record_promotion_decision(
         evaluation_id,
-        actor="human",
+        actor="review-model",
         decision="promote",
         rationale="All predeclared gates passed.",
     )
 
-    assert scorecard.recommendation == "eligible_for_human_promotion"
+    assert scorecard.recommendation == "eligible_for_promotion"
     assert store.close_campaign_from_evidence(campaign_id) == "completed_clean"
     audit = audit_campaign(StateStore(store.path, read_only=True), campaign_id)
     assert audit.passed is True
     details = store.campaign_details(campaign_id)
     assert details["evaluations"][0]["build_id"] == build_id
-    assert details["decisions"][0]["actor"] == "human"
+    assert details["decisions"][0]["actor"] == "review-model"
 
     with sqlite3.connect(store.path) as connection:
         connection.execute(
@@ -764,7 +784,7 @@ def test_campaign_audit_fails_closed_on_incomplete_campaign(tmp_path: Path) -> N
 
     assert report.passed is False
     failed = {check.name for check in report.checks if not check.passed}
-    assert "single_human_approved_brief" in failed
+    assert "single_approved_brief" in failed
     assert "evaluation_lineage" in failed
 
 
@@ -922,7 +942,7 @@ def test_failed_evaluation_retains_patch_and_trajectory_lineage(
     }
     store.add_improvement_brief(campaign_id, brief)
     store.approve_improvement_brief(
-        brief["id"], actor="human", rationale="Bounded failure demonstration."
+        brief["id"], actor="review-model", rationale="Bounded failure demonstration."
     )
     run_id = store.create_run(
         task="Build candidate",

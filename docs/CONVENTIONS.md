@@ -15,5 +15,5 @@
   identities.
 - Keep holdout observations redacted from CLI reports and never mount trusted oracle
   files into the candidate contract sandbox.
-- Record human brief approvals and promotion decisions with an actor and rationale; do
-  not interpret a decision record as authorization to execute Git operations.
+- Record brief approvals and promotion decisions with an actor and rationale; do not
+  infer authorization from the candidate model response or a decision record.

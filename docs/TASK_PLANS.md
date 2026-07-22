@@ -1,7 +1,7 @@
 # Trusted Task Plans
 
-Task plans let a human or stronger external planner decompose a broad request without
-asking the local 3B model to invent or execute an unbounded workflow. The local runtime
+Task plans let a trusted external planner, including a more capable model, decompose a
+broad request without asking the local 3B model to invent or execute an unbounded workflow. The local runtime
 validates the complete plan read-only, freezes its canonical SHA-256, and runs only one
 explicitly selected step at a time.
 
@@ -59,8 +59,8 @@ Run one selected step only after approving that exact hash:
   --approve-plan-hash SHA256_FROM_VALIDATE_PLAN
 ```
 
-After inspecting and manually committing an accepted dependency, attest it when selecting
-a later step:
+After an accepted dependency is independently reviewed and committed, attest it when
+selecting a later step:
 
 ```bash
 ./local-coder.py run-plan-step task-plan.json tests \
@@ -75,8 +75,10 @@ a model request for any other path is rejected before the editor is called and f
 
 ## Trust boundary
 
-The plan is human-authored input, not model authority. Hash approval detects changes after
-review, but it is not a signature. Dependency completion is a deliberate human attestation;
-the runtime does not infer it, chain worktrees, or perform Git promotion actions. Continue
-to inspect every worktree, deterministic verification result, diff, and fresh review before
-committing.
+The plan is externally authored input, not authority granted to the candidate model. Hash
+approval detects changes after review, but it is not a signature. Dependency completion is
+an explicit attestation from an authorized actor. That actor may be an operator, service,
+or more capable model, provided it is independent from the candidate being executed. The
+runtime does not infer completion, chain worktrees, or perform Git promotion actions.
+Continue to inspect every worktree, deterministic verification result, diff, and fresh
+review before committing.

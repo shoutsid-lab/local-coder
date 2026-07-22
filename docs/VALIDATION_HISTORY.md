@@ -31,9 +31,15 @@ campaign audit. Deterministic tests cover migration from schema v7, holdout and
 environment mismatch rejection, clean campaign closure, artifact tamper detection, and
 terminal evaluation lineage retention.
 
+The authorization-language pass removed person-specific assumptions from code, CLI output,
+tests, and documentation. Promotion scorecards now end at the efficiency gate and emit
+`eligible_for_promotion`; brief approval and promotion decisions accept any nonempty
+actor identity with a rationale. Legacy scorecards with the former trailing authority gate
+remain promotion-compatible through structural gate validation.
+
 ## Proven boundary
 
 The evidence proves bounded exact edits, complete diff inspection, deterministic
 verification, conservative status derivation, frozen campaign identities, auditable
-bounded recursion, and preserved human authority. It does not prove broad autonomous
-decomposition or safe recursive self-promotion.
+bounded recursion, and preserved external authorization. It does not prove broad
+autonomous decomposition or safe candidate self-promotion.

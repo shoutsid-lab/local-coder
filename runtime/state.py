@@ -15,6 +15,29 @@ from .migrations import applied_schema_version, migrate
 
 SCHEMA_VERSION = MIGRATION_SCHEMA_VERSION
 
+PROMOTION_GATE_ORDER = (
+    "safety",
+    "correctness",
+    "regression",
+    "control",
+    "improvement",
+    "efficiency",
+)
+
+
+def scorecard_allows_promotion(scorecard: Any) -> bool:
+    """Return whether a current or legacy scorecard permits promotion."""
+    if not isinstance(scorecard, dict):
+        return False
+    gates = scorecard.get("gates")
+    if not isinstance(gates, list) or not all(isinstance(gate, dict) for gate in gates):
+        return False
+    names = tuple(gate.get("name") for gate in gates)
+    accepted_orders = (PROMOTION_GATE_ORDER, (*PROMOTION_GATE_ORDER, "authority"))
+    return names in accepted_orders and all(
+        gate.get("passed") is True for gate in gates[: len(PROMOTION_GATE_ORDER)]
+    )
+
 
 def utc_now() -> str:
     """Return the current UTC time in an ISO-8601 representation."""
@@ -384,7 +407,7 @@ class StateStore:
         return int(row[0]) if row is not None else 0
 
     def campaign_details(self, campaign_id: str) -> dict[str, Any] | None:
-        """Return a campaign with briefs, evaluations, and human decisions."""
+        """Return a campaign with briefs, evaluations, and authorization decisions."""
         with self.connect() as connection:
             campaign = connection.execute(
                 "SELECT * FROM evaluation_campaigns WHERE id = ?", (campaign_id,)
@@ -482,7 +505,9 @@ class StateStore:
             raise ValueError("Campaign is missing or not active.")
         evaluations = details["evaluations"]
         if not evaluations or len(details["decisions"]) != len(evaluations):
-            raise ValueError("Every campaign evaluation requires a human decision.")
+            raise ValueError(
+                "Every campaign evaluation requires an authorization decision."
+            )
         clean = True
         for evaluation in evaluations:
             if evaluation["status"] != "completed" or not evaluation["scorecard"]:
@@ -541,9 +566,9 @@ class StateStore:
         actor: str,
         rationale: str,
     ) -> None:
-        """Record explicit human authorization to evaluate one brief."""
+        """Record explicit actor authorization to evaluate one brief."""
         if not actor.strip() or not rationale.strip():
-            raise ValueError("A human actor and rationale are required.")
+            raise ValueError("An actor and rationale are required.")
         with self.connect() as connection:
             cursor = connection.execute(
                 """
@@ -656,7 +681,7 @@ class StateStore:
         return result
 
     def evaluation_details(self, evaluation_id: str) -> dict[str, Any] | None:
-        """Return one evaluation with its cases, artifacts, and human decision."""
+        """Return one evaluation with cases, artifacts, and authorization."""
         with self.connect() as connection:
             evaluation = connection.execute(
                 "SELECT * FROM evaluation_runs WHERE id = ?", (evaluation_id,)
@@ -731,7 +756,7 @@ class StateStore:
                     (campaign_id,),
                 ).fetchone()[0]
                 if approved != 1:
-                    raise ValueError("Campaign requires one human-approved brief.")
+                    raise ValueError("Campaign requires one approved brief.")
                 if build_id is None:
                     raise ValueError(
                         "Campaign evaluation requires a candidate build ID."
@@ -884,11 +909,11 @@ class StateStore:
         decision: str,
         rationale: str,
     ) -> None:
-        """Record a human decision without performing any promotion action."""
+        """Record an actor decision without performing any promotion action."""
         if decision not in {"promote", "reject"}:
             raise ValueError("Decision must be 'promote' or 'reject'.")
         if not actor.strip() or not rationale.strip():
-            raise ValueError("A human actor and rationale are required.")
+            raise ValueError("An actor and rationale are required.")
         with self.connect() as connection:
             evaluation = connection.execute(
                 "SELECT status, scorecard FROM evaluation_runs WHERE id = ?",
@@ -901,7 +926,7 @@ class StateStore:
                     scorecard = json.loads(evaluation["scorecard"])
                 except (json.JSONDecodeError, TypeError) as exc:
                     raise ValueError("Promotion requires a valid scorecard.") from exc
-                if scorecard.get("recommendation") != "eligible_for_human_promotion":
+                if not scorecard_allows_promotion(scorecard):
                     raise ValueError("Promotion recommendation gates did not pass.")
             connection.execute(
                 """

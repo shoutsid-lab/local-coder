@@ -29,8 +29,8 @@ llama.cpp + Qwen2.5-Coder-3B Q4_K_M
 ```
 
 The architecture remains local-first and hardware-adjusted. `runtime/editor.py` is the
-only source-editing worker during local agent runs. Deterministic verification and human
-approval remain authoritative.
+only source-editing worker during local agent runs. Deterministic verification and
+explicit authorization remain authoritative.
 
 Supporting documentation:
 
@@ -71,10 +71,10 @@ The trusted control plane is implemented under `evaluation/`:
   read-only bubblewrap sandboxes with time, kernel process-count, memory, output, file,
   disk, token, and model-call budgets;
 - the failure miner emits one deterministic brief from allowlisted structured facts;
-- campaigns require explicit human brief approval and allow one candidate until ten
-  clean campaigns justify a maximum of three;
+- campaigns require explicit brief approval by an authorized actor and allow one candidate
+  until ten clean campaigns justify a maximum of three;
 - promotion scorecards apply ordered safety, correctness, regression, control,
-  improvement, efficiency, and human-authority gates.
+  improvement, and efficiency gates followed by an authorization decision.
 
 The system recommends promotion but does not commit, merge, push, promote, create an
 evaluation worktree, or clean one up. See
@@ -97,7 +97,7 @@ paired baseline/candidate evaluation
         ↓
 hard gates + scorecard
         ↓
-human promotes or rejects
+authorized actor promotes or rejects
         ↓
 Promoted generation G(n+1)
 ```
@@ -160,8 +160,9 @@ Cluster normalized failures and emit exactly one strict improvement brief with:
 - predeclared acceptance metrics and suite hash;
 - hard budget and rollback condition.
 
-Initially a human approves every brief. New cases derived from real failures enter the
-visible development suite first; only a human can promote them to holdout.
+Initially an authorized actor approves every brief. New cases derived from real failures
+enter the visible development suite first; only an independent trusted authority can
+promote them to holdout.
 
 ### 4. Candidate experiments — implemented boundary
 
@@ -174,7 +175,7 @@ Start with low-risk improvement surfaces:
 5. skill prompt and step-budget variants.
 
 Prefer in-memory overlays for prompt and skill experiments. Source candidates use the
-existing native editor and remain uncommitted until human review. A human-created
+existing native editor and remain uncommitted until independent review. An authorized
 experiment commit is required before full generational comparison under the current
 no-automatic-commit policy.
 
@@ -188,14 +189,17 @@ Promotion is lexicographic, never a scalar tradeoff:
 4. **Control:** zero rejected edits, bounded retries, and fresh independent review.
 5. **Improvement:** the predeclared target improves across repeated paired trials.
 6. **Efficiency:** time, tokens, model calls, and tool calls remain within budget.
-7. **Authority:** a human explicitly commits and promotes the candidate.
+
+After the technical gates, an authorized actor explicitly records the decision and may
+commit or promote the candidate outside the evaluator. The actor may be a trusted service
+or more capable model, but never the candidate being evaluated.
 
 ### 6. Bounded recursion — implemented
 
 Begin with one proposal and one candidate per campaign. Increase to a maximum of three
 iterations only after at least ten clean campaigns with zero safety regressions. Archive
-lineage, patches, hypotheses, scorecards, and human decisions. Do not retain unlimited
-active worktrees or allow an unbounded daemon loop.
+lineage, patches, hypotheses, scorecards, and authorization decisions. Do not retain
+unlimited active worktrees or allow an unbounded daemon loop.
 
 ## Delivered artifacts
 
@@ -207,6 +211,8 @@ active worktrees or allow an unbounded daemon loop.
 - `evaluation/miner.py` and `evaluation/scorecard.py` — one-brief mining and ordered
   promotion gates;
 - `evaluation/audit.py` — read-only final campaign invariant audit;
+- `runtime/plans.py` and `docs/TASK_PLANS.md` — canonical externally authored task
+  plans with hash-approved, one-step-at-a-time execution;
 - additive state methods in `runtime/state.py` and ordered migrations in
   `runtime/migrations.py`;
 - read-only analysis and repository-read-only `evaluate` CLI commands;
@@ -214,8 +220,8 @@ active worktrees or allow an unbounded daemon loop.
 
 ## Completion status
 
-The recursive-improvement control plane is complete at the bounded, human-gated scope
-defined in this handoff.
+The recursive-improvement control plane is complete at the bounded, explicitly authorized
+scope defined in this handoff.
 Evaluation lineage now binds one campaign evaluation to one unique candidate-build ID.
 Its control gate fails closed on rejected edits, tool errors, excessive retries,
 `needs_attention`, stale review, failed final verification, or missing/over-budget model
@@ -237,10 +243,17 @@ candidate execution. Candidate patch and trajectory artifacts are persisted befo
 sandbox execution, including terminal budget or process failures.
 
 The deterministic campaign control-cycle demonstration covers brief approval,
-candidate-build lineage, paired evidence, scorecard recommendation, human decision,
-campaign closure, and a read-only final invariant audit. `audit-campaign` validates
+candidate-build lineage, paired evidence, scorecard recommendation, authorization
+decision, campaign closure, and a read-only final invariant audit. `audit-campaign` validates
 identity binding, artifact hashes, paired cases, scorecard order, bounded candidates,
-human authority, and terminal safety/regression status without modifying Git or SQLite.
+external authorization, and terminal safety/regression status without modifying Git or
+SQLite.
+
+Authorization is actor-neutral throughout the control plane. An operator, trusted service,
+or more capable model may approve briefs, attest task-plan dependencies, and record
+promotion decisions, provided it remains independent from the candidate being evaluated.
+The technical scorecard contains only deterministic safety-through-efficiency gates;
+promotion authorization is recorded separately.
 
 Acceptance criteria:
 
@@ -260,6 +273,9 @@ make verify
 make agent-smoke
 ./local-coder.py analyze-runs
 ./local-coder.py status
+./local-coder.py validate-plan task-plan.json
+./local-coder.py run-plan-step task-plan.json STEP_ID \
+  --approve-plan-hash PLAN_SHA256
 ./local-coder.py audit-campaign CAMPAIGN_ID
 ./local-coder.py run --expected-file FILE \
   "Implement one atomic task with explicit files and acceptance criteria"

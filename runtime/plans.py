@@ -1,4 +1,4 @@
-"""Trusted validation for human-authored atomic task plans."""
+"""Trusted validation for externally authored atomic task plans."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class PlanError(ValueError):
 
 @dataclass(frozen=True)
 class PlanStep:
-    """One manually selected atomic implementation step."""
+    """One explicitly selected atomic implementation step."""
 
     id: str
     instruction: str
@@ -36,7 +36,7 @@ class PlanStep:
 
 @dataclass(frozen=True)
 class TaskPlan:
-    """A validated, canonical human-authored task plan."""
+    """A validated, canonical externally authored task plan."""
 
     schema_version: int
     plan_id: str

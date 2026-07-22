@@ -53,13 +53,13 @@ Inspect the audit trail:
 ./local-coder.py analyze-runs --limit 20
 ```
 
-Then review the preserved worktree manually before committing or merging.
+Then review the preserved worktree independently before committing or merging.
 
 ## Run a trusted task-plan step
 
-Broad requests can be decomposed by a human or stronger external planner into a strict
-JSON plan. The local runtime validates and hashes the complete plan, then executes only one
-explicitly selected atomic step:
+Broad requests can be decomposed by a trusted external planner, including a more capable
+model, into a strict JSON plan. The local runtime validates and hashes the complete plan,
+then executes only one explicitly selected atomic step:
 
 ```bash
 ./local-coder.py validate-plan task-plan.json
@@ -87,7 +87,7 @@ and recommend—but never perform—promotion:
 ```
 
 See [docs/RECURSIVE_IMPROVEMENT.md](docs/RECURSIVE_IMPROVEMENT.md) for the complete
-human-gated procedure and sandbox guarantees.
+explicit-authorization procedure and sandbox guarantees.
 
 ## Focused fallback commands
 
