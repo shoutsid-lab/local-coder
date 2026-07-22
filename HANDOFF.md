@@ -206,18 +206,20 @@ active worktrees or allow an unbounded daemon loop.
   from an external source by `rotate-holdout`;
 - `evaluation/miner.py` and `evaluation/scorecard.py` — one-brief mining and ordered
   promotion gates;
+- `evaluation/audit.py` — read-only final campaign invariant audit;
 - additive state methods in `runtime/state.py` and ordered migrations in
   `runtime/migrations.py`;
 - read-only analysis and repository-read-only `evaluate` CLI commands;
 - protected `tests/test_evaluation_contract.py` and deterministic unit tests.
 
-## Remaining hardening
+## Completion status
 
-The control-plane checkpoint is usable but recursive improvement is not yet complete.
+The recursive-improvement control plane is complete at the bounded, human-gated scope
+defined in this handoff.
 Evaluation lineage now binds one campaign evaluation to one unique candidate-build ID.
 Its control gate fails closed on rejected edits, tool errors, excessive retries,
 `needs_attention`, stale review, failed final verification, or missing/over-budget model
-usage. Schema v7 is applied through an ordered, atomic ledger with structural and
+usage. Schema v8 is applied through an ordered, atomic ledger with structural and
 foreign-key compatibility checks; malformed, gapped, future, and partially migrated
 databases fail without partial writes.
 
@@ -229,8 +231,16 @@ inputs are no longer tracked: each immutable rotation is copied from an external
 into ignored trusted storage and campaign commands reject candidate-visible holdout
 paths.
 
-The remaining completion work is a full campaign demonstration and final invariant
-audit against the acceptance criteria below.
+Campaign creation freezes the holdout manifest-plus-oracle identity and evaluator
+environment identity in addition to the suite and budget. Mismatches fail before
+candidate execution. Candidate patch and trajectory artifacts are persisted before
+sandbox execution, including terminal budget or process failures.
+
+The deterministic campaign control-cycle demonstration covers brief approval,
+candidate-build lineage, paired evidence, scorecard recommendation, human decision,
+campaign closure, and a read-only final invariant audit. `audit-campaign` validates
+identity binding, artifact hashes, paired cases, scorecard order, bounded candidates,
+human authority, and terminal safety/regression status without modifying Git or SQLite.
 
 Acceptance criteria:
 
@@ -250,6 +260,7 @@ make verify
 make agent-smoke
 ./local-coder.py analyze-runs
 ./local-coder.py status
+./local-coder.py audit-campaign CAMPAIGN_ID
 ./local-coder.py run --expected-file FILE \
   "Implement one atomic task with explicit files and acceptance criteria"
 ```

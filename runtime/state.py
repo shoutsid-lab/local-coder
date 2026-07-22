@@ -345,6 +345,8 @@ class StateStore:
         suite_hash: str,
         budget: Any,
         max_candidates: int,
+        holdout_hash: str | None = None,
+        environment_hash: str | None = None,
     ) -> str:
         """Create one bounded recursive-improvement campaign."""
         campaign_id = uuid.uuid4().hex[:12]
@@ -354,8 +356,9 @@ class StateStore:
                 """
                 INSERT INTO evaluation_campaigns (
                     id, baseline_commit, status, suite_hash, budget,
-                    max_candidates, created_at, updated_at
-                ) VALUES (?, ?, 'active', ?, ?, ?, ?, ?)
+                    max_candidates, created_at, updated_at,
+                    holdout_hash, environment_hash
+                ) VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     campaign_id,
@@ -365,6 +368,8 @@ class StateStore:
                     max_candidates,
                     timestamp,
                     timestamp,
+                    holdout_hash,
+                    environment_hash,
                 ),
             )
         return campaign_id
@@ -650,6 +655,46 @@ class StateStore:
         result["run"] = self.run_details(result["run_id"]) if result["run_id"] else None
         return result
 
+    def evaluation_details(self, evaluation_id: str) -> dict[str, Any] | None:
+        """Return one evaluation with its cases, artifacts, and human decision."""
+        with self.connect() as connection:
+            evaluation = connection.execute(
+                "SELECT * FROM evaluation_runs WHERE id = ?", (evaluation_id,)
+            ).fetchone()
+            if evaluation is None:
+                return None
+            result = dict(evaluation)
+            result["cases"] = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT * FROM evaluation_cases
+                    WHERE evaluation_id = ?
+                    ORDER BY repetition, case_id, generation
+                    """,
+                    (evaluation_id,),
+                )
+            ]
+            result["artifacts"] = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT * FROM evaluation_artifacts
+                    WHERE evaluation_id = ? ORDER BY created_at, id
+                    """,
+                    (evaluation_id,),
+                )
+            ]
+            decision = connection.execute(
+                """
+                SELECT * FROM promotion_decisions
+                WHERE evaluation_id = ?
+                """,
+                (evaluation_id,),
+            ).fetchone()
+            result["decision"] = dict(decision) if decision is not None else None
+        return result
+
     def create_evaluation(
         self,
         *,
@@ -670,7 +715,8 @@ class StateStore:
             if campaign_id is not None:
                 campaign = connection.execute(
                     """
-                    SELECT status, max_candidates, baseline_commit, suite_hash, budget
+                    SELECT status, max_candidates, baseline_commit, suite_hash, budget,
+                           holdout_hash, environment_hash
                     FROM evaluation_campaigns WHERE id = ?
                     """,
                     (campaign_id,),
@@ -720,6 +766,16 @@ class StateStore:
                     raise ValueError("Evaluation suite differs from the campaign.")
                 if campaign["budget"] != json_text(budget):
                     raise ValueError("Evaluation budget differs from the campaign.")
+                if not campaign["holdout_hash"] or not campaign["environment_hash"]:
+                    raise ValueError(
+                        "Campaign lacks frozen holdout or environment identity."
+                    )
+                if campaign["holdout_hash"] != holdout_hash:
+                    raise ValueError("Evaluation holdout differs from the campaign.")
+                if campaign["environment_hash"] != environment_hash:
+                    raise ValueError(
+                        "Evaluation environment differs from the campaign."
+                    )
                 count = connection.execute(
                     "SELECT COUNT(*) FROM evaluation_runs WHERE campaign_id = ?",
                     (campaign_id,),

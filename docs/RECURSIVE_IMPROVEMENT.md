@@ -92,6 +92,11 @@ includes candidate-owned `make verify`, base-owned development contracts, and se
 mounted holdout contracts. Timeouts, nonzero exits, malformed observations, and output
 limits are terminal recorded case results; there is no retry loop.
 
+Campaign creation freezes the combined development/holdout manifest hash, the holdout
+manifest-plus-oracle hash, and the evaluator environment hash. Campaign evaluation rejects
+any mismatch before candidate execution. Campaigns created by an older schema without
+those identities remain readable but are not evaluable.
+
 Every sandbox command runs as an unprivileged UID with all capabilities dropped. A
 base-owned wrapper installs an immutable kernel `RLIMIT_NPROC` before executing candidate
 code, so descendants cannot evade the declared process ceiling. Candidate construction
@@ -117,8 +122,15 @@ terminal status, fresh review, and model usage.
 
 ./local-coder.py close-campaign CAMPAIGN_ID
 ./local-coder.py show-campaign CAMPAIGN_ID
+./local-coder.py audit-campaign CAMPAIGN_ID
 ```
 
 Recording `promote` does not alter Git. The human must independently commit, merge, or
 otherwise promote an accepted candidate. Worktree retention and cleanup also remain
 manual.
+
+`audit-campaign` opens SQLite read-only and fails closed unless the campaign has one
+approved brief, bounded build lineage, frozen suite/holdout/environment identity, paired
+case evidence, hash-valid candidate patch and trajectory artifacts, ordered scorecards,
+one human decision per evaluation, and a terminal status consistent with safety and
+regression evidence.

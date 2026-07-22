@@ -81,7 +81,13 @@ a kernel process-count ceiling before candidate code executes.
 Production holdout manifests and oracles live only in ignored
 `.local-coder/holdout/<rotation>/` storage after validation and immutable provisioning
 from an external operator-controlled source. Campaign commands reject holdout paths from
-candidate-visible Git content.
+candidate-visible Git content. A campaign freezes the holdout manifest-plus-oracle hash
+and evaluator environment hash at creation, and evaluation rejects either identity if it
+changes.
+
+Completed campaign lineage can be checked with the read-only `audit-campaign` command.
+The audit verifies bounded builds, paired evidence, archived artifact hashes, scorecard
+ordering, and human decisions without invoking Git or modifying SQLite.
 
 The direct reviewer and native repair CLI remain available as focused debugging
 utilities. They use the same read-only review and native editor boundaries as the agent

@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 class MigrationError(RuntimeError):
@@ -179,6 +179,13 @@ MIGRATIONS = (
                 ON evaluation_runs(build_id)""",
         ),
     ),
+    Migration(
+        8,
+        (
+            """ALTER TABLE evaluation_campaigns ADD COLUMN holdout_hash TEXT""",
+            """ALTER TABLE evaluation_campaigns ADD COLUMN environment_hash TEXT""",
+        ),
+    ),
 )
 
 
@@ -249,6 +256,8 @@ EXPECTED_COLUMNS = {
         "max_candidates",
         "created_at",
         "updated_at",
+        "holdout_hash",
+        "environment_hash",
     ),
     "evaluation_runs": (
         "id",
@@ -433,6 +442,8 @@ def _validate(connection: sqlite3.Connection, version: int) -> None:
             expected_columns = EXPECTED_COLUMNS[table]
             if table == "evaluation_runs" and version < 7:
                 expected_columns = expected_columns[:-1]
+            if table == "evaluation_campaigns" and version < 8:
+                expected_columns = expected_columns[:-2]
             if actual_columns != expected_columns:
                 raise MigrationError(
                     f"Schema v{version} has incompatible columns for "

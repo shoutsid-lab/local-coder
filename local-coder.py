@@ -284,6 +284,24 @@ def handle_evaluate(args: argparse.Namespace) -> int:
             )
             if len(approved) != 1:
                 raise ValueError("Campaign requires one approved brief.")
+            holdout_hash = stable_hash(
+                {
+                    "manifest": holdout.manifest_hash,
+                    "oracle": oracle_hash,
+                }
+            )
+            if campaign.get("holdout_hash") != holdout_hash:
+                raise ValueError("Holdout identity does not match the campaign.")
+            campaign_environment_hash = campaign.get("environment_hash")
+            if not campaign_environment_hash:
+                raise ValueError("Campaign has no frozen evaluator environment.")
+            if (
+                args.expected_environment_hash is not None
+                and args.expected_environment_hash != campaign_environment_hash
+            ):
+                raise ValueError(
+                    "CLI environment hash does not match the campaign identity."
+                )
             allowed_candidate_paths = set(json.loads(approved[0]["allowed_files"]))
             acceptance_cases = {
                 metric["case_id"]
@@ -307,6 +325,7 @@ def handle_evaluate(args: argparse.Namespace) -> int:
             if not args.allowed_file:
                 raise ValueError("Standalone evaluation requires --allowed-file.")
             allowed_candidate_paths = set(args.allowed_file)
+            campaign_environment_hash = args.expected_environment_hash
         evaluation = evaluate_pair(
             trusted_root=ROOT,
             baseline=args.baseline,
@@ -318,10 +337,11 @@ def handle_evaluate(args: argparse.Namespace) -> int:
             repetitions=args.repetitions,
             budget=budget,
             allowed_candidate_paths=allowed_candidate_paths,
-            expected_environment_hash=args.expected_environment_hash,
+            expected_environment_hash=campaign_environment_hash,
             state=state,
             campaign_id=args.campaign_id,
             build_id=args.build_id,
+            trajectory_evidence=trajectory,
         )
         scorecard = build_scorecard(
             evaluation,
@@ -329,14 +349,6 @@ def handle_evaluate(args: argparse.Namespace) -> int:
             trajectory_evidence=trajectory,
         )
         if evaluation.evaluation_id is not None:
-            if trajectory is not None:
-                trajectory_text = json.dumps(trajectory, sort_keys=True)
-                state.add_evaluation_artifact(
-                    evaluation.evaluation_id,
-                    kind="candidate_trajectory",
-                    content_hash=stable_hash(trajectory),
-                    content=trajectory_text,
-                )
             state.complete_evaluation(
                 evaluation.evaluation_id,
                 status="completed",
@@ -417,43 +429,52 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
 
     from evaluation.miner import campaign_candidate_limit, mine_improvement_brief
     from evaluation.outcomes import normalize_run, stable_hash
-    from evaluation.supervisor import committed_generation
+    from evaluation.supervisor import (
+        EvaluationError,
+        committed_generation,
+        environment_identity,
+    )
     from runtime.editor import PIPELINE_CONTROLS
     from runtime.state import StateStore
 
-    store = StateStore(args.database.resolve())
-    records = []
-    for run_id in args.run_id:
-        details = store.run_details(run_id)
-        if details is None:
-            print(f"Unknown run ID: {run_id}", file=sys.stderr)
-            return 1
-        records.append(normalize_run(details))
-    development, holdout, _, _ = _load_evaluation_inputs(
-        args,
-        require_external_holdout=True,
-    )
-    suite_hash = stable_hash(
-        {
-            "development": development.manifest_hash,
-            "holdout": holdout.manifest_hash,
-        }
-    )
-    budget = asdict(_evaluation_budget(args))
-    forbidden = set(PIPELINE_CONTROLS) | {
-        "evaluation/",
-        "tests/test_architecture_contract.py",
-        "tests/test_evaluation_contract.py",
-    }
-    metrics = tuple(
-        {
-            "case_id": case_id,
-            "measure": "paired_pass_count",
-            "direction": "increase",
-        }
-        for case_id in args.target_case
-    )
     try:
+        store = StateStore(args.database.resolve())
+        records = []
+        for run_id in args.run_id:
+            details = store.run_details(run_id)
+            if details is None:
+                raise ValueError(f"Unknown run ID: {run_id}")
+            records.append(normalize_run(details))
+        development, holdout, _, oracle_hash = _load_evaluation_inputs(
+            args,
+            require_external_holdout=True,
+        )
+        suite_hash = stable_hash(
+            {
+                "development": development.manifest_hash,
+                "holdout": holdout.manifest_hash,
+            }
+        )
+        budget_value = _evaluation_budget(args)
+        budget_value.validate()
+        budget = asdict(budget_value)
+        holdout_hash = stable_hash(
+            {"manifest": holdout.manifest_hash, "oracle": oracle_hash}
+        )
+        _, evaluator_environment_hash = environment_identity(ROOT)
+        forbidden = set(PIPELINE_CONTROLS) | {
+            "evaluation/",
+            "tests/test_architecture_contract.py",
+            "tests/test_evaluation_contract.py",
+        }
+        metrics = tuple(
+            {
+                "case_id": case_id,
+                "measure": "paired_pass_count",
+                "direction": "increase",
+            }
+            for case_id in args.target_case
+        )
         baseline_commit = committed_generation(args.baseline)
         brief = mine_improvement_brief(
             records,
@@ -470,9 +491,11 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
             suite_hash=suite_hash,
             budget=budget,
             max_candidates=campaign_candidate_limit(store),
+            holdout_hash=holdout_hash,
+            environment_hash=evaluator_environment_hash,
         )
         store.add_improvement_brief(campaign_id, brief.to_dict())
-    except ValueError as exc:
+    except (EvaluationError, ValueError) as exc:
         print(f"Campaign creation failed closed: {exc}", file=sys.stderr)
         return 1
     print(
@@ -646,6 +669,21 @@ def handle_show_campaign(args: argparse.Namespace) -> int:
         return 1
     print(json.dumps(details, indent=2, sort_keys=True))
     return 0
+
+
+def handle_audit_campaign(args: argparse.Namespace) -> int:
+    """Audit completed campaign lineage without mutating state or Git."""
+    from evaluation.audit import audit_campaign
+    from runtime.state import StateStore
+
+    try:
+        store = StateStore(args.database.resolve(), read_only=True)
+    except FileNotFoundError:
+        print(f"Run database does not exist: {args.database}", file=sys.stderr)
+        return 1
+    report = audit_campaign(store, args.campaign_id)
+    print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+    return 0 if report.passed else 2
 
 
 def add_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
@@ -834,6 +872,14 @@ def build_parser() -> argparse.ArgumentParser:
     show_campaign_parser.add_argument("campaign_id")
     show_campaign_parser.add_argument("--database", type=Path, default=STATE_PATH)
     show_campaign_parser.set_defaults(handler=handle_show_campaign)
+
+    audit_campaign_parser = subparsers.add_parser(
+        "audit-campaign",
+        help="Audit completed recursive-improvement campaign invariants read-only.",
+    )
+    audit_campaign_parser.add_argument("campaign_id")
+    audit_campaign_parser.add_argument("--database", type=Path, default=STATE_PATH)
+    audit_campaign_parser.set_defaults(handler=handle_audit_campaign)
 
     skills_parser = subparsers.add_parser("skills", help="List loaded agent skills.")
     skills_parser.set_defaults(handler=handle_skills)

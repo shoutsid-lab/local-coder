@@ -25,8 +25,15 @@ Before the documentation and legacy-example cleanup on 2026-07-22, the determini
 suite contained 43 passing tests. The active suite now focuses on runtime and architecture
 contracts; current counts belong in command output rather than this historical record.
 
+The recursive-improvement completion pass added schema-v8 campaign identity binding,
+pre-execution persistence of candidate patch and trajectory lineage, and a read-only
+campaign audit. Deterministic tests cover migration from schema v7, holdout and
+environment mismatch rejection, clean campaign closure, artifact tamper detection, and
+terminal evaluation lineage retention.
+
 ## Proven boundary
 
 The evidence proves bounded exact edits, complete diff inspection, deterministic
-verification, conservative status derivation, and preserved human authority. It does not
-prove broad autonomous decomposition or safe recursive self-promotion.
+verification, conservative status derivation, frozen campaign identities, auditable
+bounded recursion, and preserved human authority. It does not prove broad autonomous
+decomposition or safe recursive self-promotion.

@@ -67,6 +67,7 @@ and recommend—but never perform—promotion:
 ./local-coder.py evaluate --help
 ./local-coder.py record-decision --help
 ./local-coder.py close-campaign --help
+./local-coder.py audit-campaign --help
 ```
 
 See [docs/RECURSIVE_IMPROVEMENT.md](docs/RECURSIVE_IMPROVEMENT.md) for the complete

@@ -5,6 +5,7 @@ import os
 import sqlite3
 import subprocess
 import time
+from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,8 +14,11 @@ import pytest
 from evaluation.outcomes import (
     FailureClass,
     candidate_trajectory_evidence,
+    hash_text,
     normalize_run,
+    stable_hash,
 )
+from evaluation.audit import audit_campaign
 from evaluation.scorecard import build_scorecard
 from evaluation.contract_worker import run_scenario
 from evaluation.manifests import ManifestError, load_holdout_oracle, load_suite
@@ -26,9 +30,10 @@ from evaluation.supervisor import (
     PairedEvaluation,
     ProcessResult,
     Supervisor,
+    environment_identity,
     evaluate_pair,
 )
-from runtime.migrations import MigrationError
+from runtime.migrations import MIGRATIONS, MigrationError
 from runtime.state import SCHEMA_VERSION, StateStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -102,6 +107,37 @@ def test_state_migration_preserves_legacy_runs(tmp_path: Path) -> None:
     with sqlite3.connect(database) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
+
+
+def test_state_migration_preserves_v7_campaign_identity_gap(tmp_path: Path) -> None:
+    database = tmp_path / "v7.db"
+    with sqlite3.connect(database) as connection:
+        for migration in MIGRATIONS[:7]:
+            for statement in migration.statements:
+                connection.execute(statement)
+            connection.execute(
+                "INSERT INTO schema_migrations VALUES (?, ?)",
+                (migration.version, "2026-01-01T00:00:00+00:00"),
+            )
+            connection.execute(f"PRAGMA user_version = {migration.version}")
+        connection.execute(
+            """
+            INSERT INTO evaluation_campaigns VALUES (
+                'campaign', 'base', 'active', 'suite', '{"processes":1}',
+                1, '2026-01-01T00:00:00+00:00',
+                '2026-01-01T00:00:00+00:00'
+            )
+            """
+        )
+
+    store = StateStore(database)
+    details = store.campaign_details("campaign")
+
+    assert store.schema_version() == SCHEMA_VERSION
+    assert details is not None
+    assert details["baseline_commit"] == "base"
+    assert details["holdout_hash"] is None
+    assert details["environment_hash"] is None
 
 
 def test_read_only_store_does_not_initialize_a_database(tmp_path: Path) -> None:
@@ -351,6 +387,8 @@ def test_campaign_requires_one_human_approved_brief(tmp_path: Path) -> None:
         suite_hash="suite",
         budget={"processes": 1},
         max_candidates=1,
+        holdout_hash="holdout",
+        environment_hash="environment",
     )
     brief = {
         "id": "brief",
@@ -435,6 +473,83 @@ def test_campaign_requires_one_human_approved_brief(tmp_path: Path) -> None:
     assert store.campaign_details(campaign_id)["evaluations"][0]["build_id"] == build_id
 
 
+def test_campaign_evaluation_requires_frozen_holdout_and_environment(
+    tmp_path: Path,
+) -> None:
+    store = StateStore(tmp_path / "agent.db")
+    campaign_id = store.create_campaign(
+        baseline_commit="base",
+        suite_hash="suite",
+        budget={"processes": 1},
+        max_candidates=1,
+        holdout_hash="holdout-a",
+        environment_hash="environment-a",
+    )
+    brief = {
+        "id": "brief-identity",
+        "evidence_run_ids": ["run"],
+        "baseline_commit": "base",
+        "failure_class": "verification",
+        "hypothesis": "hypothesis",
+        "allowed_files": ["runtime/editor.py"],
+        "forbidden_files": ["evaluation/"],
+        "acceptance_metrics": [{"case_id": "case"}],
+        "suite_hash": "suite",
+        "budget": {"processes": 1},
+        "rollback_condition": "regression",
+    }
+    store.add_improvement_brief(campaign_id, brief)
+    store.approve_improvement_brief(
+        brief["id"],
+        actor="human",
+        rationale="Freeze all trusted evaluation identities.",
+    )
+    run_id = store.create_run(
+        task="Build candidate",
+        mode="agentic",
+        repository=tmp_path,
+        base_branch="main",
+    )
+    build_id = store.create_candidate_build(
+        campaign_id,
+        brief_id=brief["id"],
+        overlay_hash=None,
+        overlay=None,
+    )
+    store.complete_candidate_build(
+        build_id,
+        run_id=run_id,
+        status="awaiting_approval",
+        branch="candidate",
+        worktree=str(tmp_path / "candidate"),
+    )
+
+    common = {
+        "campaign_id": campaign_id,
+        "build_id": build_id,
+        "baseline_commit": "base",
+        "candidate_commit": "candidate",
+        "suite_id": "suite",
+        "suite_hash": "suite",
+        "repetitions": 1,
+        "budget": {"processes": 1},
+    }
+    with pytest.raises(ValueError, match="holdout differs"):
+        store.create_evaluation(
+            **common,
+            holdout_hash="holdout-b",
+            environment_hash="environment-a",
+        )
+    with pytest.raises(ValueError, match="environment differs"):
+        store.create_evaluation(
+            **common,
+            holdout_hash="holdout-a",
+            environment_hash="environment-b",
+        )
+
+    assert store.campaign_details(campaign_id)["evaluations"] == []
+
+
 def test_complete_recursive_campaign_control_cycle(tmp_path: Path) -> None:
     """Demonstrate lineage through human decision without performing a Git action."""
     store = StateStore(tmp_path / "campaign.db")
@@ -455,6 +570,8 @@ def test_complete_recursive_campaign_control_cycle(tmp_path: Path) -> None:
         suite_hash="suite",
         budget=budget,
         max_candidates=1,
+        holdout_hash="secret-hash",
+        environment_hash="environment",
     )
     brief = {
         "id": "brief-cycle",
@@ -550,6 +667,8 @@ def test_complete_recursive_campaign_control_cycle(tmp_path: Path) -> None:
             failure=None if passed else "oracle",
         )
 
+    baseline_result = result("baseline", False)
+    candidate_result = result("candidate", True)
     evaluation = PairedEvaluation(
         baseline_commit="base",
         candidate_commit="candidate",
@@ -560,7 +679,7 @@ def test_complete_recursive_campaign_control_cycle(tmp_path: Path) -> None:
         candidate_patch_hash="patch",
         repetitions=1,
         budget=EvaluationBudget(**budget),
-        results=(result("baseline", False), result("candidate", True)),
+        results=(baseline_result, candidate_result),
         evaluation_id=evaluation_id,
         build_id=build_id,
     )
@@ -571,6 +690,29 @@ def test_complete_recursive_campaign_control_cycle(tmp_path: Path) -> None:
         evaluation,
         target_case_ids=["target"],
         trajectory_evidence=trajectory,
+    )
+    for case in (baseline_result, candidate_result):
+        store.add_evaluation_case(
+            evaluation_id,
+            generation=case.generation,
+            repetition=case.repetition,
+            case_id=case.case_id,
+            visibility=case.visibility,
+            result=case.to_dict(redact_holdout=False),
+        )
+    patch = "diff --git a/runtime/editor.py b/runtime/editor.py\n"
+    store.add_evaluation_artifact(
+        evaluation_id,
+        kind="candidate_patch",
+        content_hash=hash_text(patch),
+        content=patch,
+    )
+    trajectory_text = json.dumps(trajectory, sort_keys=True)
+    store.add_evaluation_artifact(
+        evaluation_id,
+        kind="candidate_trajectory",
+        content_hash=stable_hash(trajectory),
+        content=trajectory_text,
     )
     store.complete_evaluation(
         evaluation_id,
@@ -586,9 +728,44 @@ def test_complete_recursive_campaign_control_cycle(tmp_path: Path) -> None:
 
     assert scorecard.recommendation == "eligible_for_human_promotion"
     assert store.close_campaign_from_evidence(campaign_id) == "completed_clean"
+    audit = audit_campaign(StateStore(store.path, read_only=True), campaign_id)
+    assert audit.passed is True
     details = store.campaign_details(campaign_id)
     assert details["evaluations"][0]["build_id"] == build_id
     assert details["decisions"][0]["actor"] == "human"
+
+    with sqlite3.connect(store.path) as connection:
+        connection.execute(
+            """
+            UPDATE evaluation_artifacts SET content = 'tampered'
+            WHERE evaluation_id = ? AND kind = 'candidate_patch'
+            """,
+            (evaluation_id,),
+        )
+    tampered = audit_campaign(StateStore(store.path, read_only=True), campaign_id)
+    assert tampered.passed is False
+    assert "hashed_evaluation_artifacts" in {
+        check.name for check in tampered.checks if not check.passed
+    }
+
+
+def test_campaign_audit_fails_closed_on_incomplete_campaign(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / "campaign.db")
+    campaign_id = store.create_campaign(
+        baseline_commit="base",
+        suite_hash="suite",
+        budget={"processes": 1},
+        max_candidates=1,
+        holdout_hash="holdout",
+        environment_hash="environment",
+    )
+
+    report = audit_campaign(StateStore(store.path, read_only=True), campaign_id)
+
+    assert report.passed is False
+    failed = {check.name for check in report.checks if not check.passed}
+    assert "single_human_approved_brief" in failed
+    assert "evaluation_lineage" in failed
 
 
 def test_supervisor_records_timeout_without_retrying(tmp_path: Path) -> None:
@@ -660,3 +837,144 @@ def test_environment_hash_mismatch_fails_before_candidate_execution(
         )
 
     supervisor.assert_not_called()
+
+
+def test_failed_evaluation_retains_patch_and_trajectory_lineage(
+    tmp_path: Path,
+) -> None:
+    if os.environ.get("CANDIDATE_EVALUATION") == "1":
+        pytest.skip("Holdout data is intentionally absent from candidate verification.")
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    _git_repository(baseline)
+    subprocess.run(["git", "clone", "-q", str(baseline), str(candidate)], check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "evaluation@example.com"],
+        cwd=candidate,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Evaluation"],
+        cwd=candidate,
+        check=True,
+    )
+    (candidate / "tracked.txt").write_text("candidate\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=candidate, check=True)
+    subprocess.run(["git", "commit", "-qm", "candidate"], cwd=candidate, check=True)
+
+    development = load_suite(
+        ROOT / "evaluation" / "suites" / "atomic-v1.json",
+        expected_visibility="development",
+    )
+    manifest_path, oracle_path = _test_holdout(tmp_path)
+    holdout = load_suite(manifest_path, expected_visibility="holdout")
+    oracle, oracle_hash = load_holdout_oracle(oracle_path, holdout)
+    suite_hash = stable_hash(
+        {
+            "development": development.manifest_hash,
+            "holdout": holdout.manifest_hash,
+        }
+    )
+    holdout_hash = stable_hash(
+        {"manifest": holdout.manifest_hash, "oracle": oracle_hash}
+    )
+    _, evaluator_hash = environment_identity(ROOT)
+    budget = EvaluationBudget(
+        campaign_wall_seconds=30,
+        process_wall_seconds=5,
+        max_processes=8,
+        max_output_bytes=10_000,
+        max_memory_mb=256,
+        max_file_mb=4,
+        max_disk_mb=32,
+        max_prompt_tokens=100,
+        max_completion_tokens=50,
+        max_model_calls=4,
+    )
+    store = StateStore(tmp_path / "agent.db")
+    baseline_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=baseline,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+    campaign_id = store.create_campaign(
+        baseline_commit=baseline_commit,
+        suite_hash=suite_hash,
+        budget=asdict(budget),
+        max_candidates=1,
+        holdout_hash=holdout_hash,
+        environment_hash=evaluator_hash,
+    )
+    brief = {
+        "id": "brief-failed-evaluation",
+        "evidence_run_ids": ["run"],
+        "baseline_commit": baseline_commit,
+        "failure_class": "budget",
+        "hypothesis": "Bounded execution records terminal failures.",
+        "allowed_files": ["tracked.txt"],
+        "forbidden_files": ["evaluation/"],
+        "acceptance_metrics": [{"case_id": "target"}],
+        "suite_hash": suite_hash,
+        "budget": asdict(budget),
+        "rollback_condition": "Any regression",
+    }
+    store.add_improvement_brief(campaign_id, brief)
+    store.approve_improvement_brief(
+        brief["id"], actor="human", rationale="Bounded failure demonstration."
+    )
+    run_id = store.create_run(
+        task="Build candidate",
+        mode="agentic",
+        repository=candidate,
+        base_branch="main",
+    )
+    build_id = store.create_candidate_build(
+        campaign_id,
+        brief_id=brief["id"],
+        overlay_hash=None,
+        overlay=None,
+    )
+    store.complete_candidate_build(
+        build_id,
+        run_id=run_id,
+        status="awaiting_approval",
+        branch="candidate",
+        worktree=str(candidate),
+    )
+    trajectory = {"build_id": build_id, "failures": []}
+
+    with (
+        patch("evaluation.supervisor.Supervisor") as supervisor,
+        pytest.raises(EvaluationError, match="budget exhausted"),
+    ):
+        supervisor.return_value.run_path_policy.side_effect = EvaluationError(
+            "Evaluation process budget exhausted."
+        )
+        evaluate_pair(
+            trusted_root=ROOT,
+            baseline=baseline,
+            candidate=candidate,
+            development=development,
+            holdout=holdout,
+            holdout_oracle=oracle,
+            holdout_oracle_hash=oracle_hash,
+            repetitions=1,
+            budget=budget,
+            allowed_candidate_paths={"tracked.txt"},
+            expected_environment_hash=evaluator_hash,
+            state=store,
+            campaign_id=campaign_id,
+            build_id=build_id,
+            trajectory_evidence=trajectory,
+        )
+
+    evaluation_id = store.campaign_details(campaign_id)["evaluations"][0]["id"]
+    details = store.evaluation_details(evaluation_id)
+    assert details is not None
+    assert details["status"] == "budget_exhausted"
+    assert {artifact["kind"] for artifact in details["artifacts"]} == {
+        "candidate_patch",
+        "candidate_trajectory",
+    }

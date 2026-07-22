@@ -264,9 +264,7 @@ class Supervisor:
         self.trusted_root = trusted_root.resolve()
         self.budget = budget
         self.budget.validate()
-        self.bwrap = shutil.which("bwrap")
-        if self.bwrap is None:
-            raise EvaluationError("bubblewrap is required for candidate evaluation.")
+        self.bwrap = shutil.which("bwrap") or "bwrap"
         self.process_count = 0
         self.started = time.monotonic()
 
@@ -296,12 +294,17 @@ class Supervisor:
             tempfile.TemporaryFile() as stdout_file,
             tempfile.TemporaryFile() as stderr_file,
         ):
-            process = subprocess.Popen(
-                command,
-                stdout=stdout_file,
-                stderr=stderr_file,
-                preexec_fn=self._limits,
-            )
+            try:
+                process = subprocess.Popen(
+                    command,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    preexec_fn=self._limits,
+                )
+            except OSError as exc:
+                raise EvaluationError(
+                    f"Could not start trusted sandbox process: {command[0]}"
+                ) from exc
             timed_out = False
             try:
                 process.communicate(timeout=timeout)
@@ -636,6 +639,7 @@ def evaluate_pair(
     state: StateStore | None = None,
     campaign_id: str | None = None,
     build_id: str | None = None,
+    trajectory_evidence: dict[str, Any] | None = None,
 ) -> PairedEvaluation:
     """Evaluate clean baseline and candidate commits under one supervisor."""
     if repetitions < 1 or repetitions > 10:
@@ -686,6 +690,14 @@ def evaluate_pair(
             content_hash=patch_hash,
             content=patch,
         )
+        if trajectory_evidence is not None:
+            trajectory_text = json.dumps(trajectory_evidence, sort_keys=True)
+            state.add_evaluation_artifact(
+                evaluation_id,
+                kind="candidate_trajectory",
+                content_hash=stable_hash(trajectory_evidence),
+                content=trajectory_text,
+            )
     results: list[CaseResult] = []
     try:
         for generation, root in (("baseline", baseline), ("candidate", candidate)):
