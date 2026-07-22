@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,6 +19,29 @@ from evaluation.supervisor import (
 from runtime.editor import EditorError, load_editable_files
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_process_guard_kernel_limit_blocks_descendants() -> None:
+    if os.geteuid() == 0:
+        pytest.skip("RLIMIT_NPROC is not enforced for a privileged real UID.")
+    result = subprocess.run(
+        [
+            "/usr/bin/python3",
+            str(ROOT / "evaluation" / "process_guard.py"),
+            "--max-processes",
+            "1",
+            "--",
+            "/usr/bin/python3",
+            "-c",
+            'import subprocess; subprocess.run(["/bin/true"], check=True)',
+        ],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert "Resource temporarily unavailable" in result.stderr
 
 
 def _process(returncode: int = 0) -> ProcessResult:
@@ -59,13 +83,17 @@ def test_recursive_improvement_controls_are_agent_protected(tmp_path: Path) -> N
         raise AssertionError("Trusted evaluator was agent-editable")
 
 
-def test_holdout_manifest_contains_no_oracle_answers() -> None:
+def test_holdout_manifest_contains_no_oracle_answers(tmp_path: Path) -> None:
     if os.environ.get("CANDIDATE_EVALUATION") == "1":
         pytest.skip("Holdout manifest is not mounted into candidate verification.")
-    manifest = load_suite(
-        ROOT / "evaluation" / "holdout" / "atomic-holdout-v1.json",
-        expected_visibility="holdout",
+    manifest_path = tmp_path / "holdout.json"
+    manifest_path.write_text(
+        '{"schema_version":1,"suite_id":"unit-holdout",'
+        '"visibility":"holdout","cases":['
+        '{"id":"unit-case","scenario":"sequential_edits"}]}',
+        encoding="utf-8",
     )
+    manifest = load_suite(manifest_path, expected_visibility="holdout")
 
     assert manifest.cases
     assert all(case.oracle is None for case in manifest.cases)
@@ -100,6 +128,15 @@ def test_candidate_cannot_replace_base_owned_contract_worker() -> None:
     command = run.call_args.args[0]
     worker_index = command.index("/trusted/contract_worker.py")
     assert command[worker_index - 1] == str(ROOT / "evaluation" / "contract_worker.py")
+    guard_index = command.index("/trusted/process_guard.py")
+    assert command[guard_index - 1] == str(ROOT / "evaluation" / "process_guard.py")
+    assert command[command.index("--uid") + 1] == "65534"
+    assert command[command.index("--gid") + 1] == "65534"
+    assert command[command.index("--cap-drop") + 1] == "ALL"
+    assert command[command.index("--max-processes") + 1] == str(
+        supervisor.budget.max_processes
+    )
+    assert command.index("/trusted/process_guard.py", guard_index + 1) > guard_index
     assert str(ROOT / "evaluation" / "oracles") not in command
     assert "/candidate/runtime" in command
     assert "/candidate/evaluation" not in command

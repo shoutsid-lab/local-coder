@@ -24,10 +24,6 @@ agent-check:
 	$(PYTHON) -m py_compile $(PYTHON_FILES)
 	$(PYTHON) -m json.tool docs/UPSTREAM.json >/dev/null
 	$(PYTHON) -m json.tool evaluation/suites/atomic-v1.json >/dev/null
-	@if [ "$(CANDIDATE_EVALUATION)" != "1" ]; then \
-		$(PYTHON) -m json.tool evaluation/holdout/atomic-holdout-v1.json >/dev/null; \
-		$(PYTHON) -m json.tool evaluation/oracles/atomic-holdout-v1.json >/dev/null; \
-	fi
 
 agent-install:
 	$(PYTHON) -m pip install -r requirements-agent.txt

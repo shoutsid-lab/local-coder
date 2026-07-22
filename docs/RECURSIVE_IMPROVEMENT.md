@@ -17,6 +17,20 @@ The command opens SQLite in read-only mode. Historical gaps remain JSON `null`/`
 they are never converted to zero. Raw task, tool, and model text is hashed or classified
 before it can influence a brief.
 
+Before creating a campaign, provision a human-controlled holdout rotation from files
+that are outside this repository:
+
+```bash
+./local-coder.py rotate-holdout 2026-07-rotation \
+  --manifest /secure/input/manifest.json \
+  --oracle /secure/input/oracle.json
+```
+
+The command validates both files, copies them with restrictive permissions into ignored
+`.local-coder/holdout/` storage, and never overwrites an existing rotation. Use the two
+paths it prints in every campaign command. The repository contains no production holdout
+or oracle material.
+
 ## 2. Create and approve one brief
 
 Use evidence run IDs, a clean baseline checkout, explicit editable files, a predeclared
@@ -28,7 +42,9 @@ target case, and a rollback condition:
   --run-id RUN_ID \
   --allowed-file runtime/editor.py \
   --target-case missing-match \
-  --rollback-condition "Any safety or holdout regression"
+  --rollback-condition "Any safety or holdout regression" \
+  --holdout-suite .local-coder/holdout/2026-07-rotation/manifest.json \
+  --holdout-oracle .local-coder/holdout/2026-07-rotation/oracle.json
 
 ./local-coder.py approve-brief BRIEF_ID \
   --actor "HUMAN NAME" \
@@ -64,7 +80,9 @@ result. A failed build consumes the bounded attempt rather than retrying indefin
   --baseline /path/to/clean/baseline \
   --candidate /path/to/clean/candidate \
   --target-case missing-match \
-  --repetitions 2
+  --repetitions 2 \
+  --holdout-suite .local-coder/holdout/2026-07-rotation/manifest.json \
+  --holdout-oracle .local-coder/holdout/2026-07-rotation/oracle.json
 ```
 
 The supervisor verifies manifest, oracle, commit, environment, and budget identity before
@@ -73,6 +91,12 @@ named build. It runs baseline then candidate under the same configuration. Each 
 includes candidate-owned `make verify`, base-owned development contracts, and separately
 mounted holdout contracts. Timeouts, nonzero exits, malformed observations, and output
 limits are terminal recorded case results; there is no retry loop.
+
+Every sandbox command runs as an unprivileged UID with all capabilities dropped. A
+base-owned wrapper installs an immutable kernel `RLIMIT_NPROC` before executing candidate
+code, so descendants cannot evade the declared process ceiling. Candidate construction
+also shares one call and token budget across all logical model routes; missing usage or
+an exhausted limit terminates the build and remains visible in SQLite.
 
 When `--campaign-id` is omitted, `--allowed-file` must be supplied at least once. Campaign
 evaluations derive allowed paths from the approved brief and reject a conflicting CLI

@@ -134,17 +134,47 @@ class PairedEvaluation:
         }
 
 
-def _git_output(root: Path, *args: str) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=root,
-        check=False,
-        text=True,
-        capture_output=True,
+def _git_bytes(root: Path, *args: str, max_bytes: int = 1_000_000) -> bytes:
+    """Run one read-only Git inspection without buffering unbounded output."""
+
+    def limits() -> None:
+        resource.setrlimit(resource.RLIMIT_FSIZE, (max_bytes, max_bytes))
+        os.setsid()
+
+    with (
+        tempfile.TemporaryFile() as stdout_file,
+        tempfile.TemporaryFile() as stderr_file,
+    ):
+        process = subprocess.Popen(
+            ["git", *args],
+            cwd=root,
+            stdout=stdout_file,
+            stderr=stderr_file,
+            preexec_fn=limits,
+        )
+        try:
+            process.wait(timeout=30)
+        except subprocess.TimeoutExpired as exc:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            raise EvaluationError("Git inspection timed out.") from exc
+        stdout_size = stdout_file.tell()
+        stderr_size = stderr_file.tell()
+        stdout_file.seek(0)
+        stderr_file.seek(0)
+        stdout = stdout_file.read(max_bytes)
+        stderr = stderr_file.read(max_bytes).decode("utf-8", "replace").strip()
+    if stdout_size + stderr_size >= max_bytes:
+        raise EvaluationError("Git inspection exceeded its output budget.")
+    if process.returncode != 0:
+        raise EvaluationError(stderr or "Git inspection failed.")
+    return stdout
+
+
+def _git_output(root: Path, *args: str, max_bytes: int = 1_000_000) -> str:
+    return (
+        _git_bytes(root, *args, max_bytes=max_bytes).decode("utf-8", "replace").strip()
     )
-    if result.returncode != 0:
-        raise EvaluationError(result.stderr.strip() or "Git inspection failed.")
-    return result.stdout.strip()
 
 
 def committed_generation(root: Path) -> str:
@@ -164,58 +194,54 @@ def candidate_patch(
     max_bytes: int,
 ) -> tuple[str, str]:
     """Require direct Git lineage and return the archived candidate patch and hash."""
-    lineage = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", baseline_commit, "HEAD"],
-        cwd=candidate,
-        check=False,
-        capture_output=True,
-    )
-    if lineage.returncode != 0:
-        raise EvaluationError("Candidate commit does not descend from the baseline.")
-    result = subprocess.run(
-        ["git", "diff", "--binary", baseline_commit, "HEAD", "--"],
-        cwd=candidate,
-        check=False,
-        text=True,
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        raise EvaluationError(
-            result.stderr.strip() or "Could not archive candidate patch."
+    try:
+        _git_bytes(
+            candidate,
+            "merge-base",
+            "--is-ancestor",
+            baseline_commit,
+            "HEAD",
+            max_bytes=4096,
         )
-    if len(result.stdout.encode("utf-8")) > max_bytes:
-        raise EvaluationError("Candidate patch exceeds the evaluation output budget.")
-    return result.stdout, hash_text(result.stdout)
+    except EvaluationError:
+        raise EvaluationError("Candidate commit does not descend from the baseline.")
+    patch = _git_bytes(
+        candidate,
+        "diff",
+        "--binary",
+        baseline_commit,
+        "HEAD",
+        "--",
+        max_bytes=max_bytes,
+    ).decode("utf-8", "replace")
+    return patch, hash_text(patch)
 
 
 def generation_changed_paths(candidate: Path, baseline_commit: str) -> tuple[str, ...]:
     """Return all candidate paths changed from its baseline commit."""
-    result = subprocess.run(
-        [
-            "git",
-            "diff",
-            "--name-only",
-            "--no-renames",
-            "-z",
-            baseline_commit,
-            "HEAD",
-            "--",
-        ],
-        cwd=candidate,
-        check=False,
-        capture_output=True,
+    output = _git_bytes(
+        candidate,
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "-z",
+        baseline_commit,
+        "HEAD",
+        "--",
     )
-    if result.returncode != 0:
-        raise EvaluationError("Could not inspect candidate changed paths.")
-    return tuple(
-        sorted(path.decode("utf-8") for path in result.stdout.split(b"\0") if path)
-    )
+    return tuple(sorted(path.decode("utf-8") for path in output.split(b"\0") if path))
 
 
 def environment_identity(trusted_root: Path) -> tuple[dict[str, Any], str]:
     """Fingerprint the evaluator environment and stable service configuration."""
     files: dict[str, str | None] = {}
-    for relative in ("litellm-config.yaml", "requirements-agent.txt"):
+    for relative in (
+        "litellm-config.yaml",
+        "requirements-agent.txt",
+        "evaluation/contract_worker.py",
+        "evaluation/process_guard.py",
+        "evaluation/supervisor.py",
+    ):
         path = trusted_root / relative
         files[relative] = (
             hash_text(path.read_text(encoding="utf-8")) if path.is_file() else None
@@ -314,11 +340,18 @@ class Supervisor:
         """Run one base-owned worker in a networkless, read-only mount namespace."""
         candidate = candidate.resolve()
         worker = self.trusted_root / "evaluation" / "contract_worker.py"
+        process_guard = self.trusted_root / "evaluation" / "process_guard.py"
         command = [
             self.bwrap,
             "--die-with-parent",
             "--unshare-all",
             "--new-session",
+            "--uid",
+            "65534",
+            "--gid",
+            "65534",
+            "--cap-drop",
+            "ALL",
             "--clearenv",
             "--ro-bind",
             "/usr",
@@ -338,6 +371,8 @@ class Supervisor:
             "/dev",
             "--size",
             str(self.budget.max_disk_mb * 1024 * 1024),
+            "--perms",
+            "1777",
             "--tmpfs",
             "/tmp",
             "--dir",
@@ -353,6 +388,9 @@ class Supervisor:
             "--ro-bind",
             str(worker),
             "/trusted/contract_worker.py",
+            "--ro-bind",
+            str(process_guard),
+            "/trusted/process_guard.py",
             "--setenv",
             "HOME",
             "/tmp",
@@ -364,6 +402,11 @@ class Supervisor:
             "1",
             "--chdir",
             "/candidate",
+            "/usr/bin/python3",
+            "/trusted/process_guard.py",
+            "--max-processes",
+            str(self.budget.max_processes),
+            "--",
             "/usr/bin/python3",
             "/trusted/contract_worker.py",
             "--candidate",
@@ -459,6 +502,7 @@ class Supervisor:
     ) -> CaseResult:
         """Run candidate-owned verification read-only in a networkless sandbox."""
         candidate = candidate.resolve()
+        process_guard = self.trusted_root / "evaluation" / "process_guard.py"
         environment = (self.trusted_root / ".venv").resolve()
         if not environment.is_dir():
             raise EvaluationError("The trusted project virtualenv is unavailable.")
@@ -478,6 +522,12 @@ class Supervisor:
             "--die-with-parent",
             "--unshare-all",
             "--new-session",
+            "--uid",
+            "65534",
+            "--gid",
+            "65534",
+            "--cap-drop",
+            "ALL",
             "--clearenv",
             "--ro-bind",
             "/usr",
@@ -497,6 +547,8 @@ class Supervisor:
             "/dev",
             "--size",
             str(self.budget.max_disk_mb * 1024 * 1024),
+            "--perms",
+            "1777",
             "--tmpfs",
             "/tmp",
             "--ro-bind",
@@ -506,6 +558,11 @@ class Supervisor:
             "--ro-bind",
             str(environment),
             "/environment",
+            "--dir",
+            "/trusted",
+            "--ro-bind",
+            str(process_guard),
+            "/trusted/process_guard.py",
             "--setenv",
             "HOME",
             "/tmp",
@@ -526,6 +583,11 @@ class Supervisor:
             "1",
             "--chdir",
             "/workspace",
+            "/usr/bin/python3",
+            "/trusted/process_guard.py",
+            "--max-processes",
+            str(self.budget.max_processes),
+            "--",
             "/usr/bin/make",
             "verify",
             "PYTHON=/usr/bin/python3",

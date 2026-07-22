@@ -22,6 +22,43 @@ class ModelRoute:
     temperature: float = 0.0
 
 
+class ModelBudgetExceeded(RuntimeError):
+    """Raised when one candidate build exhausts its shared model budget."""
+
+
+@dataclass
+class ModelUsageBudget:
+    """Shared hard ceiling across every model route in one candidate build."""
+
+    max_calls: int
+    max_prompt_tokens: int
+    max_completion_tokens: int
+    calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+    def reserve_call(self) -> None:
+        """Reserve one request before sending it to the model service."""
+        if self.calls >= self.max_calls:
+            raise ModelBudgetExceeded("Candidate model-call budget exhausted.")
+        self.calls += 1
+
+    def record_usage(
+        self,
+        prompt_tokens: int | None,
+        completion_tokens: int | None,
+    ) -> None:
+        """Record returned usage and stop the run on missing or excess metrics."""
+        if not isinstance(prompt_tokens, int) or not isinstance(completion_tokens, int):
+            raise ModelBudgetExceeded("Candidate model usage was not reported.")
+        self.prompt_tokens += prompt_tokens
+        self.completion_tokens += completion_tokens
+        if self.prompt_tokens > self.max_prompt_tokens:
+            raise ModelBudgetExceeded("Candidate prompt-token budget exhausted.")
+        if self.completion_tokens > self.max_completion_tokens:
+            raise ModelBudgetExceeded("Candidate completion-token budget exhausted.")
+
+
 class AuditedModel:
     """Delegate to a smolagents model while recording available usage metrics."""
 
@@ -32,11 +69,13 @@ class AuditedModel:
         route: str,
         state: StateStore,
         run_id: str,
+        usage_budget: ModelUsageBudget | None = None,
     ) -> None:
         self._model = model
         self._route = route
         self._state = state
         self._run_id = run_id
+        self._usage_budget = usage_budget
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._model, name)
@@ -45,13 +84,14 @@ class AuditedModel:
         """Generate one response and persist known token counts."""
         started = time.perf_counter()
         metadata: dict[str, Any] = {}
+        if self._usage_budget is not None:
+            self._usage_budget.reserve_call()
         try:
             response = self._model.generate(*args, **kwargs)
             usage = getattr(response, "token_usage", None)
             prompt_tokens = getattr(usage, "input_tokens", None)
             completion_tokens = getattr(usage, "output_tokens", None)
             metadata["status"] = "success"
-            return response
         except Exception as exc:
             prompt_tokens = None
             completion_tokens = None
@@ -66,6 +106,9 @@ class AuditedModel:
                 duration_ms=(time.perf_counter() - started) * 1000,
                 metadata=metadata,
             )
+        if self._usage_budget is not None:
+            self._usage_budget.record_usage(prompt_tokens, completion_tokens)
+        return response
 
 
 class ModelRegistry:

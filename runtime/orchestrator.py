@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .agents import build_agent_bundle
-from .models import ModelRegistry
+from .models import ModelRegistry, ModelUsageBudget
 from .skills import discover_skills
 from .state import StateStore
 from .tools import ToolContext, Worktree, command, create_worktree, current_branch
@@ -25,6 +25,9 @@ class OrchestratorConfig:
     keep_worktree: bool = True
     mode: str = "agentic"
     expected_changed_paths: tuple[str, ...] | None = None
+    max_model_calls: int | None = None
+    max_prompt_tokens: int | None = None
+    max_completion_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -163,6 +166,7 @@ class AgentOrchestrator:
                 state=self.state,
                 run_id=run_id,
                 manager_max_steps=self.config.max_steps,
+                usage_budget=self._usage_budget(),
             )
             prompt = f"""
 Complete this coding task inside the already-created isolated worktree:
@@ -262,3 +266,20 @@ Required process:
                 review_verdict=None,
                 error=error,
             )
+
+    def _usage_budget(self) -> ModelUsageBudget | None:
+        """Build one shared model ceiling when all candidate limits are supplied."""
+        values = (
+            self.config.max_model_calls,
+            self.config.max_prompt_tokens,
+            self.config.max_completion_tokens,
+        )
+        if all(value is None for value in values):
+            return None
+        if any(not isinstance(value, int) or value <= 0 for value in values):
+            raise ValueError("All model budget limits must be positive integers.")
+        return ModelUsageBudget(
+            max_calls=self.config.max_model_calls,
+            max_prompt_tokens=self.config.max_prompt_tokens,
+            max_completion_tokens=self.config.max_completion_tokens,
+        )

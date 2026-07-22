@@ -74,7 +74,14 @@ authority for commits, merges, pushes, and promotion.
 `evaluation/supervisor.py` uses bubblewrap to expose only candidate runtime inputs to
 base-owned contract workers. Candidate-owned verification receives a read-only checkout,
 an ephemeral size-bounded `/tmp`, no network, and the trusted Python environment. The
-evaluator never supplies an unrestricted shell command.
+evaluator never supplies an unrestricted shell command. Sandboxed commands run under an
+unprivileged UID with capabilities dropped, while the base-owned process guard installs
+a kernel process-count ceiling before candidate code executes.
+
+Production holdout manifests and oracles live only in ignored
+`.local-coder/holdout/<rotation>/` storage after validation and immutable provisioning
+from an external operator-controlled source. Campaign commands reject holdout paths from
+candidate-visible Git content.
 
 The direct reviewer and native repair CLI remain available as focused debugging
 utilities. They use the same read-only review and native editor boundaries as the agent

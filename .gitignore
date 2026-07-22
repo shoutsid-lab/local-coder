@@ -13,6 +13,7 @@ REVIEW.json
 .local-coder/state/*.db-shm
 .local-coder/state/*.db-wal
 .local-coder/runs/
+.local-coder/holdout/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

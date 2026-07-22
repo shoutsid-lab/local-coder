@@ -13,7 +13,12 @@ from runtime.editor import (
     parse_edit_content,
     request_and_apply,
 )
-from runtime.models import ModelRegistry
+from runtime.models import (
+    AuditedModel,
+    ModelBudgetExceeded,
+    ModelRegistry,
+    ModelUsageBudget,
+)
 from runtime.skills import discover_skills
 from runtime.state import StateStore
 from runtime.tools import (
@@ -42,6 +47,126 @@ EDITOR_SPEC = importlib.util.spec_from_file_location(
 assert EDITOR_SPEC is not None and EDITOR_SPEC.loader is not None
 run_editor_cli = importlib.util.module_from_spec(EDITOR_SPEC)
 EDITOR_SPEC.loader.exec_module(run_editor_cli)
+
+
+def test_audited_models_share_candidate_usage_budget(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / "agent.db")
+    run_id = store.create_run(
+        task="bounded",
+        mode="agentic",
+        repository=tmp_path,
+        base_branch="main",
+    )
+    response = SimpleNamespace(
+        token_usage=SimpleNamespace(input_tokens=4, output_tokens=2)
+    )
+    underlying = SimpleNamespace(generate=lambda *_args, **_kwargs: response)
+    budget = ModelUsageBudget(
+        max_calls=1,
+        max_prompt_tokens=4,
+        max_completion_tokens=2,
+    )
+    first = AuditedModel(
+        underlying,
+        route="local-plan",
+        state=store,
+        run_id=run_id,
+        usage_budget=budget,
+    )
+    second = AuditedModel(
+        underlying,
+        route="local-fast",
+        state=store,
+        run_id=run_id,
+        usage_budget=budget,
+    )
+
+    assert first.generate([]) is response
+    with pytest.raises(ModelBudgetExceeded, match="model-call"):
+        second.generate([])
+
+    assert budget.calls == 1
+    assert len(store.run_details(run_id)["model_metrics"]) == 1
+
+
+def test_candidate_token_excess_is_recorded_before_run_stops(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / "agent.db")
+    run_id = store.create_run(
+        task="bounded",
+        mode="agentic",
+        repository=tmp_path,
+        base_branch="main",
+    )
+    response = SimpleNamespace(
+        token_usage=SimpleNamespace(input_tokens=5, output_tokens=1)
+    )
+    model = AuditedModel(
+        SimpleNamespace(generate=lambda *_args, **_kwargs: response),
+        route="local-plan",
+        state=store,
+        run_id=run_id,
+        usage_budget=ModelUsageBudget(
+            max_calls=2,
+            max_prompt_tokens=4,
+            max_completion_tokens=2,
+        ),
+    )
+
+    with pytest.raises(ModelBudgetExceeded, match="prompt-token"):
+        model.generate([])
+
+    metric = store.run_details(run_id)["model_metrics"][0]
+    assert metric["prompt_tokens"] == 5
+
+
+def test_holdout_rotation_is_external_immutable_and_validated(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    manifest = source / "manifest.json"
+    oracle = source / "oracle.json"
+    manifest.write_text(
+        '{"schema_version":1,"suite_id":"secret-v2",'
+        '"visibility":"holdout","cases":['
+        '{"id":"secret-case","scenario":"sequential_edits"}]}',
+        encoding="utf-8",
+    )
+    oracle.write_text(
+        '{"schema_version":1,"suite_id":"secret-v2",'
+        '"cases":{"secret-case":{"content":"secret"}}}',
+        encoding="utf-8",
+    )
+    storage = tmp_path / "trusted-storage"
+    arguments = SimpleNamespace(
+        rotation_id="rotation-2",
+        manifest=manifest,
+        oracle=oracle,
+    )
+
+    with patch.object(local_coder, "HOLDOUT_STORAGE", storage):
+        assert local_coder.handle_rotate_holdout(arguments) == 0
+        assert local_coder.handle_rotate_holdout(arguments) == 1
+
+    destination = storage / "rotation-2"
+    assert (destination / "manifest.json").read_bytes() == manifest.read_bytes()
+    assert (destination / "oracle.json").read_bytes() == oracle.read_bytes()
+    assert (destination / "oracle.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_tracked_repository_paths_are_not_secret_holdout_storage() -> None:
+    assert (
+        local_coder._is_external_holdout(
+            ROOT / "evaluation" / "suites" / "atomic-v1.json"
+        )
+        is False
+    )
+    assert (
+        local_coder._is_external_holdout(
+            ROOT / ".local-coder" / "holdout" / "rotation" / "manifest.json"
+        )
+        is True
+    )
 
 
 def test_direct_cli_reenters_symlinked_project_virtualenv(tmp_path: Path) -> None:

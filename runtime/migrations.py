@@ -372,6 +372,50 @@ def _tables(connection: sqlite3.Connection) -> set[str]:
     return {str(row[0]) for row in rows}
 
 
+def _reference_schema(version: int) -> sqlite3.Connection:
+    """Build the canonical schema shape without consulting stored state."""
+    reference = sqlite3.connect(":memory:")
+    reference.execute("PRAGMA foreign_keys = ON")
+    for migration in MIGRATIONS[:version]:
+        for statement in migration.statements:
+            reference.execute(statement)
+    return reference
+
+
+def _table_signature(
+    connection: sqlite3.Connection,
+    table: str,
+) -> tuple[tuple[object, ...], ...]:
+    return tuple(
+        tuple(row[1:]) for row in connection.execute(f'PRAGMA table_info("{table}")')
+    )
+
+
+def _foreign_key_signature(
+    connection: sqlite3.Connection,
+    table: str,
+) -> tuple[tuple[object, ...], ...]:
+    return tuple(
+        sorted(
+            tuple(row[2:])
+            for row in connection.execute(f'PRAGMA foreign_key_list("{table}")')
+        )
+    )
+
+
+def _index_signature(
+    connection: sqlite3.Connection,
+    table: str,
+) -> tuple[tuple[object, ...], ...]:
+    signatures = []
+    for row in connection.execute(f'PRAGMA index_list("{table}")'):
+        columns = tuple(
+            item[2] for item in connection.execute(f'PRAGMA index_info("{row[1]}")')
+        )
+        signatures.append((row[2], row[3], row[4], columns))
+    return tuple(sorted(signatures, key=repr))
+
+
 def _validate(connection: sqlite3.Connection, version: int) -> None:
     tables = _tables(connection)
     expected_tables = {
@@ -380,24 +424,41 @@ def _validate(connection: sqlite3.Connection, version: int) -> None:
     missing = expected_tables - tables
     if missing:
         raise MigrationError(f"Schema v{version} is missing tables: {sorted(missing)}")
-    for table in expected_tables:
-        expected = EXPECTED_COLUMNS[table]
-        if table == "evaluation_runs" and version < 7:
-            expected = expected[:-1]
-        actual = tuple(
-            row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')
-        )
-        if actual != expected:
-            raise MigrationError(
-                f"Schema v{version} has incompatible columns for {table}: {actual}"
+    reference = _reference_schema(version)
+    try:
+        for table in expected_tables:
+            actual_columns = tuple(
+                row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')
             )
-    if version >= 7:
-        indexes = {
-            str(row[1])
-            for row in connection.execute('PRAGMA index_list("evaluation_runs")')
-        }
-        if "evaluation_runs_build_id" not in indexes:
-            raise MigrationError("Schema v7 is missing the build-lineage index.")
+            expected_columns = EXPECTED_COLUMNS[table]
+            if table == "evaluation_runs" and version < 7:
+                expected_columns = expected_columns[:-1]
+            if actual_columns != expected_columns:
+                raise MigrationError(
+                    f"Schema v{version} has incompatible columns for "
+                    f"{table}: {actual_columns}"
+                )
+            if _table_signature(connection, table) != _table_signature(
+                reference, table
+            ):
+                raise MigrationError(
+                    f"Schema v{version} has incompatible column definitions "
+                    f"for {table}."
+                )
+            if _foreign_key_signature(connection, table) != _foreign_key_signature(
+                reference, table
+            ):
+                raise MigrationError(
+                    f"Schema v{version} has incompatible foreign keys for {table}."
+                )
+            if _index_signature(connection, table) != _index_signature(
+                reference, table
+            ):
+                raise MigrationError(
+                    f"Schema v{version} has incompatible indexes for {table}."
+                )
+    finally:
+        reference.close()
 
 
 def _ledger_version(connection: sqlite3.Connection) -> int:

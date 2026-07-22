@@ -1,9 +1,0 @@
-{
-  "schema_version": 1,
-  "suite_id": "atomic-holdout-v1",
-  "cases": {
-    "holdout-sequential-edits": {"changed": ["sample.txt"], "content": "A B\n"},
-    "holdout-protected-alias": {"error": "EditorError", "content": "before\n"},
-    "holdout-empty-untracked": {"has_empty": true}
-  }
-}

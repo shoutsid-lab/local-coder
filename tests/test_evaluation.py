@@ -10,13 +10,21 @@ from unittest.mock import patch
 
 import pytest
 
-from evaluation.outcomes import FailureClass, normalize_run
+from evaluation.outcomes import (
+    FailureClass,
+    candidate_trajectory_evidence,
+    normalize_run,
+)
+from evaluation.scorecard import build_scorecard
 from evaluation.contract_worker import run_scenario
 from evaluation.manifests import ManifestError, load_holdout_oracle, load_suite
 from evaluation.miner import campaign_candidate_limit, mine_improvement_brief
 from evaluation.supervisor import (
     EvaluationBudget,
+    CaseResult,
     EvaluationError,
+    PairedEvaluation,
+    ProcessResult,
     Supervisor,
     evaluate_pair,
 )
@@ -24,6 +32,48 @@ from runtime.migrations import MigrationError
 from runtime.state import SCHEMA_VERSION, StateStore
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _test_holdout(tmp_path: Path) -> tuple[Path, Path]:
+    """Write a non-secret unit fixture; production rotations are never tracked."""
+    manifest = tmp_path / "holdout.json"
+    oracle = tmp_path / "holdout-oracle.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "suite_id": "unit-holdout-v1",
+                "visibility": "holdout",
+                "cases": [
+                    {"id": "unit-sequential", "scenario": "sequential_edits"},
+                    {"id": "unit-protected", "scenario": "protected_alias"},
+                    {"id": "unit-empty", "scenario": "empty_untracked_diff"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    oracle.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "suite_id": "unit-holdout-v1",
+                "cases": {
+                    "unit-sequential": {
+                        "changed": ["sample.txt"],
+                        "content": "A B\n",
+                    },
+                    "unit-protected": {
+                        "error": "EditorError",
+                        "content": "before\n",
+                    },
+                    "unit-empty": {"has_empty": True},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return manifest, oracle
 
 
 def test_state_migration_preserves_legacy_runs(tmp_path: Path) -> None:
@@ -196,21 +246,16 @@ def test_historical_outcome_is_deterministic_and_unknown_is_not_zero() -> None:
     assert FailureClass.REVIEW in first.failures
 
 
-def test_trusted_contract_suites_match_their_oracles() -> None:
+def test_trusted_contract_suites_match_their_oracles(tmp_path: Path) -> None:
     if os.environ.get("CANDIDATE_EVALUATION") == "1":
         pytest.skip("Holdout data is intentionally absent from candidate verification.")
     development = load_suite(
         ROOT / "evaluation" / "suites" / "atomic-v1.json",
         expected_visibility="development",
     )
-    holdout = load_suite(
-        ROOT / "evaluation" / "holdout" / "atomic-holdout-v1.json",
-        expected_visibility="holdout",
-    )
-    holdout_oracle, _ = load_holdout_oracle(
-        ROOT / "evaluation" / "oracles" / "atomic-holdout-v1.json",
-        holdout,
-    )
+    manifest_path, oracle_path = _test_holdout(tmp_path)
+    holdout = load_suite(manifest_path, expected_visibility="holdout")
+    holdout_oracle, _ = load_holdout_oracle(oracle_path, holdout)
 
     for case in development.cases:
         assert run_scenario(ROOT, case.scenario) == case.oracle
@@ -221,10 +266,8 @@ def test_trusted_contract_suites_match_their_oracles() -> None:
 def test_holdout_oracle_mismatch_fails_closed(tmp_path: Path) -> None:
     if os.environ.get("CANDIDATE_EVALUATION") == "1":
         pytest.skip("Holdout data is intentionally absent from candidate verification.")
-    manifest = load_suite(
-        ROOT / "evaluation" / "holdout" / "atomic-holdout-v1.json",
-        expected_visibility="holdout",
-    )
+    manifest_path, _ = _test_holdout(tmp_path)
+    manifest = load_suite(manifest_path, expected_visibility="holdout")
     oracle = tmp_path / "oracle.json"
     oracle.write_text(
         json.dumps(
@@ -392,6 +435,162 @@ def test_campaign_requires_one_human_approved_brief(tmp_path: Path) -> None:
     assert store.campaign_details(campaign_id)["evaluations"][0]["build_id"] == build_id
 
 
+def test_complete_recursive_campaign_control_cycle(tmp_path: Path) -> None:
+    """Demonstrate lineage through human decision without performing a Git action."""
+    store = StateStore(tmp_path / "campaign.db")
+    budget = {
+        "campaign_wall_seconds": 30,
+        "process_wall_seconds": 5,
+        "max_processes": 8,
+        "max_output_bytes": 10_000,
+        "max_memory_mb": 256,
+        "max_file_mb": 4,
+        "max_disk_mb": 32,
+        "max_prompt_tokens": 100,
+        "max_completion_tokens": 50,
+        "max_model_calls": 4,
+    }
+    campaign_id = store.create_campaign(
+        baseline_commit="base",
+        suite_hash="suite",
+        budget=budget,
+        max_candidates=1,
+    )
+    brief = {
+        "id": "brief-cycle",
+        "evidence_run_ids": ["historical-run"],
+        "baseline_commit": "base",
+        "failure_class": "verification",
+        "hypothesis": "One bounded editor change improves the target.",
+        "allowed_files": ["runtime/editor.py"],
+        "forbidden_files": ["evaluation/"],
+        "acceptance_metrics": [{"case_id": "target"}],
+        "suite_hash": "suite",
+        "budget": budget,
+        "rollback_condition": "Any safety regression",
+    }
+    store.add_improvement_brief(campaign_id, brief)
+    store.approve_improvement_brief(
+        brief["id"], actor="human", rationale="Bounded and falsifiable."
+    )
+    run_id = store.create_run(
+        task="Implement approved brief",
+        mode="agentic",
+        repository=tmp_path,
+        base_branch="main",
+    )
+    store.add_artifact(
+        run_id,
+        kind="diff",
+        content="diff --git a/runtime/editor.py b/runtime/editor.py",
+    )
+    store.add_verification(
+        run_id,
+        command="make verify",
+        passed=True,
+        output="pass",
+        duration_ms=1,
+    )
+    store.add_artifact(
+        run_id,
+        kind="review",
+        content=json.dumps({"verdict": "pass"}),
+    )
+    store.add_model_metrics(
+        run_id,
+        route="local-plan",
+        prompt_tokens=10,
+        completion_tokens=5,
+    )
+    store.update_run(run_id, status="awaiting_approval", result="ready")
+    build_id = store.create_candidate_build(
+        campaign_id,
+        brief_id=brief["id"],
+        overlay_hash=None,
+        overlay=None,
+    )
+    store.complete_candidate_build(
+        build_id,
+        run_id=run_id,
+        status="awaiting_approval",
+        branch="candidate",
+        worktree=str(tmp_path / "candidate"),
+    )
+    evaluation_id = store.create_evaluation(
+        campaign_id=campaign_id,
+        build_id=build_id,
+        baseline_commit="base",
+        candidate_commit="candidate",
+        suite_id="development+holdout",
+        suite_hash="suite",
+        holdout_hash="secret-hash",
+        environment_hash="environment",
+        repetitions=1,
+        budget=budget,
+    )
+
+    def result(generation: str, passed: bool) -> CaseResult:
+        return CaseResult(
+            generation=generation,
+            repetition=1,
+            case_id="target",
+            visibility="holdout",
+            process=ProcessResult(
+                command=("trusted",),
+                returncode=0,
+                timed_out=False,
+                duration_ms=1,
+                stdout="{}",
+                stderr="",
+                output_truncated=False,
+            ),
+            observation_hash="hash",
+            oracle_passed=passed,
+            policy_passed=True,
+            failure=None if passed else "oracle",
+        )
+
+    evaluation = PairedEvaluation(
+        baseline_commit="base",
+        candidate_commit="candidate",
+        development_suite_hash="development",
+        holdout_suite_hash="holdout",
+        holdout_oracle_hash="oracle",
+        environment_hash="environment",
+        candidate_patch_hash="patch",
+        repetitions=1,
+        budget=EvaluationBudget(**budget),
+        results=(result("baseline", False), result("candidate", True)),
+        evaluation_id=evaluation_id,
+        build_id=build_id,
+    )
+    trajectory = candidate_trajectory_evidence(
+        store.candidate_build_details(build_id), budget
+    )
+    scorecard = build_scorecard(
+        evaluation,
+        target_case_ids=["target"],
+        trajectory_evidence=trajectory,
+    )
+    store.complete_evaluation(
+        evaluation_id,
+        status="completed",
+        scorecard=scorecard.to_dict(),
+    )
+    store.record_promotion_decision(
+        evaluation_id,
+        actor="human",
+        decision="promote",
+        rationale="All predeclared gates passed.",
+    )
+
+    assert scorecard.recommendation == "eligible_for_human_promotion"
+    assert store.close_campaign_from_evidence(campaign_id) == "completed_clean"
+    details = store.campaign_details(campaign_id)
+    assert details["evaluations"][0]["build_id"] == build_id
+    assert details["decisions"][0]["actor"] == "human"
+
+
 def test_supervisor_records_timeout_without_retrying(tmp_path: Path) -> None:
     supervisor = object.__new__(Supervisor)
     supervisor.trusted_root = tmp_path
@@ -438,14 +637,9 @@ def test_environment_hash_mismatch_fails_before_candidate_execution(
         ROOT / "evaluation" / "suites" / "atomic-v1.json",
         expected_visibility="development",
     )
-    holdout = load_suite(
-        ROOT / "evaluation" / "holdout" / "atomic-holdout-v1.json",
-        expected_visibility="holdout",
-    )
-    oracle, oracle_hash = load_holdout_oracle(
-        ROOT / "evaluation" / "oracles" / "atomic-holdout-v1.json",
-        holdout,
-    )
+    manifest_path, oracle_path = _test_holdout(tmp_path)
+    holdout = load_suite(manifest_path, expected_visibility="holdout")
+    oracle, oracle_hash = load_holdout_oracle(oracle_path, holdout)
 
     with (
         patch("evaluation.supervisor.Supervisor") as supervisor,

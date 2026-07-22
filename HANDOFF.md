@@ -65,10 +65,11 @@ The trusted control plane is implemented under `evaluation/`:
   zero;
 - ordered transactional SQLite migrations preserve old run data and record run identity,
   campaigns, briefs, paired cases, scorecards, approvals, and decisions;
-- development cases and holdout oracles are loaded and hashed independently;
+- development cases and externally rotated holdout oracles are loaded and hashed
+  independently;
 - candidate verification and base-owned contracts run sequentially in networkless,
-  read-only bubblewrap sandboxes with time, process, memory, output, file, disk, token,
-  and model-call budgets;
+  read-only bubblewrap sandboxes with time, kernel process-count, memory, output, file,
+  disk, token, and model-call budgets;
 - the failure miner emits one deterministic brief from allowlisted structured facts;
 - campaigns require explicit human brief approval and allow one candidate until ten
   clean campaigns justify a maximum of three;
@@ -201,8 +202,8 @@ active worktrees or allow an unbounded daemon loop.
 - `evaluation/outcomes.py` — normalized outcomes and failure taxonomy;
 - `evaluation/supervisor.py` — trusted baseline/candidate command runner with hard limits;
 - `evaluation/suites/atomic-v1.json` — visible development cases;
-- `evaluation/holdout/` and `evaluation/oracles/` — separately mounted trusted holdout
-  inputs;
+- `.local-coder/holdout/` — ignored, immutable per-rotation holdout inputs provisioned
+  from an external source by `rotate-holdout`;
 - `evaluation/miner.py` and `evaluation/scorecard.py` — one-brief mining and ordered
   promotion gates;
 - additive state methods in `runtime/state.py` and ordered migrations in
@@ -220,12 +221,16 @@ usage. Schema v7 is applied through an ordered, atomic ledger with structural an
 foreign-key compatibility checks; malformed, gapped, future, and partially migrated
 databases fail without partial writes.
 
-Next work must:
+Candidate builds now share one enforced call/prompt/completion-token budget across every
+role. Missing usage fails closed, and an over-budget response is recorded before the run
+stops. Sandbox commands execute as an unprivileged UID with capabilities dropped and a
+hard `RLIMIT_NPROC` installed by the base-owned `process_guard.py`. Production holdout
+inputs are no longer tracked: each immutable rotation is copied from an external source
+into ignored trusted storage and campaign commands reject candidate-visible holdout
+paths.
 
-- enforce candidate-build token/model budgets from recorded usage and add a kernel-level
-  PID/cgroup ceiling for sandbox descendants;
-- move or rotate holdout material outside candidate Git history when stronger secrecy
-  than the current read/search denylist and sandbox mount isolation is required.
+The remaining completion work is a full campaign demonstration and final invariant
+audit against the acceptance criteria below.
 
 Acceptance criteria:
 

@@ -7,10 +7,12 @@ import importlib.util
 import json
 import os
 import shlex
+import shutil
 import socket
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -23,8 +25,7 @@ LITELLM_PORT = 4000
 STATE_PATH = ROOT / ".local-coder" / "state" / "agent.db"
 VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
 DEVELOPMENT_SUITE = ROOT / "evaluation" / "suites" / "atomic-v1.json"
-HOLDOUT_SUITE = ROOT / "evaluation" / "holdout" / "atomic-holdout-v1.json"
-HOLDOUT_ORACLE = ROOT / "evaluation" / "oracles" / "atomic-holdout-v1.json"
+HOLDOUT_STORAGE = ROOT / ".local-coder" / "holdout"
 
 
 def ensure_project_python() -> None:
@@ -222,8 +223,29 @@ def _evaluation_budget(args: argparse.Namespace):
     )
 
 
-def _load_evaluation_inputs(args: argparse.Namespace):
+def _is_external_holdout(path: Path) -> bool:
+    """Return whether a secret path is outside candidate-visible Git content."""
+    resolved = path.resolve()
+    try:
+        relative = resolved.relative_to(ROOT)
+    except ValueError:
+        return True
+    return relative.parts[:2] == (".local-coder", "holdout")
+
+
+def _load_evaluation_inputs(
+    args: argparse.Namespace,
+    *,
+    require_external_holdout: bool,
+):
     from evaluation.manifests import load_holdout_oracle, load_suite
+
+    if require_external_holdout and not all(
+        _is_external_holdout(path) for path in (args.holdout_suite, args.holdout_oracle)
+    ):
+        raise ValueError(
+            "Campaign holdout inputs must be outside candidate-visible Git content."
+        )
 
     development = load_suite(
         args.development_suite,
@@ -244,7 +266,10 @@ def handle_evaluate(args: argparse.Namespace) -> int:
     from runtime.state import StateStore
 
     try:
-        development, holdout, oracle, oracle_hash = _load_evaluation_inputs(args)
+        development, holdout, oracle, oracle_hash = _load_evaluation_inputs(
+            args,
+            require_external_holdout=args.campaign_id is not None,
+        )
         budget = _evaluation_budget(args)
         state = StateStore(args.database.resolve())
         trajectory = None
@@ -323,6 +348,66 @@ def handle_evaluate(args: argparse.Namespace) -> int:
     report = evaluation.to_dict(redact_holdout=True)
     report["scorecard"] = scorecard.to_dict()
     print(json.dumps(report, indent=2, sort_keys=True))
+    return 0 if scorecard.recommendation == "eligible_for_human_promotion" else 2
+
+
+def handle_rotate_holdout(args: argparse.Namespace) -> int:
+    """Provision one immutable holdout rotation outside candidate Git history."""
+    from evaluation.manifests import load_holdout_oracle, load_suite
+
+    rotation_id = args.rotation_id.strip()
+    if (
+        not rotation_id
+        or len(rotation_id) > 80
+        or rotation_id.startswith(".")
+        or any(
+            character not in "-_.abcdefghijklmnopqrstuvwxyz0123456789"
+            for character in rotation_id.lower()
+        )
+    ):
+        print("Holdout rotation failed: invalid rotation ID.", file=sys.stderr)
+        return 1
+    manifest_source = args.manifest.resolve()
+    oracle_source = args.oracle.resolve()
+    if not all(_is_external_holdout(path) for path in (manifest_source, oracle_source)):
+        print(
+            "Holdout rotation failed: sources must not be candidate-visible files.",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        manifest = load_suite(manifest_source, expected_visibility="holdout")
+        load_holdout_oracle(oracle_source, manifest)
+        HOLDOUT_STORAGE.mkdir(parents=True, exist_ok=True, mode=0o700)
+        destination = HOLDOUT_STORAGE / rotation_id
+        if destination.exists():
+            raise ValueError("Rotation ID already exists and is immutable.")
+        staging = Path(tempfile.mkdtemp(prefix=".rotation-", dir=HOLDOUT_STORAGE))
+        try:
+            manifest_target = staging / "manifest.json"
+            oracle_target = staging / "oracle.json"
+            shutil.copyfile(manifest_source, manifest_target)
+            shutil.copyfile(oracle_source, oracle_target)
+            manifest_target.chmod(0o600)
+            oracle_target.chmod(0o600)
+            staging.rename(destination)
+        except Exception:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+    except (OSError, ValueError) as exc:
+        print(f"Holdout rotation failed closed: {exc}", file=sys.stderr)
+        return 1
+    print(
+        json.dumps(
+            {
+                "rotation_id": rotation_id,
+                "holdout_suite": str(destination / "manifest.json"),
+                "holdout_oracle": str(destination / "oracle.json"),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0
 
 
@@ -330,7 +415,6 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
     """Mine one failure class and create one pending human-approved campaign brief."""
     from dataclasses import asdict
 
-    from evaluation.manifests import load_suite
     from evaluation.miner import campaign_candidate_limit, mine_improvement_brief
     from evaluation.outcomes import normalize_run, stable_hash
     from evaluation.supervisor import committed_generation
@@ -345,11 +429,10 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
             print(f"Unknown run ID: {run_id}", file=sys.stderr)
             return 1
         records.append(normalize_run(details))
-    development = load_suite(
-        args.development_suite,
-        expected_visibility="development",
+    development, holdout, _, _ = _load_evaluation_inputs(
+        args,
+        require_external_holdout=True,
     )
-    holdout = load_suite(args.holdout_suite, expected_visibility="holdout")
     suite_hash = stable_hash(
         {
             "development": development.manifest_hash,
@@ -482,6 +565,9 @@ def handle_build_candidate(args: argparse.Namespace) -> int:
                 keep_worktree=True,
                 mode="agentic",
                 expected_changed_paths=tuple(allowed_files),
+                max_model_calls=brief_budget["max_model_calls"],
+                max_prompt_tokens=brief_budget["max_prompt_tokens"],
+                max_completion_tokens=brief_budget["max_completion_tokens"],
             )
         ).run(task)
         store.complete_candidate_build(
@@ -565,8 +651,8 @@ def handle_show_campaign(args: argparse.Namespace) -> int:
 def add_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     """Add shared immutable-suite and hard-budget arguments."""
     parser.add_argument("--development-suite", type=Path, default=DEVELOPMENT_SUITE)
-    parser.add_argument("--holdout-suite", type=Path, default=HOLDOUT_SUITE)
-    parser.add_argument("--holdout-oracle", type=Path, default=HOLDOUT_ORACLE)
+    parser.add_argument("--holdout-suite", type=Path, required=True)
+    parser.add_argument("--holdout-oracle", type=Path, required=True)
     parser.add_argument("--campaign-seconds", type=int, default=1800)
     parser.add_argument("--process-seconds", type=int, default=180)
     parser.add_argument("--max-processes", type=int, default=64)
@@ -648,6 +734,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Specific run ID to analyze; may be repeated.",
     )
     analyze_parser.set_defaults(handler=handle_analyze_runs)
+
+    rotate_parser = subparsers.add_parser(
+        "rotate-holdout",
+        help="Provision immutable external holdout inputs for a campaign.",
+    )
+    rotate_parser.add_argument("rotation_id")
+    rotate_parser.add_argument("--manifest", type=Path, required=True)
+    rotate_parser.add_argument("--oracle", type=Path, required=True)
+    rotate_parser.set_defaults(handler=handle_rotate_holdout)
 
     evaluate_parser = subparsers.add_parser(
         "evaluate",

@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from .models import AuditedModel, ModelRegistry
+from .models import AuditedModel, ModelRegistry, ModelUsageBudget
 from .skills import Skill
 from .state import StateStore
 from .tools import ToolContext, build_smol_tools
@@ -151,6 +151,7 @@ def _build_agent(
     models: ModelRegistry,
     state: StateStore,
     run_id: str,
+    usage_budget: ModelUsageBudget | None,
 ) -> Any:
     try:
         from smolagents import CodeAgent
@@ -236,6 +237,7 @@ def _build_agent(
                 route=skill.model,
                 state=state,
                 run_id=run_id,
+                usage_budget=usage_budget,
             ),
             state=state,
             run_id=run_id,
@@ -255,6 +257,7 @@ def _build_agent(
             route=skill.model,
             state=state,
             run_id=run_id,
+            usage_budget=usage_budget,
         ),
         instructions=skill.instructions,
         max_steps=skill.max_steps,
@@ -276,6 +279,7 @@ def build_agent_bundle(
     state: StateStore,
     run_id: str,
     manager_max_steps: int = 12,
+    usage_budget: ModelUsageBudget | None = None,
 ) -> AgentBundle:
     """Build explorer, planner, implementer, repairer, reviewer, and manager."""
     try:
@@ -304,6 +308,7 @@ def build_agent_bundle(
             models=models,
             state=state,
             run_id=run_id,
+            usage_budget=usage_budget,
         )
         for role, skill_name in role_skills.items()
     )
@@ -323,6 +328,7 @@ def build_agent_bundle(
             route="local-plan",
             state=state,
             run_id=run_id,
+            usage_budget=usage_budget,
         ),
         managed_agents=list(managed),
         instructions=(
