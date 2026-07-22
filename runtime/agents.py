@@ -17,6 +17,43 @@ from .skills import (
 from .state import StateStore
 from .tools import ToolContext, build_smol_tools
 
+_COMPLETION_CLAIM = re.compile(
+    r"\b(?:task\s+)?(?:has|have|was|were)?\s*(?:been\s+)?"
+    r"(?:completed|implemented|updated|changed|replaced|made)\b|\bsuccessfully\b",
+    re.IGNORECASE,
+)
+
+
+def _ground_evidence_response(*, role: str, response: str, evidence: list[str]) -> str:
+    """Return read-only evidence without allowing false completion claims."""
+    if role == "explorer" and _COMPLETION_CLAIM.search(response):
+        return (
+            "Read-only evidence report; the explorer performed no edits and this "
+            "is not a completion status.\n\n" + "\n\n".join(evidence)
+        )
+    return response
+
+
+def _implementation_report(tool_calls: list[dict[str, Any]]) -> tuple[str, bool]:
+    """Summarize implementation from audited editor calls, not model prose."""
+    editor_calls = [
+        call for call in tool_calls if call.get("tool_name") == "apply_atomic_edit"
+    ]
+    if len(editor_calls) == 1 and editor_calls[0].get("status") == "success":
+        output = str(editor_calls[0].get("output") or "Validated edit applied.")
+        return f"Implementation succeeded: {output}", True
+    if not editor_calls:
+        return "Implementation failed: no apply_atomic_edit call was recorded.", False
+    failed = [call for call in editor_calls if call.get("status") == "error"]
+    if failed:
+        output = str(failed[-1].get("output") or "Editor call failed.")
+        return f"Implementation failed: {output}", False
+    return (
+        "Implementation failed: expected exactly one successful "
+        f"apply_atomic_edit call, recorded {len(editor_calls)}.",
+        False,
+    )
+
 
 @dataclass(frozen=True)
 class AgentBundle:
@@ -84,7 +121,10 @@ class ReadOnlyEvidenceAgent:
                             "Return concise plain text only. You have no tools and "
                             "must "
                             "not emit code, tool calls, or editing instructions. Base "
-                            "the response only on the supplied repository evidence."
+                            "the response only on the supplied repository evidence. "
+                            "This is a read-only observation made before "
+                            "implementation. Never claim that an edit was completed, "
+                            "applied, or successful."
                         ),
                     },
                     {
@@ -98,7 +138,11 @@ class ReadOnlyEvidenceAgent:
                 ],
                 tools_to_call_from=None,
             )
-            return str(response.content)
+            return _ground_evidence_response(
+                role=self.name,
+                response=str(response.content),
+                evidence=evidence,
+            )
         except Exception:
             status = "failed"
             raise
@@ -258,12 +302,26 @@ def _build_agent(
                     f"Authoritative task:\n{authoritative_task}\n\n"
                     f"Delegated task:\n{task}"
                 )
-                return self.run(
+                before = state.run_details(run_id) or {}
+                before_ids = {call["id"] for call in before.get("tool_calls", [])}
+                result = self.run(
                     constrained_task,
                     reset=True,
                     additional_args=additional_args,
                     **kwargs,
                 )
+                if role != "implementer":
+                    return result
+                after = state.run_details(run_id) or {}
+                new_calls = [
+                    call
+                    for call in after.get("tool_calls", [])
+                    if call["id"] not in before_ids and call.get("agent_role") == role
+                ]
+                report, succeeded = _implementation_report(new_calls)
+                if not succeeded:
+                    status = "failed"
+                return report
             except Exception:
                 status = "failed"
                 raise

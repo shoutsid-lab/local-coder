@@ -2,7 +2,7 @@ PYTHON := .venv/bin/python
 PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runtime/*.py tests/*.py
 
 .PHONY: health format format-check lint agent-check agent-install agent-smoke handoff-check test verify \
-	metrics review review-cached skills skills-lint runs
+	metrics review review-cached skills skills-lint runs live-e2e live-e2e-report
 
 health:
 	@curl -fsS http://127.0.0.1:8080/health | jq
@@ -64,3 +64,13 @@ skills-lint:
 
 runs:
 	$(PYTHON) local-coder.py runs
+
+live-e2e: skills-lint verify agent-smoke
+	$(PYTHON) -m runtime.live_e2e
+
+live-e2e-report:
+	@test -f .local-coder/live-e2e/latest-summary.json || { \
+		echo "No live E2E summary found. Run make live-e2e first."; \
+		exit 1; \
+	}
+	@cat .local-coder/live-e2e/latest-summary.json

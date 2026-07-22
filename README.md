@@ -129,3 +129,37 @@ make handoff-check
 
 Direct `./local-coder.py` invocations automatically re-execute inside `.venv` when the
 project virtual environment exists.
+
+## Run the full live E2E canary
+
+With llama.cpp and LiteLLM already running, use a clean committed checkout:
+
+```bash
+make live-e2e
+```
+
+The target runs the static verification gates, skill-package checks, all three
+LiteLLM route probes, constrained-output probes through llama.cpp and LiteLLM,
+and one isolated real editing run against `profiles/live-e2e-canary.txt`. A
+successful canary worktree is removed automatically; failures are preserved for
+inspection. The compact shareable result is written to
+`.local-coder/live-e2e/latest-summary.json`.
+
+Print only the compact result for support or diagnosis:
+
+```bash
+make live-e2e-report
+```
+
+The constrained-output probes run 20 attempts per endpoint by default. For a
+faster diagnostic pass, override the count explicitly:
+
+```bash
+LIVE_E2E_ATTEMPTS=3 make live-e2e
+```
+
+Preserve a successful canary worktree for manual inspection when needed:
+
+```bash
+LIVE_E2E_KEEP_WORKTREE=1 make live-e2e
+```

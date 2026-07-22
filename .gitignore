@@ -19,3 +19,4 @@ REVIEW.json
 .ruff_cache/
 .coverage
 htmlcov/
+.local-coder/live-e2e/

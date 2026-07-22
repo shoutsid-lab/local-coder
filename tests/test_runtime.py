@@ -740,8 +740,24 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
     assert details["tool_calls"][0]["tool_name"] == "read_file"
 
     implementer = bundle.managed[2]
-    with patch.object(implementer, "run", return_value="done") as run:
-        implementer("Replace one sentence in README.md")
+
+    def record_success(*_: object, **__: object) -> str:
+        store.log_tool_call(
+            run_id,
+            agent_role="implementer",
+            tool_name="apply_atomic_edit",
+            arguments={"editable_files": "README.md"},
+            output="Atomic edit applied to: README.md",
+            status="success",
+            duration_ms=1.0,
+        )
+        return "Failed to apply atomic edit: generated final-answer error"
+
+    with patch.object(implementer, "run", side_effect=record_success) as run:
+        implementation_result = implementer("Replace one sentence in README.md")
+    assert implementation_result == (
+        "Implementation succeeded: Atomic edit applied to: README.md"
+    )
     assert "apply_atomic_edit exactly once" in run.call_args.args[0]
     assert "do not retry it with identical arguments" in run.call_args.args[0]
     assert "editable_files='README.md'" in run.call_args.args[0]
@@ -1376,3 +1392,88 @@ def test_create_worktree_shares_virtualenv(tmp_path: Path) -> None:
         assert status.stdout == ""
     finally:
         remove_worktree(root, worktree, force=True)
+
+
+def test_explorer_completion_claim_falls_back_to_raw_evidence() -> None:
+    from runtime.agents import _ground_evidence_response
+
+    evidence = ["1: The old phrase is still present."]
+    result = _ground_evidence_response(
+        role="explorer",
+        response="The requested change has been made successfully.",
+        evidence=evidence,
+    )
+
+    assert "performed no edits" in result
+    assert evidence[0] in result
+    assert "has been made successfully" not in result
+
+
+def test_planner_response_is_not_filtered_as_explorer_completion_claim() -> None:
+    from runtime.agents import _ground_evidence_response
+
+    response = "The plan has been completed."
+    assert (
+        _ground_evidence_response(
+            role="planner", response=response, evidence=["evidence"]
+        )
+        == response
+    )
+
+
+def test_implementation_report_uses_successful_audited_editor_call() -> None:
+    from runtime.agents import _implementation_report
+
+    report, succeeded = _implementation_report(
+        [
+            {
+                "tool_name": "apply_atomic_edit",
+                "status": "success",
+                "output": "Changed profiles/README.md",
+            }
+        ]
+    )
+
+    assert succeeded is True
+    assert report == "Implementation succeeded: Changed profiles/README.md"
+
+
+def test_implementation_report_rejects_generated_success_without_editor_call() -> None:
+    from runtime.agents import _implementation_report
+
+    report, succeeded = _implementation_report([])
+
+    assert succeeded is False
+    assert report == "Implementation failed: no apply_atomic_edit call was recorded."
+
+
+def test_implementation_report_rejects_multiple_editor_calls() -> None:
+    from runtime.agents import _implementation_report
+
+    report, succeeded = _implementation_report(
+        [
+            {
+                "tool_name": "apply_atomic_edit",
+                "status": "success",
+                "output": "first",
+            },
+            {
+                "tool_name": "apply_atomic_edit",
+                "status": "success",
+                "output": "second",
+            },
+        ]
+    )
+
+    assert succeeded is False
+    assert "expected exactly one successful" in report
+
+
+def test_live_e2e_schema_is_strict_and_scoped() -> None:
+    from runtime.live_e2e import EXPECTED_FILE, edit_schema
+
+    payload = edit_schema()
+    assert payload["additionalProperties"] is False
+    item = payload["properties"]["edits"]["items"]
+    assert item["additionalProperties"] is False
+    assert item["properties"]["path"]["enum"] == [EXPECTED_FILE]
