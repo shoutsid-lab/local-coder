@@ -91,3 +91,47 @@ make gepa-runner-check
 make verify
 make agent-smoke
 ```
+
+## First real planner experiment
+
+`collect-gepa-planner-seed` creates the first optimization-ready planner corpus from
+real isolated agent runs. The checked-in seed file contains six independent sentinels.
+Each run changes exactly one sentinel in its own Git worktree, executes deterministic
+verification and review, and records the normal DSPy trace artifacts in SQLite.
+
+The suite task identities are frozen so the dataset exporter assigns exactly three
+planner examples to `train`, two to `dev`, and one to the offline `holdout` split. A
+suite hash binds the task text, expected file, and split allocation. Collection fails
+closed on a dirty base tree, split drift, unexpected files, failed verification, failed
+review, or a non-agent worktree branch.
+
+```bash
+./local-coder.py collect-gepa-planner-seed \
+  --dataset-output .local-coder/gepa-datasets/planner-seed-v1 \
+  --report-output .local-coder/gepa-collections/planner-seed-v1
+```
+
+Successful worktrees are preserved by default for inspection. Cleanup is an explicit
+operator action:
+
+```bash
+./local-coder.py collect-gepa-planner-seed \
+  --dataset-output .local-coder/gepa-datasets/planner-seed-v1-clean \
+  --report-output .local-coder/gepa-collections/planner-seed-v1-clean \
+  --cleanup-successful-worktrees
+```
+
+Run the first planner-only optimization from the collected corpus:
+
+```bash
+./local-coder.py optimize-gepa \
+  --dataset .local-coder/gepa-datasets/planner-seed-v1 \
+  --role planner \
+  --reflection-route local-plan \
+  --auto light \
+  --seed 0 \
+  --output .local-coder/gepa-runs/planner-seed-v1
+```
+
+The candidate remains inert. Activation and promotion stay `not_performed`; campaign
+integration and trusted holdout evaluation remain Phase 4 work.

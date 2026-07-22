@@ -28,6 +28,10 @@ DEVELOPMENT_SUITE = ROOT / "evaluation" / "suites" / "atomic-v1.json"
 HOLDOUT_STORAGE = ROOT / ".local-coder" / "holdout"
 GEPA_DATASET_PATH = ROOT / ".local-coder" / "gepa-datasets" / "latest"
 GEPA_RUN_PATH = ROOT / ".local-coder" / "gepa-runs" / "latest"
+GEPA_PLANNER_DATASET_PATH = ROOT / ".local-coder" / "gepa-datasets" / "planner-seed-v1"
+GEPA_PLANNER_COLLECTION_PATH = (
+    ROOT / ".local-coder" / "gepa-collections" / "planner-seed-v1"
+)
 
 
 def ensure_project_python() -> None:
@@ -287,6 +291,29 @@ def handle_export_gepa_dataset(args: argparse.Namespace) -> int:
         print(f"GEPA dataset export failed closed: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(manifest, indent=2, sort_keys=True))
+    return 0
+
+
+def handle_collect_gepa_planner_seed(args: argparse.Namespace) -> int:
+    """Collect six real audited runs for the first planner GEPA experiment."""
+    from runtime.gepa_experiment import (
+        GepaExperimentError,
+        collect_planner_seed_corpus,
+    )
+
+    try:
+        result = collect_planner_seed_corpus(
+            ROOT,
+            args.database,
+            args.dataset_output,
+            args.report_output,
+            max_steps=args.max_steps,
+            cleanup_successful_worktrees=args.cleanup_successful_worktrees,
+        )
+    except (GepaExperimentError, RuntimeError) as exc:
+        print(f"GEPA planner corpus collection failed closed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
 
@@ -939,6 +966,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Specific run ID to export; may be repeated.",
     )
     gepa_export_parser.set_defaults(handler=handle_export_gepa_dataset)
+
+    gepa_collect_parser = subparsers.add_parser(
+        "collect-gepa-planner-seed",
+        help="Collect six real audited runs for a planner-ready GEPA dataset.",
+    )
+    gepa_collect_parser.add_argument(
+        "--database",
+        type=Path,
+        default=STATE_PATH,
+        help="Writable SQLite audit database used by the real agent runs.",
+    )
+    gepa_collect_parser.add_argument(
+        "--dataset-output",
+        type=Path,
+        default=GEPA_PLANNER_DATASET_PATH,
+        help="Destination for the hash-verified exported dataset.",
+    )
+    gepa_collect_parser.add_argument(
+        "--report-output",
+        type=Path,
+        default=GEPA_PLANNER_COLLECTION_PATH,
+        help="New immutable directory for the collection report.",
+    )
+    gepa_collect_parser.add_argument("--max-steps", type=int, default=12)
+    gepa_collect_parser.add_argument(
+        "--cleanup-successful-worktrees",
+        action="store_true",
+        help="Explicitly remove only successful seed worktrees and task branches.",
+    )
+    gepa_collect_parser.set_defaults(handler=handle_collect_gepa_planner_seed)
 
     gepa_optimize_parser = subparsers.add_parser(
         "optimize-gepa",

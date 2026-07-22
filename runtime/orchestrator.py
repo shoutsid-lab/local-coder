@@ -78,6 +78,25 @@ def collect_final_review(context: ToolContext) -> tuple[str, str | None]:
     return output, context.last_review_verdict
 
 
+def authoritative_manager_result(worktree: Worktree) -> str:
+    """Render trusted branch and changed-file facts for the stored run result."""
+    changed_result = command(
+        ["git", "diff", "--name-only"],
+        cwd=worktree.path,
+        check=True,
+    )
+    changed_files = sorted(line for line in changed_result.stdout.splitlines() if line)
+    return json.dumps(
+        {
+            "branch": worktree.branch,
+            "worktree": str(worktree.path),
+            "changed_files": changed_files,
+            "manager_report": "preserved as manager_result artifact",
+        },
+        sort_keys=True,
+    )
+
+
 class AgentOrchestrator:
     """Create an isolated run and coordinate role-specialized local agents."""
 
@@ -203,6 +222,12 @@ Required process:
                 raise
             finally:
                 self.state.complete_step(manager_step, status=manager_status)
+            manager_result = str(result)
+            self.state.add_artifact(
+                run_id,
+                kind="manager_result",
+                content=manager_result,
+            )
             diff = context.inspect_diff()
             has_diff = diff != "No uncommitted diff."
             review_verdict: str | None = None
@@ -239,11 +264,10 @@ Required process:
             editor_output = ""
             if editor_error_count:
                 editor_output = f"Rejected editor attempts: {editor_error_count}"
-            manager_output = (
-                str(result)
-                if has_diff
-                else "The agent did not produce a reviewable diff."
-            )
+            if has_diff:
+                manager_output = authoritative_manager_result(worktree)
+            else:
+                manager_output = "The agent did not produce a reviewable diff."
             result_text = "\n\n".join(
                 part
                 for part in (

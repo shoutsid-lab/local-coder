@@ -22,3 +22,4 @@ htmlcov/
 .local-coder/live-e2e/
 .local-coder/gepa-datasets/
 .local-coder/gepa-runs/
+.local-coder/gepa-collections/

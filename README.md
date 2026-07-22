@@ -207,3 +207,13 @@ Preserve a successful canary worktree for manual inspection when needed:
 ```bash
 LIVE_E2E_KEEP_WORKTREE=1 make live-e2e
 ```
+
+## First planner GEPA experiment
+
+```bash
+./local-coder.py collect-gepa-planner-seed
+./local-coder.py optimize-gepa \
+  --dataset .local-coder/gepa-datasets/planner-seed-v1 \
+  --role planner \
+  --output .local-coder/gepa-runs/planner-seed-v1
+```

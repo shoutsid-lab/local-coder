@@ -167,7 +167,7 @@ def _successful_backend_markers(
     return markers
 
 
-def _split_for_task(task: str) -> str:
+def split_for_task(task: str) -> str:
     bucket = int(hashlib.sha256(task.encode("utf-8")).hexdigest()[:8], 16) % 10
     if bucket < 8:
         return "train"
@@ -401,7 +401,7 @@ def build_gepa_examples(
                     "role": trace["role"],
                     "program": trace["program"],
                     "route": trace["route"],
-                    "split": _split_for_task(task),
+                    "split": split_for_task(task),
                     "task": task.strip(),
                     "inputs": trace["inputs"],
                     "output": trace["output"],
