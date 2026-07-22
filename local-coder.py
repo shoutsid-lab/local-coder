@@ -101,6 +101,7 @@ def handle_status(_: argparse.Namespace) -> int:
     llama_ok = llama_server_is_healthy()
     litellm_ok = litellm_is_available()
     smolagents_ok = importlib.util.find_spec("smolagents") is not None
+    dspy_ok = importlib.util.find_spec("dspy") is not None
 
     branch_status, branch = command_output(["git", "branch", "--show-current"])
     tree_status, porcelain = command_output(["git", "status", "--porcelain"])
@@ -111,12 +112,13 @@ def handle_status(_: argparse.Namespace) -> int:
     print(f"llama-server :8080  {'OK' if llama_ok else 'UNAVAILABLE'}")
     print(f"LiteLLM      :4000  {'OK' if litellm_ok else 'UNAVAILABLE'}")
     print(f"smolagents          {'OK' if smolagents_ok else 'NOT INSTALLED'}")
+    print(f"DSPy                {'OK' if dspy_ok else 'NOT INSTALLED'}")
     print(f"Python              {sys.executable}")
     print(f"Git branch          {branch}")
     print(f"Working tree        {'clean' if tree_clean else 'has changes'}")
     print(f"Run database        {STATE_PATH}")
 
-    ready = llama_ok and litellm_ok and smolagents_ok and branch_status == 0
+    ready = llama_ok and litellm_ok and smolagents_ok and dspy_ok and branch_status == 0
     return 0 if ready else 1
 
 

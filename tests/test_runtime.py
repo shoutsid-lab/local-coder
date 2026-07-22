@@ -288,6 +288,81 @@ def test_reviewer_rejects_invalid_explanation_fields() -> None:
         review_diff_cli.parse_review_content(content)
 
 
+def test_dspy_reviewer_preserves_verdict_contract_and_metrics() -> None:
+    captured: dict[str, object] = {}
+    metrics: list[dict[str, object]] = []
+
+    class Prediction(SimpleNamespace):
+        def get_lm_usage(self) -> dict[str, dict[str, int]]:
+            return {
+                "openai/local-review": {
+                    "prompt_tokens": 120,
+                    "completion_tokens": 24,
+                }
+            }
+
+    def runner(**kwargs: object) -> Prediction:
+        captured.update(kwargs)
+        return Prediction(
+            verdict="pass",
+            summary="README.md matches the task and verification passed.",
+            issues=[],
+            unrelated_changes=[],
+        )
+
+    review = review_diff_cli.call_reviewer(
+        model="local-review",
+        task="Update README.md",
+        changed_files=["README.md"],
+        diff="diff --git a/README.md b/README.md",
+        verification_passed=True,
+        verification_output="Verification: PASS",
+        metrics_callback=lambda **values: metrics.append(values),
+        reviewer_runner=runner,
+    )
+
+    assert review == {
+        "verdict": "pass",
+        "summary": "README.md matches the task and verification passed.",
+        "issues": [],
+        "unrelated_changes": [],
+    }
+    assert captured["model"] == "local-review"
+    assert captured["changed_files"] == ["README.md"]
+    assert metrics[0]["prompt_tokens"] == 120
+    assert metrics[0]["completion_tokens"] == 24
+    assert metrics[0]["metadata"] == {
+        "status": "success",
+        "source": "dspy-reviewer",
+        "program": "ReviewerProgram",
+        "adapter": "JSONAdapter",
+    }
+
+
+def test_dspy_reviewer_rejects_invalid_typed_prediction() -> None:
+    def runner(**_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            verdict="approve",
+            summary="Not a valid verdict.",
+            issues=[],
+            unrelated_changes=[],
+        )
+
+    with pytest.raises(
+        review_diff_cli.ReviewError,
+        match="invalid structured response",
+    ):
+        review_diff_cli.call_reviewer(
+            model="local-review",
+            task="Update README.md",
+            changed_files=["README.md"],
+            diff="diff",
+            verification_passed=True,
+            verification_output="Verification: PASS",
+            reviewer_runner=runner,
+        )
+
+
 def test_required_skills_load() -> None:
     skills = discover_skills(ROOT / ".local-coder" / "skills")
 
@@ -1477,3 +1552,73 @@ def test_live_e2e_schema_is_strict_and_scoped() -> None:
     item = payload["properties"]["edits"]["items"]
     assert item["additionalProperties"] is False
     assert item["properties"]["path"]["enum"] == [EXPECTED_FILE]
+
+
+def test_status_requires_dspy_dependency(capsys: pytest.CaptureFixture[str]) -> None:
+    with (
+        patch.object(local_coder, "llama_server_is_healthy", return_value=True),
+        patch.object(local_coder, "litellm_is_available", return_value=True),
+        patch.object(
+            local_coder.importlib.util,
+            "find_spec",
+            side_effect=lambda name: object() if name == "smolagents" else None,
+        ),
+        patch.object(
+            local_coder,
+            "command_output",
+            side_effect=[(0, "main"), (0, "")],
+        ),
+    ):
+        assert local_coder.handle_status(SimpleNamespace()) == 1
+
+    output = capsys.readouterr().out
+    assert "smolagents          OK" in output
+    assert "DSPy                NOT INSTALLED" in output
+
+
+def test_dspy_reviewer_cannot_pass_failed_verification() -> None:
+    def runner(**_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            verdict="pass",
+            summary="The change appears correct.",
+            issues=[],
+            unrelated_changes=[],
+        )
+
+    with pytest.raises(
+        review_diff_cli.ReviewError,
+        match="cannot pass a change when verification failed",
+    ):
+        review_diff_cli.call_reviewer(
+            model="local-review",
+            task="Update README.md",
+            changed_files=["README.md"],
+            diff="diff",
+            verification_passed=False,
+            verification_output="Verification: FAIL",
+            reviewer_runner=runner,
+        )
+
+
+def test_dspy_reviewer_cannot_pass_with_reported_issues() -> None:
+    def runner(**_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            verdict="pass",
+            summary="The change has an issue.",
+            issues=["README.md: unrelated wording change"],
+            unrelated_changes=[],
+        )
+
+    with pytest.raises(
+        review_diff_cli.ReviewError,
+        match="cannot pass a change with reported issues",
+    ):
+        review_diff_cli.call_reviewer(
+            model="local-review",
+            task="Update README.md",
+            changed_files=["README.md"],
+            diff="diff",
+            verification_passed=True,
+            verification_output="Verification: PASS",
+            reviewer_runner=runner,
+        )

@@ -8,6 +8,8 @@
 - [Recursive improvement](RECURSIVE_IMPROVEMENT.md) — evidence-gated campaign and paired
   evaluation operations.
 - [Trusted task plans](TASK_PLANS.md) — hash-approved, one-step-at-a-time decomposition.
+- [DSPy integration](DSPY_INTEGRATION.md) — LiteLLM-backed role programs behind
+  existing adapters.
 - [Upstream baseline](UPSTREAM.json) — original GitHub baseline and verified blob IDs.
 
 The active implementation direction and next work are in the root

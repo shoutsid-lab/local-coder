@@ -7,13 +7,10 @@ import json
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parent
-API_URL = "http://127.0.0.1:4000/v1/chat/completions"
 DEFAULT_OUTPUT = ROOT / "REVIEW.json"
 
 
@@ -168,6 +165,52 @@ def verdict_only_context(
     )
 
 
+def validate_review_object(
+    candidate: dict[str, Any],
+    *,
+    verdict_only_evidence: str | None = None,
+) -> dict[str, Any]:
+    """Validate and normalize one structured reviewer result."""
+    required = {"verdict", "summary", "issues", "unrelated_changes"}
+    if set(candidate) == {"verdict"} and candidate["verdict"] in {
+        "pass",
+        "fail",
+        "needs_attention",
+    }:
+        verdict = candidate["verdict"]
+        detail = verdict_only_evidence or "No explanatory details were supplied."
+        return {
+            "verdict": verdict,
+            "summary": f"The local reviewer returned verdict {verdict!r}. {detail}",
+            "issues": [],
+            "unrelated_changes": [],
+        }
+    if set(candidate) != required:
+        raise ReviewError("The reviewer returned an invalid structured response.")
+    if candidate["verdict"] not in {"pass", "fail", "needs_attention"}:
+        raise ReviewError("The reviewer returned an invalid structured response.")
+    summary = candidate["summary"]
+    if not isinstance(summary, str) or not summary.strip() or len(summary) > 1000:
+        raise ReviewError("The reviewer returned an invalid structured response.")
+    details = (candidate["issues"], candidate["unrelated_changes"])
+    if any(
+        not isinstance(items, list)
+        or len(items) > 20
+        or any(
+            not isinstance(item, str) or not item.strip() or len(item) > 500
+            for item in items
+        )
+        for items in details
+    ):
+        raise ReviewError("The reviewer returned an invalid structured response.")
+    return {
+        "verdict": candidate["verdict"],
+        "summary": summary.strip(),
+        "issues": [item.strip() for item in candidate["issues"]],
+        "unrelated_changes": [item.strip() for item in candidate["unrelated_changes"]],
+    }
+
+
 def parse_review_content(
     content: str,
     *,
@@ -184,47 +227,60 @@ def parse_review_content(
             continue
         if not isinstance(candidate, dict):
             continue
-        required = {"verdict", "summary", "issues", "unrelated_changes"}
-        if set(candidate) == {"verdict"} and candidate["verdict"] in {
-            "pass",
-            "fail",
-            "needs_attention",
-        }:
-            verdict = candidate["verdict"]
-            detail = verdict_only_evidence or "No explanatory details were supplied."
-            return {
-                "verdict": verdict,
-                "summary": f"The local reviewer returned verdict {verdict!r}. {detail}",
-                "issues": [],
-                "unrelated_changes": [],
-            }
-        if set(candidate) != required:
-            continue
-        if candidate["verdict"] not in {"pass", "fail", "needs_attention"}:
-            continue
-        summary = candidate["summary"]
-        if not isinstance(summary, str) or not summary.strip() or len(summary) > 1000:
-            continue
-        details = (candidate["issues"], candidate["unrelated_changes"])
-        if any(
-            not isinstance(items, list)
-            or len(items) > 20
-            or any(
-                not isinstance(item, str) or not item.strip() or len(item) > 500
-                for item in items
+        try:
+            return validate_review_object(
+                candidate,
+                verdict_only_evidence=verdict_only_evidence,
             )
-            for items in details
-        ):
+        except ReviewError:
             continue
-        return {
-            "verdict": candidate["verdict"],
-            "summary": summary.strip(),
-            "issues": [item.strip() for item in candidate["issues"]],
-            "unrelated_changes": [
-                item.strip() for item in candidate["unrelated_changes"]
-            ],
-        }
     raise ReviewError("The reviewer returned an invalid structured response.")
+
+
+def _prediction_value(prediction: Any, name: str) -> Any:
+    """Read one DSPy prediction field from object or mapping output."""
+    if isinstance(prediction, dict):
+        return prediction[name]
+    return getattr(prediction, name)
+
+
+def _prediction_usage(prediction: Any, model: str) -> dict[str, Any]:
+    """Return token usage attached by DSPy's per-call tracker."""
+    get_usage = getattr(prediction, "get_lm_usage", None)
+    if not callable(get_usage):
+        return {}
+    usage_by_lm = get_usage() or {}
+    preferred = usage_by_lm.get(f"openai/{model}")
+    if isinstance(preferred, dict):
+        return preferred
+    for usage in usage_by_lm.values():
+        if isinstance(usage, dict):
+            return usage
+    return {}
+
+
+def _run_dspy_reviewer(
+    *,
+    model: str,
+    task: str,
+    changed_files: list[str],
+    diff: str,
+    verification_passed: bool,
+    verification_output: str,
+) -> Any:
+    """Construct and invoke the DSPy reviewer behind the fixed adapter."""
+    from runtime.dspy_lm import build_dspy_lm
+    from runtime.dspy_programs.reviewer import run_reviewer_program
+
+    lm = build_dspy_lm(model)
+    return run_reviewer_program(
+        lm=lm,
+        task=task,
+        changed_files=changed_files,
+        verification_passed=verification_passed,
+        verification_output=verification_output,
+        diff=diff,
+    )
 
 
 def call_reviewer(
@@ -236,116 +292,57 @@ def call_reviewer(
     verification_passed: bool,
     verification_output: str,
     metrics_callback: Callable[..., None] | None = None,
+    reviewer_runner: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
-    prompt = f"""
-Review this code change without editing any files.
-
-Judge whether the change satisfies the authoritative task, whether it introduces
-unrelated changes, and whether the independent verification result supports acceptance.
-
-Rules:
-
-- Do not propose edits unless identifying a concrete issue.
-- Do not claim verification passed when it failed.
-- Treat protected tests and deterministic verification as authoritative.
-- Return JSON only.
-- Return all four required fields; never return only a verdict.
-- Write a concrete one-sentence summary naming the changed behavior and how the
-  verification evidence supports the verdict.
-- Identify each issue or unrelated change with its file path and a concise reason.
-- Use verdict "pass" only when the task is satisfied, verification passed,
-  and there are no material unrelated changes.
-- Use "fail" for definite correctness or contract violations.
-- Use "needs_attention" when additional independent judgement is required.
-
-Authoritative task:
-
-{task}
-
-Changed files:
-
-{json.dumps(changed_files, indent=2)}
-
-Independent verification passed:
-
-{verification_passed}
-
-Independent verification output:
-
-{verification_output}
-
-Git diff:
-
-{diff}
-""".strip()
-
-    payload = {
-        "model": model,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a read-only code reviewer. "
-                    "Return a strict structured verdict and never edit files."
-                ),
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ],
-        "temperature": 0,
-        "max_tokens": 2048,
-        "response_format": {
-            "type": "json_schema",
-            "schema": review_schema(),
-        },
-    }
-
-    request = urllib.request.Request(
-        API_URL,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": "Bearer local",
-        },
-        method="POST",
-    )
-
+    """Run the typed DSPy reviewer and preserve the legacy verdict contract."""
+    runner = reviewer_runner or _run_dspy_reviewer
     started = time.perf_counter()
     try:
-        with urllib.request.urlopen(request, timeout=600) as response:
-            result = json.load(response)
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        raise ReviewError(f"Reviewer API returned HTTP {exc.code}: {body}") from exc
-    except urllib.error.URLError as exc:
-        raise ReviewError(f"Could not reach LiteLLM: {exc}") from exc
-
-    try:
-        content = result["choices"][0]["message"]["content"]
-        if not isinstance(content, str):
-            raise TypeError("Reviewer content is not text.")
-        review = parse_review_content(
-            content,
+        prediction = runner(
+            model=model,
+            task=task,
+            changed_files=changed_files,
+            diff=diff,
+            verification_passed=verification_passed,
+            verification_output=verification_output,
+        )
+        review = validate_review_object(
+            {
+                "verdict": _prediction_value(prediction, "verdict"),
+                "summary": _prediction_value(prediction, "summary"),
+                "issues": _prediction_value(prediction, "issues"),
+                "unrelated_changes": _prediction_value(prediction, "unrelated_changes"),
+            },
             verdict_only_evidence=verdict_only_context(
-                changed_files,
-                verification_passed,
+                changed_files, verification_passed
             ),
         )
-    except (KeyError, IndexError, TypeError) as exc:
-        raise ReviewError(
-            "The reviewer returned an invalid structured response."
-        ) from exc
+        if review["verdict"] == "pass" and not verification_passed:
+            raise ReviewError(
+                "The reviewer cannot pass a change when verification failed."
+            )
+        if review["verdict"] == "pass" and (
+            review["issues"] or review["unrelated_changes"]
+        ):
+            raise ReviewError("The reviewer cannot pass a change with reported issues.")
+    except ReviewError:
+        raise
+    except Exception as exc:
+        raise ReviewError(f"DSPy reviewer failed: {exc}") from exc
 
     if metrics_callback is not None:
-        usage = result.get("usage", {})
+        usage = _prediction_usage(prediction, model)
         metrics_callback(
             route=model,
             prompt_tokens=usage.get("prompt_tokens"),
             completion_tokens=usage.get("completion_tokens"),
             duration_ms=(time.perf_counter() - started) * 1000,
-            metadata={"status": "success", "source": "read-only-reviewer"},
+            metadata={
+                "status": "success",
+                "source": "dspy-reviewer",
+                "program": "ReviewerProgram",
+                "adapter": "JSONAdapter",
+            },
         )
 
     return review

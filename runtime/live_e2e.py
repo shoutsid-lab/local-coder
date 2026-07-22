@@ -141,6 +141,27 @@ def structured_output_probe(url: str, model: str, attempts: int) -> None:
             raise RuntimeError(f"Structured-output path failed on attempt {attempt}")
 
 
+def dspy_reviewer_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
+    """Return unique audited DSPy reviewer backend markers."""
+    backends: set[str] = set()
+    for metric in model_metrics:
+        metadata = metric.get("metadata")
+        if not isinstance(metadata, str):
+            continue
+        try:
+            parsed_metadata = json.loads(metadata)
+        except json.JSONDecodeError:
+            continue
+        if (
+            metric.get("route") == "local-review"
+            and parsed_metadata.get("source") == "dspy-reviewer"
+            and parsed_metadata.get("program") == "ReviewerProgram"
+            and parsed_metadata.get("adapter") == "JSONAdapter"
+        ):
+            backends.add("ReviewerProgram/JSONAdapter")
+    return sorted(backends)
+
+
 def check_skills() -> None:
     result = command([sys.executable, str(ROOT / "local-coder.py"), "skills"])
     skills = json.loads(result.stdout)
@@ -265,6 +286,7 @@ def main() -> int:
         if call["status"] == "error"
     ]
     routes = sorted({metric["route"] for metric in details["model_metrics"]})
+    reviewer_backends = dspy_reviewer_backends(details["model_metrics"])
     worktree_value = details.get("worktree")
     worktree = Path(worktree_value) if worktree_value else None
     changed: list[str] = []
@@ -283,12 +305,14 @@ def main() -> int:
         and editor_calls[0]["status"] == "success"
         and not failed_tools
         and routes == ["local-fast", "local-plan", "local-review"]
+        and reviewer_backends == ["ReviewerProgram/JSONAdapter"]
         and changed == [EXPECTED_FILE]
         and TARGET_SENTINEL in edited
     )
     keep_worktree = os.environ.get("LIVE_E2E_KEEP_WORKTREE") == "1"
     summary = {
         "passed": passed,
+        "base_commit": command(["git", "rev-parse", "HEAD"]).stdout.strip(),
         "run_id": run_id,
         "status": details["status"],
         "error": details["error"],
@@ -309,6 +333,7 @@ def main() -> int:
             for result in details["verification"]
         ],
         "model_routes": routes,
+        "reviewer_backends": reviewer_backends,
         "changed_files": changed,
         "report": str(report_path),
         "console": str(run_dir / "console.log"),
@@ -334,8 +359,15 @@ if __name__ == "__main__":
     except Exception as exc:
         staging = ROOT / ".local-coder" / "live-e2e"
         staging.mkdir(parents=True, exist_ok=True)
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
         failure = {
             "passed": False,
+            "base_commit": (commit.stdout.strip() if commit.returncode == 0 else None),
             "error": f"{type(exc).__name__}: {exc}",
         }
         (staging / "latest-summary.json").write_text(
