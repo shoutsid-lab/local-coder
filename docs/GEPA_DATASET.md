@@ -17,7 +17,9 @@ Each successful typed role invocation appends a `dspy_trace` artifact containing
 The exporter opens `.local-coder/state/agent.db` in SQLite read-only mode. A trace is
 eligible only when it has a matching successful DSPy backend metric, a deterministic
 verification result, and a structured reviewer verdict. Incomplete or malformed rows
-are counted in the manifest and excluded rather than guessed.
+are counted in the manifest and excluded rather than guessed. Complete raw verification
+output remains in SQLite; the dataset stores compact hash-bound evidence with test
+counts, warning counts, and bounded failure details.
 
 ## Export
 
@@ -65,7 +67,10 @@ into `dspy.Example` objects with `task`, `role`, and `evidence` as inputs. The e
 output, deterministic pass/fail result, reviewer verdict, textual feedback, and scalar
 score remain labels for a later offline optimizer runner.
 
-No optimized program is loaded by the runtime in this phase. Exported records may contain repository source and task text, so keep them local and treat them as sensitive audit material.
+No optimized program is loaded by the runtime in this phase. Exported records may
+contain repository source and task text, so keep them local and treat them as sensitive
+audit material. The separate offline runner is documented in
+[GEPA_OPTIMIZATION.md](GEPA_OPTIMIZATION.md).
 
 ## Verification
 

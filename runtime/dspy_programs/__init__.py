@@ -8,6 +8,13 @@ from .gepa_dataset import (
     load_gepa_dataset,
     to_dspy_examples,
 )
+from .gepa_runner import (
+    GepaRunnerError,
+    assess_dataset_readiness,
+    build_gepa_metric,
+    run_gepa_optimization,
+    to_role_dspy_examples,
+)
 from .implementer import (
     AtomicEditSpec,
     ImplementerProgram,
@@ -22,10 +29,15 @@ __all__ = [
     "ExplorerProgram",
     "ExplorerSignature",
     "GepaDatasetError",
+    "GepaRunnerError",
+    "assess_dataset_readiness",
+    "build_gepa_metric",
     "build_gepa_examples",
     "export_gepa_dataset",
     "load_gepa_dataset",
     "to_dspy_examples",
+    "to_role_dspy_examples",
+    "run_gepa_optimization",
     "AtomicEditSpec",
     "ImplementerProgram",
     "ImplementerSignature",

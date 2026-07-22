@@ -15,8 +15,9 @@ from typing import Any
 from evaluation.outcomes import normalize_run, stable_hash
 from runtime.dspy_trace import DSPY_TRACE_ARTIFACT_KIND, DSPY_TRACE_SCHEMA_VERSION
 from runtime.state import StateStore
+from runtime.verification_evidence import summarize_verification_output
 
-DATASET_SCHEMA_VERSION = 1
+DATASET_SCHEMA_VERSION = 2
 MAX_TRACE_BYTES = 512_000
 SPLIT_NAMES = ("train", "dev", "holdout")
 ROLE_PROGRAMS = {
@@ -118,7 +119,9 @@ def _review_outcome(details: Mapping[str, Any]) -> tuple[str, str]:
     return verdict, "\n".join(feedback)
 
 
-def _verification_outcome(details: Mapping[str, Any]) -> tuple[bool, str]:
+def _verification_outcome(
+    details: Mapping[str, Any],
+) -> tuple[bool, str, dict[str, Any], str]:
     rows = list(details.get("verification", []))
     if not rows:
         raise GepaDatasetError("run has no deterministic verification result.")
@@ -129,7 +132,8 @@ def _verification_outcome(details: Mapping[str, Any]) -> tuple[bool, str]:
         raise GepaDatasetError("verification result is malformed.")
     if not isinstance(output, str):
         raise GepaDatasetError("verification output is malformed.")
-    return bool(passed), output
+    evidence = summarize_verification_output(output, passed=bool(passed))
+    return bool(passed), evidence.model_output(), evidence.to_dict(), output
 
 
 def _successful_backend_markers(
@@ -329,7 +333,12 @@ def build_gepa_examples(
             exclusions["malformed_run"] += 1
             continue
         try:
-            verification_passed, verification_output = _verification_outcome(details)
+            (
+                verification_passed,
+                verification_output,
+                verification_evidence,
+                raw_verification_output,
+            ) = _verification_outcome(details)
             reviewer_verdict, reviewer_feedback = _review_outcome(details)
             normalized = normalize_run(dict(details))
         except GepaDatasetError as exc:
@@ -353,7 +362,7 @@ def build_gepa_examples(
                 )
                 protected_payload = {
                     "trace": trace,
-                    "verification_output": verification_output,
+                    "verification_output": raw_verification_output,
                     "reviewer_feedback": reviewer_feedback,
                 }
                 if _contains_protected_material(protected_payload):
@@ -400,6 +409,7 @@ def build_gepa_examples(
                         "run_status": str(details.get("status", "unknown")),
                         "verification_passed": verification_passed,
                         "verification_output": verification_output,
+                        "verification_evidence": verification_evidence,
                         "reviewer_verdict": reviewer_verdict,
                         "reviewer_feedback": reviewer_feedback,
                         "score": float(
@@ -544,6 +554,8 @@ def load_gepa_dataset(output: Path) -> tuple[dict[str, Any], list[dict[str, Any]
     manifest = _json_object(
         manifest_path.read_text(encoding="utf-8"), label="dataset manifest"
     )
+    if manifest.get("schema_version") not in {1, DATASET_SCHEMA_VERSION}:
+        raise GepaDatasetError("Dataset schema version is unsupported.")
     claimed_manifest_hash = manifest.get("manifest_hash")
     hash_input = dict(manifest)
     hash_input.pop("manifest_hash", None)

@@ -2,7 +2,7 @@ PYTHON := .venv/bin/python
 PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runtime/*.py runtime/dspy_programs/*.py tests/*.py
 
 .PHONY: health format format-check lint agent-check agent-install agent-smoke handoff-check test verify \
-	metrics review review-cached skills skills-lint gepa-dataset-check runs live-e2e live-e2e-report
+	metrics review review-cached skills skills-lint gepa-dataset-check gepa-runner-check runs live-e2e live-e2e-report
 
 health:
 	@curl -fsS http://127.0.0.1:8080/health | jq
@@ -64,6 +64,9 @@ skills-lint:
 
 gepa-dataset-check:
 	$(PYTHON) -m pytest -q --tb=short tests/test_gepa_dataset.py
+
+gepa-runner-check:
+	$(PYTHON) -m pytest -q --tb=short tests/test_verification_evidence.py tests/test_gepa_runner.py
 
 runs:
 	$(PYTHON) local-coder.py runs

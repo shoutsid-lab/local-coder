@@ -15,6 +15,7 @@ from typing import Any, Callable
 from .dspy_trace import record_dspy_trace
 from .editor import apply_edits, parse_edit_payload, request_and_apply
 from .state import StateStore
+from .verification_evidence import summarize_verification_output
 
 TRUSTED_READ_PREFIXES = ("evaluation/holdout/", "evaluation/oracles/")
 
@@ -434,15 +435,21 @@ class ToolContext:
             combined = "\n".join(
                 part.strip() for part in (result.stdout, result.stderr) if part.strip()
             )
+            passed = result.returncode == 0
             self.state.add_verification(
                 self.run_id,
                 command="make verify",
-                passed=result.returncode == 0,
+                passed=passed,
                 output=combined,
                 duration_ms=(time.perf_counter() - started) * 1000,
             )
-            status = "PASS" if result.returncode == 0 else "FAIL"
-            return f"Verification: {status}\n{combined}".strip()
+            evidence = summarize_verification_output(combined, passed=passed)
+            self.state.add_artifact(
+                self.run_id,
+                kind="verification_evidence",
+                content=evidence.to_json(),
+            )
+            return evidence.model_output()
 
         return self._recorded("run_verification", {}, operation)
 
@@ -522,9 +529,10 @@ class ToolContext:
                             collect_changed_paths(self.worktree.path)
                         ),
                         "verification_passed": bool(latest_verification.get("passed")),
-                        "verification_output": str(
-                            latest_verification.get("output") or ""
-                        ),
+                        "verification_output": summarize_verification_output(
+                            str(latest_verification.get("output") or ""),
+                            passed=bool(latest_verification.get("passed")),
+                        ).model_output(),
                         "diff": collect_uncommitted_diff(self.worktree.path),
                     },
                     output=review_payload,

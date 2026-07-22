@@ -516,6 +516,16 @@ def main() -> int:
         canary = worktree / EXPECTED_FILE
         if canary.is_file():
             edited = canary.read_text(encoding="utf-8")
+    result_text = str(details.get("result") or "")
+    model_context_noise = [
+        marker
+        for marker in (
+            "dspy/predict/avatar/signatures.py",
+            "dspy/teleprompt/avatar_optimizer.py",
+            "InputField/OutputField is deprecated",
+        )
+        if marker in result_text
+    ]
     passed = (
         run_rc == 0
         and details["status"] == "awaiting_approval"
@@ -531,6 +541,7 @@ def main() -> int:
         and reviewer_backends == ["ReviewerProgram/JSONAdapter"]
         and changed == [EXPECTED_FILE]
         and TARGET_SENTINEL in edited
+        and not model_context_noise
     )
     keep_worktree = os.environ.get("LIVE_E2E_KEEP_WORKTREE") == "1"
     summary = {
@@ -539,7 +550,8 @@ def main() -> int:
         "run_id": run_id,
         "status": details["status"],
         "error": details["error"],
-        "result_excerpt": str(details.get("result") or "")[-4000:],
+        "result_excerpt": result_text[-4000:],
+        "model_context_noise": model_context_noise,
         "worktree": details["worktree"],
         "branch": details["branch"],
         "editor_calls": [

@@ -435,3 +435,51 @@ def test_export_refuses_output_ancestor_of_database(tmp_path: Path) -> None:
 
     with pytest.raises(GepaDatasetError, match="contain the source database"):
         export_gepa_dataset(database, tmp_path / "state")
+
+
+def test_export_compacts_known_third_party_warnings(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / "agent.db")
+    run_id = _complete_run(store, role="planner")
+    warning = (
+        ".venv/lib/python3.14/site-packages/dspy/predict/avatar/signatures.py:12\n"
+        "  DeprecationWarning: The 'prefix' argument in InputField/OutputField "
+        "is deprecated and has no effect in DSPy. It will be removed in a "
+        "future version.\n"
+    )
+    store.add_verification(
+        run_id,
+        command="make verify",
+        passed=True,
+        output=f"152 passed, 11 warnings\n{warning}",
+        duration_ms=10.0,
+    )
+
+    examples, exclusions = build_gepa_examples([store.run_details(run_id)])
+
+    assert exclusions == {}
+    outcome = examples[0]["outcome"]
+    assert "site-packages/dspy" not in outcome["verification_output"]
+    assert "1 known third-party DSPy deprecation" in outcome["verification_output"]
+    warnings = outcome["verification_evidence"]["warnings"]
+    assert warnings["known_third_party"] == 1
+    assert warnings["unexpected"] == 0
+    assert warnings["fingerprints"] == {
+        "dspy-prefix-input-output-field": 1,
+    }
+
+
+def test_export_checks_protected_material_in_raw_verification(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / "agent.db")
+    run_id = _complete_run(store, role="planner")
+    store.add_verification(
+        run_id,
+        command="make verify",
+        passed=True,
+        output="1 passed\nevaluation/holdout/private-case.json",
+        duration_ms=10.0,
+    )
+
+    examples, exclusions = build_gepa_examples([store.run_details(run_id)])
+
+    assert examples == []
+    assert exclusions["example references protected holdout or oracle material."] == 1

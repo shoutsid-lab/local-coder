@@ -27,6 +27,7 @@ VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
 DEVELOPMENT_SUITE = ROOT / "evaluation" / "suites" / "atomic-v1.json"
 HOLDOUT_STORAGE = ROOT / ".local-coder" / "holdout"
 GEPA_DATASET_PATH = ROOT / ".local-coder" / "gepa-datasets" / "latest"
+GEPA_RUN_PATH = ROOT / ".local-coder" / "gepa-runs" / "latest"
 
 
 def ensure_project_python() -> None:
@@ -286,6 +287,31 @@ def handle_export_gepa_dataset(args: argparse.Namespace) -> int:
         print(f"GEPA dataset export failed closed: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(manifest, indent=2, sort_keys=True))
+    return 0
+
+
+def handle_optimize_gepa(args: argparse.Namespace) -> int:
+    """Validate or run one offline GEPA optimization without activation."""
+    from runtime.dspy_programs.gepa_runner import (
+        GepaRunnerError,
+        run_gepa_optimization,
+    )
+
+    try:
+        result = run_gepa_optimization(
+            args.dataset,
+            args.output,
+            role=args.role,
+            dry_run=args.dry_run,
+            reflection_route=args.reflection_route,
+            auto=args.auto,
+            seed=args.seed,
+            num_threads=args.num_threads,
+        )
+    except GepaRunnerError as exc:
+        print(f"GEPA optimization failed closed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
 
@@ -913,6 +939,46 @@ def build_parser() -> argparse.ArgumentParser:
         help="Specific run ID to export; may be repeated.",
     )
     gepa_export_parser.set_defaults(handler=handle_export_gepa_dataset)
+
+    gepa_optimize_parser = subparsers.add_parser(
+        "optimize-gepa",
+        help="Validate or run one offline, non-promoting GEPA role optimization.",
+    )
+    gepa_optimize_parser.add_argument(
+        "--dataset",
+        type=Path,
+        default=GEPA_DATASET_PATH,
+        help="Hash-verified exported GEPA dataset directory.",
+    )
+    gepa_optimize_parser.add_argument(
+        "--output",
+        type=Path,
+        default=GEPA_RUN_PATH,
+        help="New immutable directory for the report and optional candidate.",
+    )
+    gepa_optimize_parser.add_argument(
+        "--role",
+        choices=("explorer", "planner", "implementer", "repairer", "reviewer"),
+        required=True,
+    )
+    gepa_optimize_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate hashes and readiness without model calls or optimization.",
+    )
+    gepa_optimize_parser.add_argument(
+        "--reflection-route",
+        choices=("local-fast", "local-plan", "local-review"),
+        default="local-plan",
+    )
+    gepa_optimize_parser.add_argument(
+        "--auto",
+        choices=("light", "medium", "heavy"),
+        default="light",
+    )
+    gepa_optimize_parser.add_argument("--seed", type=int, default=0)
+    gepa_optimize_parser.add_argument("--num-threads", type=int, default=1)
+    gepa_optimize_parser.set_defaults(handler=handle_optimize_gepa)
 
     rotate_parser = subparsers.add_parser(
         "rotate-holdout",

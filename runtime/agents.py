@@ -21,6 +21,7 @@ from .skills import (
 )
 from .state import StateStore
 from .tools import ToolContext, build_smol_tools
+from .verification_evidence import summarize_verification_output
 
 _COMPLETION_CLAIM = re.compile(
     r"\b(?:task\s+)?(?:has|have|was|were)?\s*(?:been\s+)?"
@@ -419,7 +420,7 @@ def _latest_failed_verification(
     output = latest.get("output")
     if not isinstance(output, str) or not output.strip():
         raise RuntimeError("DSPy repairer failure evidence is empty.")
-    return output.strip()
+    return summarize_verification_output(output, passed=False).model_output()
 
 
 def _existing_paths_from_text(text: str, worktree: Path) -> list[str]:

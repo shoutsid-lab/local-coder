@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from runtime.verification_evidence import summarize_verification_output
+
 ROOT = Path(__file__).resolve().parent
 DEFAULT_OUTPUT = ROOT / "REVIEW.json"
 
@@ -100,7 +102,9 @@ def run_verification() -> tuple[bool, str]:
         part.strip() for part in (result.stdout, result.stderr) if part.strip()
     )
 
-    return result.returncode == 0, output
+    passed = result.returncode == 0
+    evidence = summarize_verification_output(output, passed=passed)
+    return passed, evidence.model_output()
 
 
 def review_schema() -> dict[str, Any]:

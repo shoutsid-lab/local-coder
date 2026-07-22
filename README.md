@@ -80,6 +80,24 @@ material, groups identical tasks into deterministic train/dev/holdout splits, an
 writes a hash-stamped manifest plus JSONL files. See
 [docs/GEPA_DATASET.md](docs/GEPA_DATASET.md).
 
+## Validate or run offline GEPA optimization
+
+Validate one role-specific dataset without model calls:
+
+```bash
+./local-coder.py optimize-gepa \
+  --dataset .local-coder/gepa-datasets/latest \
+  --role planner \
+  --output .local-coder/gepa-runs/planner-check \
+  --dry-run
+make gepa-runner-check
+```
+
+A real run requires at least two training examples, one development example, and
+three distinct tasks for the selected role. It writes an immutable report and
+DSPy candidate state, but never activates, promotes, commits, or merges the
+candidate. See [docs/GEPA_OPTIMIZATION.md](docs/GEPA_OPTIMIZATION.md).
+
 ## Run a trusted task-plan step
 
 Broad requests can be decomposed by a trusted external planner, including a more capable
@@ -168,6 +186,8 @@ repairer to apply one native-editor batch and restore deterministic verification
 A successful canary worktree is removed automatically; failures are preserved for
 inspection. The compact
 shareable result is written to `.local-coder/live-e2e/latest-summary.json`.
+Raw verification output remains in SQLite, while model-facing evidence collapses known
+third-party DSPy deprecation warnings into a count and preserves unexpected warnings.
 
 Print only the compact result for support or diagnosis:
 
