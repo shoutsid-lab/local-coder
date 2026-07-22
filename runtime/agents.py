@@ -371,6 +371,110 @@ def _implementer_files(task: str, context: ToolContext) -> list[str]:
     return paths
 
 
+def _latest_failed_verification(
+    state: StateStore | None,
+    run_id: str | None,
+) -> str:
+    """Return the latest deterministic failure or reject an invalid repair call."""
+    if state is None or run_id is None:
+        raise RuntimeError("DSPy repairer requires an audited run.")
+    details = state.run_details(run_id) or {}
+    verification = details.get("verification") or []
+    if not verification:
+        raise RuntimeError("DSPy repairer requires a recorded verification failure.")
+    latest = verification[-1]
+    if bool(latest.get("passed")):
+        raise RuntimeError("DSPy repairer cannot run after verification passed.")
+    output = latest.get("output")
+    if not isinstance(output, str) or not output.strip():
+        raise RuntimeError("DSPy repairer failure evidence is empty.")
+    return output.strip()
+
+
+def _existing_paths_from_text(text: str, worktree: Path) -> list[str]:
+    """Return safe existing repository paths mentioned in one evidence string."""
+    paths: list[str] = []
+    for item in re.findall(r"[\w./-]+\.[A-Za-z0-9]+", text):
+        cleaned = item.strip("`'\".,:()[]{}")
+        candidate = PurePosixPath(cleaned)
+        if candidate.is_absolute() or not candidate.parts or ".." in candidate.parts:
+            continue
+        normalized = candidate.as_posix()
+        if (worktree / normalized).is_file() and normalized not in paths:
+            paths.append(normalized)
+    return paths
+
+
+def _changed_paths_from_diff(diff: str) -> list[str]:
+    """Return repository paths named by standard Git diff headers."""
+    paths: list[str] = []
+    for match in re.finditer(r"^diff --git a/(.+?) b/(.+)$", diff, re.MULTILINE):
+        path = match.group(2).strip()
+        if path not in paths:
+            paths.append(path)
+    return paths
+
+
+def _repairer_files(
+    task: str,
+    verification_output: str,
+    diff: str,
+    context: ToolContext,
+) -> list[str]:
+    """Resolve one or two approved existing files for one repair iteration."""
+    worktree = context.worktree.path
+    delegated = _existing_paths_from_text(task, worktree)
+    failure = _existing_paths_from_text(verification_output, worktree)
+    changed = [
+        path for path in _changed_paths_from_diff(diff) if (worktree / path).is_file()
+    ]
+    allowed: set[str] | None = None
+    if context.allowed_edit_paths is not None:
+        allowed = {
+            context._normalized_path(item) for item in context.allowed_edit_paths
+        }
+
+    def permitted(path: str) -> bool:
+        normalized = context._normalized_path(path)
+        return allowed is None or normalized in allowed
+
+    explicit = [path for path in delegated if permitted(path)]
+    candidates = explicit or [path for path in failure if permitted(path)]
+    if not candidates:
+        candidates = [path for path in changed if permitted(path)]
+    if not candidates and allowed is not None:
+        candidates = sorted(path for path in allowed if (worktree / path).is_file())
+    candidates = list(dict.fromkeys(candidates))
+    if len(candidates) > 2:
+        raise RuntimeError(
+            "DSPy repairer requires a focused request naming at most two files."
+        )
+    paths = _repository_paths(
+        candidates,
+        field_name="repairer editable_files",
+        worktree=worktree,
+        minimum=1,
+        maximum=2,
+    )
+    if allowed is not None:
+        disallowed = {context._normalized_path(item) for item in paths} - allowed
+        if disallowed:
+            context.scope_violations.update(disallowed)
+            joined = ", ".join(sorted(disallowed))
+            raise RuntimeError(
+                f"Repair request is outside the predeclared scope: {joined}"
+            )
+    return paths
+
+
+def _repair_diagnosis(prediction: Any) -> str:
+    """Validate the repairer's single-failure diagnosis."""
+    diagnosis = _prediction_value(prediction, "diagnosis")
+    if not isinstance(diagnosis, str) or not diagnosis.strip() or len(diagnosis) > 1200:
+        raise RuntimeError("DSPy repairer diagnosis is invalid.")
+    return diagnosis.strip()
+
+
 @dataclass
 class DSPyImplementerAgent:
     """Generate typed edits with DSPy, then delegate all writes to the editor."""
@@ -459,6 +563,134 @@ class DSPyImplementerAgent:
             )
             metadata["status"] = "success"
             return f"Implementation succeeded: {result}"
+        except Exception as exc:
+            status = "failed"
+            metadata.update(status="error", error_type=type(exc).__name__)
+            raise
+        finally:
+            if self.state is not None and self.run_id is not None:
+                self.state.add_model_metrics(
+                    self.run_id,
+                    route=self.model_route,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    duration_ms=(time.perf_counter() - started) * 1000,
+                    metadata=metadata,
+                )
+            if self.state is not None and step_id is not None:
+                self.state.complete_step(step_id, status=status)
+
+
+@dataclass
+class DSPyRepairerAgent:
+    """Repair one audited verification failure through the native editor."""
+
+    name: str
+    description: str
+    activate_skill: Callable[[], Skill]
+    context: ToolContext
+    model_route: str
+    lm_factory: Callable[[], Any]
+    program_runner: Callable[..., Any]
+    program_name: str
+    state: StateStore | None = None
+    run_id: str | None = None
+    usage_budget: ModelUsageBudget | None = None
+    _lm: Any | None = field(default=None, init=False, repr=False)
+
+    def _language_model(self) -> Any:
+        if self._lm is None:
+            self._lm = self.lm_factory()
+        return self._lm
+
+    def __call__(
+        self,
+        task: str,
+        additional_args: dict[str, Any] | None = None,
+        **_: Any,
+    ) -> str:
+        del additional_args
+        step_id = (
+            self.state.start_step(
+                self.run_id,
+                agent_role=self.name,
+                summary="DSPy repairer request",
+            )
+            if self.state is not None and self.run_id is not None
+            else None
+        )
+        status = "completed"
+        prompt_tokens: int | None = None
+        completion_tokens: int | None = None
+        started = time.perf_counter()
+        metadata: dict[str, Any] = {
+            "source": "dspy-repairer",
+            "program": self.program_name,
+            "adapter": "JSONAdapter",
+        }
+        try:
+            self.activate_skill()
+            authoritative_task = self.context.task_file.read_text(encoding="utf-8")
+            verification_output = _latest_failed_verification(self.state, self.run_id)
+            diff = self.context.inspect_diff()
+            editable_files = _repairer_files(
+                task,
+                verification_output,
+                diff,
+                self.context,
+            )
+            try:
+                task_relative = str(
+                    self.context.task_file.relative_to(self.context.worktree.path)
+                )
+            except ValueError:
+                protected_files: set[str] = set()
+            else:
+                protected_files = {task_relative}
+            contents = load_editable_files(
+                self.context.worktree.path,
+                editable_files,
+                protected_files=protected_files,
+            )
+            file_contents = [
+                f"--- {path} ---\n{contents[path]}" for path in editable_files
+            ]
+            if self.usage_budget is not None:
+                self.usage_budget.reserve_call()
+            prediction = self.program_runner(
+                lm=self._language_model(),
+                task=authoritative_task,
+                delegated_task=task,
+                verification_output=verification_output,
+                diff=diff,
+                editable_files=editable_files,
+                file_contents=file_contents,
+            )
+            prompt_tokens, completion_tokens = _prediction_usage(
+                prediction, self.model_route
+            )
+            if self.usage_budget is not None:
+                self.usage_budget.record_usage(prompt_tokens, completion_tokens)
+            diagnosis = _repair_diagnosis(prediction)
+            result = self.context.apply_prepared_atomic_edits(
+                task,
+                ",".join(editable_files),
+                _prediction_value(prediction, "edits"),
+                source="dspy-repairer",
+            )
+            verification = self.context.run_verification()
+            if not verification.startswith("Verification: PASS"):
+                status = "failed"
+                metadata["status"] = "repair_verification_failed"
+                return (
+                    f"Repair applied but verification still fails: {result}\n"
+                    f"Diagnosis: {diagnosis}\n\n{verification}"
+                )
+            metadata["status"] = "success"
+            return (
+                f"Repair succeeded: {result}\n"
+                f"Diagnosis: {diagnosis}\n\n{verification}"
+            )
         except Exception as exc:
             status = "failed"
             metadata.update(status="error", error_type=type(exc).__name__)
@@ -569,90 +801,14 @@ def _build_agent(
     run_id: str,
     usage_budget: ModelUsageBudget | None,
 ) -> Any:
-    try:
-        from smolagents import CodeAgent
-    except ImportError as exc:
-        raise RuntimeError(
-            "smolagents is not installed. Run `make agent-install`."
-        ) from exc
-
     (
         discovered_name,
         description,
         model_route,
-        tool_names,
-        max_steps,
+        _tool_names,
+        _max_steps,
         activate,
     ) = _skill_binding(skills, skill_name)
-
-    class ManagedCodeAgent(CodeAgent):
-        """Accept the small model's positional additional-arguments convention."""
-
-        def __call__(
-            self,
-            task: str,
-            additional_args: dict[str, Any] | None = None,
-            **kwargs: Any,
-        ) -> Any:
-            step_id = state.start_step(
-                run_id,
-                agent_role=role,
-                summary="Managed code-agent request",
-            )
-            status = "completed"
-            try:
-                skill = activate()
-                self.instructions = skill.instructions
-                authoritative_task = context.task_file.read_text(encoding="utf-8")
-                named_files = re.findall(r"[\w./-]+\.[A-Za-z0-9]+", task)
-                first_file = named_files[0] if named_files else None
-                if role == "implementer" and first_file:
-                    first_action = (
-                        "Your first action must call apply_atomic_edit exactly once, "
-                        "using "
-                        f"instruction={task!r} and editable_files={first_file!r}. "
-                        "If that call fails, do not retry it with identical arguments; "
-                        "finish with a concise failure report."
-                    )
-                else:
-                    first_action = "Your first action must call run_verification()."
-                constrained_task = (
-                    "Every action must be valid Python inside <code> tags. Call your "
-                    "allowed tools with Python keyword arguments before answering. "
-                    "When finished, call the final_answer tool with exactly one "
-                    "argument named answer. Put any requested report headings inside "
-                    "that single answer string; never pass task_outcome_short, "
-                    "task_outcome_detailed, or additional_context as arguments. Do "
-                    "not narrate or claim success before the first tool call. "
-                    f"{first_action}\n\n"
-                    f"Authoritative task:\n{authoritative_task}\n\n"
-                    f"Delegated task:\n{task}"
-                )
-                before = state.run_details(run_id) or {}
-                before_ids = {call["id"] for call in before.get("tool_calls", [])}
-                result = self.run(
-                    constrained_task,
-                    reset=True,
-                    additional_args=additional_args,
-                    **kwargs,
-                )
-                if role != "implementer":
-                    return result
-                after = state.run_details(run_id) or {}
-                new_calls = [
-                    call
-                    for call in after.get("tool_calls", [])
-                    if call["id"] not in before_ids and call.get("agent_role") == role
-                ]
-                report, succeeded = _implementation_report(new_calls)
-                if not succeeded:
-                    status = "failed"
-                return report
-            except Exception:
-                status = "failed"
-                raise
-            finally:
-                state.complete_step(step_id, status=status)
 
     role_context = ToolContext(
         root=context.root,
@@ -726,6 +882,31 @@ def _build_agent(
             run_id=run_id,
             usage_budget=usage_budget,
         )
+    if role == "repairer":
+        from .dspy_programs.repairer import run_repairer_program
+
+        def repairer_lm_factory() -> Any:
+            route = models.routes[model_route]
+            return build_dspy_lm(
+                model_route,
+                api_base=models.api_base,
+                api_key=models.api_key,
+                max_tokens=route.max_tokens,
+            )
+
+        return DSPyRepairerAgent(
+            name=role,
+            description=description,
+            activate_skill=activate,
+            context=role_context,
+            model_route=model_route,
+            lm_factory=repairer_lm_factory,
+            program_runner=run_repairer_program,
+            program_name="RepairerProgram",
+            state=state,
+            run_id=run_id,
+            usage_budget=usage_budget,
+        )
     if role == "reviewer":
         return ReadOnlyReviewAgent(
             name=role,
@@ -735,25 +916,7 @@ def _build_agent(
             state=state,
             run_id=run_id,
         )
-    return ManagedCodeAgent(
-        tools=build_smol_tools(role_context, tool_names),
-        model=AuditedModel(
-            models.build(model_route),
-            route=model_route,
-            state=state,
-            run_id=run_id,
-            usage_budget=usage_budget,
-        ),
-        instructions=None,
-        max_steps=max_steps,
-        name=role,
-        description=description,
-        provide_run_summary=False,
-        add_base_tools=False,
-        additional_authorized_imports=[],
-        use_structured_outputs_internally=False,
-        executor_kwargs={"timeout_seconds": 600},
-    )
+    raise RuntimeError(f"Unsupported managed role: {role}")
 
 
 def build_agent_bundle(

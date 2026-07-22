@@ -8,9 +8,9 @@ verification, or the read-only reviewer boundary.
 
 The reviewer was migrated first because it cannot edit files and has the lowest blast
 radius. Explorer and planner then moved behind typed read-only evidence adapters. The
-implementer now also uses a typed DSPy program, but the native editor still owns every
-scope check, exact-match validation, and filesystem write. Repairer remains on the
-legacy smolagents/native-editor path until its separate final migration.
+implementer and repairer now also use typed DSPy programs, but the native editor still
+owns every scope check, exact-match validation, and filesystem write. smolagents remains
+the manager and orchestration layer rather than a specialist implementation backend.
 
 ## LM wiring
 
@@ -19,7 +19,7 @@ compatible endpoint:
 
 | Trusted route | DSPy model identifier | Current role |
 |---|---|---|
-| `local-fast` | `openai/local-fast` | implementer; repairer reserved |
+| `local-fast` | `openai/local-fast` | implementer and repairer |
 | `local-plan` | `openai/local-plan` | explorer and planner |
 | `local-review` | `openai/local-review` | reviewer |
 
@@ -57,8 +57,22 @@ The trusted adapter passes the prediction to
 `apply_atomic_edit` audit event and delegates to `runtime.editor`. The editor again
 validates the strict payload shape, protected files, predeclared scope, exact unique
 matches, no-op rejection, unexpected changed paths, and atomic replacement before any
-write occurs. The repairer still uses the legacy model-backed editor request and remains
-independently revertible.
+write occurs.
+
+## Repairer program
+
+`runtime/dspy_programs/repairer.py` defines a single-step `RepairerSignature` from the
+authoritative task, one focused delegated repair request, the latest recorded failing
+`make verify` output, the current diff, and one or two approved file contents to one
+concise diagnosis and one typed exact-replacement batch. The adapter refuses to run
+without a recorded deterministic failure and rejects broad file sets.
+
+The trusted repair adapter applies the prediction through the same
+`ToolContext.apply_prepared_atomic_edits` and `runtime.editor` boundary, then reruns
+`make verify` exactly once. It stops after that one bounded repair iteration whether the
+result passes or exposes another failure. The live E2E suite includes a temporary Git
+repository whose initial canary change fails verification, then requires
+`RepairerProgram` to restore it through the audited native editor.
 
 ## Reviewer program
 
@@ -78,10 +92,10 @@ and parsed internally.
 
 ## Audit and rollback
 
-Role metrics use sources `dspy-explorer`, `dspy-planner`, `dspy-implementer`, and
-`dspy-reviewer`, recording their program name plus `JSONAdapter`. `make live-e2e`
-requires all four markers in addition to the existing logical routes, successful
-verification, exact file scope, and a passing verdict.
+Role metrics use sources `dspy-explorer`, `dspy-planner`, `dspy-implementer`,
+`dspy-repairer`, and `dspy-reviewer`, recording their program name plus `JSONAdapter`.
+`make live-e2e` requires all five markers in addition to the existing logical routes,
+successful verification, exact file scope, and a passing verdict.
 
 Each migration is independently revertible: a read-only adapter can switch back to its
 previous direct request implementation without changing smolagents orchestration, the

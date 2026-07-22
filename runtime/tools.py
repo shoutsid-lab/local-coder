@@ -387,6 +387,8 @@ class ToolContext:
         instruction: str,
         editable_files: str,
         raw_edits: Any,
+        *,
+        source: str = "dspy-implementer",
     ) -> str:
         """Validate and apply a DSPy-proposed batch through the native editor."""
 
@@ -417,7 +419,7 @@ class ToolContext:
             {
                 "instruction": instruction,
                 "editable_files": editable_files,
-                "source": "dspy-implementer",
+                "source": source,
             },
             operation,
         )

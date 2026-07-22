@@ -198,6 +198,16 @@ def dspy_implementer_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
     )
 
 
+def dspy_repairer_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
+    """Return unique audited DSPy repairer backend markers."""
+    return dspy_role_backends(
+        model_metrics,
+        route="local-fast",
+        source="dspy-repairer",
+        program="RepairerProgram",
+    )
+
+
 def dspy_reviewer_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
     """Return unique audited DSPy reviewer backend markers."""
     return dspy_role_backends(
@@ -206,6 +216,163 @@ def dspy_reviewer_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
         source="dspy-reviewer",
         program="ReviewerProgram",
     )
+
+
+def run_repairer_probe() -> dict[str, Any]:
+    """Exercise the real DSPy repairer, native editor, and verification loop."""
+    from .agents import DSPyRepairerAgent
+    from .dspy_lm import build_dspy_lm
+    from .dspy_programs.repairer import run_repairer_program
+    from .tools import ToolContext, Worktree
+
+    with tempfile.TemporaryDirectory(prefix="local-coder-repairer-e2e-") as temporary:
+        repository = Path(temporary) / "repository"
+        repository.mkdir()
+        canary = repository / "canary.txt"
+        canary.write_text("REPAIR_SENTINEL=after\n", encoding="utf-8")
+        task_file = repository / "TASK.md"
+        task_file.write_text(
+            "# Agent Task\n\nKeep canary.txt at REPAIR_SENTINEL=after.\n",
+            encoding="utf-8",
+        )
+        (repository / "Makefile").write_text(
+            "verify:\n\t@grep -qx 'REPAIR_SENTINEL=after' canary.txt\n",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            ["git", "init", "-q", "-b", "main"],
+            cwd=repository,
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "update-index",
+                "--add",
+                "--",
+                "Makefile",
+                "TASK.md",
+                "canary.txt",
+            ],
+            cwd=repository,
+            check=True,
+        )
+        tree = subprocess.run(
+            ["git", "write-tree"],
+            cwd=repository,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+        git_env = os.environ.copy()
+        git_env.update(
+            {
+                "GIT_AUTHOR_NAME": "local-coder live E2E",
+                "GIT_AUTHOR_EMAIL": "live-e2e@example.invalid",
+                "GIT_COMMITTER_NAME": "local-coder live E2E",
+                "GIT_COMMITTER_EMAIL": "live-e2e@example.invalid",
+            }
+        )
+        commit = subprocess.run(
+            ["git", "commit-tree", tree],
+            cwd=repository,
+            check=True,
+            text=True,
+            input="repairer probe baseline\n",
+            capture_output=True,
+            env=git_env,
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "update-ref", "refs/heads/main", commit],
+            cwd=repository,
+            check=True,
+        )
+        canary.write_text("REPAIR_SENTINEL=before\n", encoding="utf-8")
+
+        store = StateStore(Path(temporary) / "repairer.db")
+        run_id = store.create_run(
+            task="Repair the deterministic canary failure",
+            mode="agentic",
+            repository=repository,
+            base_branch="main",
+        )
+        store.register_agent(
+            run_id,
+            role="repairer",
+            skill="test-and-repair",
+            model_route="local-fast",
+        )
+        context = ToolContext(
+            root=repository,
+            worktree=Worktree(repository, "agent/repairer-probe", "main"),
+            run_id=run_id,
+            state=store,
+            task_file=task_file,
+            agent_role="repairer",
+            allowed_edit_paths=frozenset({"canary.txt"}),
+        )
+        initial_verification = context.run_verification()
+        if not initial_verification.startswith("Verification: FAIL"):
+            raise RuntimeError("Repairer probe did not create a verification failure.")
+        agent = DSPyRepairerAgent(
+            name="repairer",
+            description="Repair one deterministic failure.",
+            activate_skill=lambda: None,
+            context=context,
+            model_route="local-fast",
+            lm_factory=lambda: build_dspy_lm("local-fast"),
+            program_runner=run_repairer_program,
+            program_name="RepairerProgram",
+            state=store,
+            run_id=run_id,
+        )
+        result = agent(
+            "Repair canary.txt by replacing REPAIR_SENTINEL=before with "
+            "REPAIR_SENTINEL=after."
+        )
+        details = store.run_details(run_id)
+        assert details is not None
+        backends = dspy_repairer_backends(details["model_metrics"])
+        editor_calls = [
+            call
+            for call in details["tool_calls"]
+            if call["tool_name"] == "apply_atomic_edit"
+        ]
+        failed_tools = [
+            call for call in details["tool_calls"] if call["status"] == "error"
+        ]
+        passed = (
+            result.startswith("Repair succeeded:")
+            and canary.read_text(encoding="utf-8") == "REPAIR_SENTINEL=after\n"
+            and backends == ["RepairerProgram/JSONAdapter"]
+            and len(editor_calls) == 1
+            and editor_calls[0]["status"] == "success"
+            and not failed_tools
+            and details["verification"][-1]["passed"] == 1
+        )
+        return {
+            "passed": passed,
+            "run_id": run_id,
+            "repairer_backends": backends,
+            "editor_calls": [
+                {"status": call["status"], "output": call["output"]}
+                for call in editor_calls
+            ],
+            "failed_tools": [
+                {
+                    "tool_name": call["tool_name"],
+                    "output": call["output"],
+                }
+                for call in failed_tools
+            ],
+            "verification": [
+                {
+                    "passed": item["passed"],
+                    "output": item["output"],
+                }
+                for item in details["verification"]
+            ],
+        }
 
 
 def check_skills() -> None:
@@ -298,6 +465,9 @@ def main() -> int:
         "local-fast",
         attempts,
     )
+    repairer_probe = run_repairer_probe()
+    if not repairer_probe["passed"]:
+        raise RuntimeError("DSPy repairer live probe failed.")
 
     store = StateStore(ROOT / ".local-coder" / "state" / "agent.db")
     previous = {run["id"] for run in store.recent_runs(limit=20)}
@@ -357,6 +527,7 @@ def main() -> int:
         and explorer_backends == ["ExplorerProgram/JSONAdapter"]
         and planner_backends == ["PlannerProgram/JSONAdapter"]
         and implementer_backends == ["ImplementerProgram/JSONAdapter"]
+        and repairer_probe["repairer_backends"] == ["RepairerProgram/JSONAdapter"]
         and reviewer_backends == ["ReviewerProgram/JSONAdapter"]
         and changed == [EXPECTED_FILE]
         and TARGET_SENTINEL in edited
@@ -388,6 +559,8 @@ def main() -> int:
         "explorer_backends": explorer_backends,
         "planner_backends": planner_backends,
         "implementer_backends": implementer_backends,
+        "repairer_backends": repairer_probe["repairer_backends"],
+        "repairer_probe": repairer_probe,
         "reviewer_backends": reviewer_backends,
         "changed_files": changed,
         "report": str(report_path),

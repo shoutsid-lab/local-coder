@@ -10,6 +10,7 @@ from .dspy_lm import build_dspy_lm
 from .dspy_programs.explorer import ExplorerProgram
 from .dspy_programs.implementer import ImplementerProgram
 from .dspy_programs.planner import PlannerProgram
+from .dspy_programs.repairer import RepairerProgram
 from .dspy_programs.reviewer import ReviewerProgram
 from .models import ModelRegistry
 from .skills_loader import discover_skills
@@ -45,10 +46,12 @@ def main() -> int:
         explorer_lm = build_dspy_lm("local-plan")
         planner_lm = build_dspy_lm("local-plan")
         implementer_lm = build_dspy_lm("local-fast")
+        repairer_lm = build_dspy_lm("local-fast")
         reviewer_lm = build_dspy_lm("local-review")
         explorer_program = ExplorerProgram()
         planner_program = PlannerProgram()
         implementer_program = ImplementerProgram()
+        repairer_program = RepairerProgram()
         reviewer_program = ReviewerProgram()
         bundle = build_agent_bundle(
             skills=discover_skills(root / ".local-coder" / "skills"),
@@ -68,6 +71,8 @@ def main() -> int:
         raise RuntimeError(f"Unexpected DSPy planner route: {planner_lm.model}")
     if implementer_lm.model != "openai/local-fast":
         raise RuntimeError(f"Unexpected DSPy implementer route: {implementer_lm.model}")
+    if repairer_lm.model != "openai/local-fast":
+        raise RuntimeError(f"Unexpected DSPy repairer route: {repairer_lm.model}")
     if reviewer_lm.model != "openai/local-review":
         raise RuntimeError(f"Unexpected DSPy reviewer route: {reviewer_lm.model}")
     if bundle.managed[0].program_name != "ExplorerProgram":
@@ -76,11 +81,13 @@ def main() -> int:
         raise RuntimeError("Planner is not bound to the DSPy planner program.")
     if bundle.managed[2].program_name != "ImplementerProgram":
         raise RuntimeError("Implementer is not bound to the DSPy implementer program.")
+    if bundle.managed[3].program_name != "RepairerProgram":
+        raise RuntimeError("Repairer is not bound to the DSPy repairer program.")
     print("Agent hierarchy: OK")
     print(f"Manager: {bundle.manager.__class__.__name__}")
     print(
         f"Managed agents: {', '.join(names)} "
-        "(DSPy role adapters, read-only reviewer, and repair CodeAgent)"
+        "(DSPy specialist adapters and a read-only reviewer boundary)"
     )
     print(
         f"DSPy explorer: {explorer_program.__class__.__name__} "
@@ -92,6 +99,10 @@ def main() -> int:
     print(
         f"DSPy implementer: {implementer_program.__class__.__name__} "
         f"-> {implementer_lm.model}"
+    )
+    print(
+        f"DSPy repairer: {repairer_program.__class__.__name__} "
+        f"-> {repairer_lm.model}"
     )
     print(
         f"DSPy reviewer: {reviewer_program.__class__.__name__} "

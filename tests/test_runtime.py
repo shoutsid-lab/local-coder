@@ -747,10 +747,9 @@ def test_run_plan_step_rejects_unapproved_hash(
 
 
 def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -> None:
-    from smolagents import CodeAgent
-
     from runtime.agents import (
         DSPyImplementerAgent,
+        DSPyRepairerAgent,
         ReadOnlyEvidenceAgent,
         ReadOnlyReviewAgent,
         build_agent_bundle,
@@ -788,9 +787,8 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
 
     assert all(isinstance(agent, ReadOnlyEvidenceAgent) for agent in bundle.managed[:2])
     assert isinstance(bundle.managed[2], DSPyImplementerAgent)
-    assert isinstance(bundle.managed[3], CodeAgent)
+    assert isinstance(bundle.managed[3], DSPyRepairerAgent)
     assert isinstance(bundle.managed[4], ReadOnlyReviewAgent)
-    assert bundle.managed[3].python_executor.timeout_seconds == 600
     assert "additional_args" in parameters
     assert bundle.manager.python_executor.timeout_seconds == 600
     assert bundle.manager.planning_interval is None

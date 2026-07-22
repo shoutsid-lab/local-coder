@@ -10,10 +10,10 @@ machine used to build this repository.
   `local-review`.
 - **smolagents CodeAgent** coordinates managed explorer, planner, implementer,
   repairer, and reviewer agents.
-- **DSPy** provides typed explorer, planner, implementer, and reviewer programs
-  behind the existing adapters and stable local routes.
+- **DSPy** provides typed explorer, planner, implementer, repairer, and reviewer
+  programs behind the existing adapters and stable local routes.
 - A **validated native editor** remains the only component allowed to apply strict
-  exact edits proposed by the DSPy implementer or legacy repairer path.
+  exact edits proposed by the DSPy implementer or repairer.
 - **Git worktrees** isolate every agentic run.
 - **SQLite** records runs, agents, tool calls, artifacts, verification, and metrics.
 - **Black, Flake8, pytest, protected tests, and `git diff --check`** remain authoritative.
@@ -146,8 +146,11 @@ The target runs the static verification gates, skill-package checks, all three
 LiteLLM route probes, constrained-output probes through llama.cpp and LiteLLM,
 and one isolated real editing run against `profiles/live-e2e-canary.txt`. The
 strict result also requires audited DSPy backend markers for `ExplorerProgram`,
-`PlannerProgram`, `ImplementerProgram`, and `ReviewerProgram`. A successful canary
-worktree is removed automatically; failures are preserved for inspection. The compact
+`PlannerProgram`, `ImplementerProgram`, `RepairerProgram`, and `ReviewerProgram`.
+The suite also runs a controlled failing-repository probe that requires the
+repairer to apply one native-editor batch and restore deterministic verification.
+A successful canary worktree is removed automatically; failures are preserved for
+inspection. The compact
 shareable result is written to `.local-coder/live-e2e/latest-summary.json`.
 
 Print only the compact result for support or diagnosis:
