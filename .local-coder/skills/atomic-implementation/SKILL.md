@@ -1,15 +1,6 @@
 ---
 name: atomic-implementation
-description: Apply one narrowly scoped source change through the validated native editor.
-model: local-fast
-tools:
-  - read_file
-  - search_repository
-  - apply_atomic_edit
-  - inspect_diff
-  - run_verification
-  - git_status
-max_steps: 7
+description: Apply one narrowly scoped source change through the validated native editor. Use when an approved implementation step requires exact edits to one or two existing files.
 ---
 # Atomic Implementation
 

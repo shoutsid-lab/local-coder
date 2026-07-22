@@ -1,13 +1,6 @@
 ---
 name: plan-change
-description: Convert repository evidence into ordered atomic implementation steps.
-model: local-plan
-tools:
-  - list_files
-  - search_repository
-  - read_file
-  - git_status
-max_steps: 1
+description: Convert repository evidence into ordered atomic implementation steps. Use after exploration when a task must be decomposed for the constrained local editor.
 ---
 # Plan Change
 

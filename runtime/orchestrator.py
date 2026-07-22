@@ -11,7 +11,7 @@ from typing import Any
 
 from .agents import build_agent_bundle
 from .models import ModelRegistry, ModelUsageBudget
-from .skills import discover_skills
+from .skills_loader import discover_skills
 from .state import StateStore
 from .tools import ToolContext, Worktree, command, create_worktree, current_branch
 

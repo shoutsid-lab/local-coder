@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from .models import AuditedModel, ModelRegistry, ModelUsageBudget
-from .skills import Skill
+from .skills import (
+    Skill,
+    SkillCatalog,
+    activate_skill,
+    runtime_skill_config,
+)
 from .state import StateStore
 from .tools import ToolContext, build_smol_tools
 
@@ -26,7 +32,7 @@ class ReadOnlyEvidenceAgent:
 
     name: str
     description: str
-    skill: Skill
+    activate_skill: Callable[[], Skill]
     context: ToolContext
     model: Any
     state: StateStore | None = None
@@ -49,31 +55,32 @@ class ReadOnlyEvidenceAgent:
             else None
         )
         status = "completed"
-        authoritative_task = self.context.task_file.read_text(encoding="utf-8")
-        named_files = list(
-            dict.fromkeys(
-                re.findall(
-                    r"[\w./-]+\.[A-Za-z0-9]+",
-                    f"{authoritative_task}\n{task}",
+        try:
+            skill = self.activate_skill()
+            authoritative_task = self.context.task_file.read_text(encoding="utf-8")
+            named_files = list(
+                dict.fromkeys(
+                    re.findall(
+                        r"[\w./-]+\.[A-Za-z0-9]+",
+                        f"{authoritative_task}\n{task}",
+                    )
                 )
             )
-        )
-        evidence: list[str] = []
-        for path in named_files[:3]:
-            try:
-                evidence.append(self.context.read_file(path, 1, 240))
-            except (FileNotFoundError, ValueError):
-                continue
-        if not evidence:
-            evidence.append(self.context.list_files("*"))
+            evidence: list[str] = []
+            for path in named_files[:3]:
+                try:
+                    evidence.append(self.context.read_file(path, 1, 240))
+                except (FileNotFoundError, ValueError):
+                    continue
+            if not evidence:
+                evidence.append(self.context.list_files("*"))
 
-        try:
             response = self.model.generate(
                 [
                     {
                         "role": "system",
                         "content": (
-                            f"{self.skill.instructions}\n\n"
+                            f"{skill.instructions}\n\n"
                             "Return concise plain text only. You have no tools and "
                             "must "
                             "not emit code, tool calls, or editing instructions. Base "
@@ -107,6 +114,7 @@ class ReadOnlyReviewAgent:
     name: str
     description: str
     context: ToolContext
+    activate_skill: Callable[[], Skill] | None = None
     state: StateStore | None = None
     run_id: str | None = None
 
@@ -128,6 +136,8 @@ class ReadOnlyReviewAgent:
         )
         status = "completed"
         try:
+            if self.activate_skill is not None:
+                self.activate_skill()
             diff = self.context.inspect_diff()
             verification = self.context.run_verification()
             try:
@@ -143,10 +153,46 @@ class ReadOnlyReviewAgent:
                 self.state.complete_step(step_id, status=status)
 
 
+def _skill_binding(
+    skills: SkillCatalog | Mapping[str, Skill], skill_name: str
+) -> tuple[str, str, str, tuple[str, ...], int, Callable[[], Skill]]:
+    """Return discovery fields, trusted limits, and a cached activator."""
+    metadata = skills[skill_name]
+    if isinstance(skills, SkillCatalog):
+        config = runtime_skill_config(skill_name)
+        activated: Skill | None = None
+
+        def activate() -> Skill:
+            nonlocal activated
+            if activated is None:
+                activated = activate_skill(skills, skill_name)
+            return activated
+
+        return (
+            metadata.name,
+            metadata.description,
+            config.model,
+            config.tools,
+            config.max_steps,
+            activate,
+        )
+
+    skill = metadata
+    return (
+        skill.name,
+        skill.description,
+        skill.model,
+        skill.tools,
+        skill.max_steps,
+        lambda: skill,
+    )
+
+
 def _build_agent(
     *,
     role: str,
-    skill: Skill,
+    skill_name: str,
+    skills: SkillCatalog | Mapping[str, Skill],
     context: ToolContext,
     models: ModelRegistry,
     state: StateStore,
@@ -159,6 +205,15 @@ def _build_agent(
         raise RuntimeError(
             "smolagents is not installed. Run `make agent-install`."
         ) from exc
+
+    (
+        discovered_name,
+        description,
+        model_route,
+        tool_names,
+        max_steps,
+        activate,
+    ) = _skill_binding(skills, skill_name)
 
     class ManagedCodeAgent(CodeAgent):
         """Accept the small model's positional additional-arguments convention."""
@@ -175,30 +230,32 @@ def _build_agent(
                 summary="Managed code-agent request",
             )
             status = "completed"
-            authoritative_task = context.task_file.read_text(encoding="utf-8")
-            named_files = re.findall(r"[\w./-]+\.[A-Za-z0-9]+", task)
-            first_file = named_files[0] if named_files else None
-            if role == "implementer" and first_file:
-                first_action = (
-                    "Your first action must call apply_atomic_edit exactly once, using "
-                    f"instruction={task!r} and editable_files={first_file!r}."
-                )
-            else:
-                first_action = "Your first action must call run_verification()."
-            constrained_task = (
-                f"{skill.instructions}\n\n"
-                "Every action must be valid Python inside <code> tags. Call your "
-                "allowed tools with Python keyword arguments before answering. When "
-                "finished, call the "
-                "final_answer tool with exactly one argument named answer. Put any "
-                "requested report headings inside that single answer string; never "
-                "pass task_outcome_short, task_outcome_detailed, or "
-                "additional_context as arguments. Do not narrate or claim success "
-                f"before the first tool call. {first_action}\n\n"
-                f"Authoritative task:\n{authoritative_task}\n\n"
-                f"Delegated task:\n{task}"
-            )
             try:
+                skill = activate()
+                self.instructions = skill.instructions
+                authoritative_task = context.task_file.read_text(encoding="utf-8")
+                named_files = re.findall(r"[\w./-]+\.[A-Za-z0-9]+", task)
+                first_file = named_files[0] if named_files else None
+                if role == "implementer" and first_file:
+                    first_action = (
+                        "Your first action must call apply_atomic_edit exactly once, "
+                        "using "
+                        f"instruction={task!r} and editable_files={first_file!r}."
+                    )
+                else:
+                    first_action = "Your first action must call run_verification()."
+                constrained_task = (
+                    "Every action must be valid Python inside <code> tags. Call your "
+                    "allowed tools with Python keyword arguments before answering. "
+                    "When finished, call the final_answer tool with exactly one "
+                    "argument named answer. Put any requested report headings inside "
+                    "that single answer string; never pass task_outcome_short, "
+                    "task_outcome_detailed, or additional_context as arguments. Do "
+                    "not narrate or claim success before the first tool call. "
+                    f"{first_action}\n\n"
+                    f"Authoritative task:\n{authoritative_task}\n\n"
+                    f"Delegated task:\n{task}"
+                )
                 return self.run(
                     constrained_task,
                     reset=True,
@@ -224,18 +281,18 @@ def _build_agent(
     state.register_agent(
         run_id,
         role=role,
-        skill=skill.name,
-        model_route=skill.model,
+        skill=discovered_name,
+        model_route=model_route,
     )
     if role in {"explorer", "planner"}:
         return ReadOnlyEvidenceAgent(
             name=role,
-            description=skill.description,
-            skill=skill,
+            description=description,
+            activate_skill=activate,
             context=role_context,
             model=AuditedModel(
-                models.build(skill.model),
-                route=skill.model,
+                models.build(model_route),
+                route=model_route,
                 state=state,
                 run_id=run_id,
                 usage_budget=usage_budget,
@@ -246,24 +303,25 @@ def _build_agent(
     if role == "reviewer":
         return ReadOnlyReviewAgent(
             name=role,
-            description=skill.description,
+            description=description,
             context=role_context,
+            activate_skill=activate,
             state=state,
             run_id=run_id,
         )
     return ManagedCodeAgent(
-        tools=build_smol_tools(role_context, skill.tools),
+        tools=build_smol_tools(role_context, tool_names),
         model=AuditedModel(
-            models.build(skill.model),
-            route=skill.model,
+            models.build(model_route),
+            route=model_route,
             state=state,
             run_id=run_id,
             usage_budget=usage_budget,
         ),
-        instructions=skill.instructions,
-        max_steps=skill.max_steps,
+        instructions=None,
+        max_steps=max_steps,
         name=role,
-        description=skill.description,
+        description=description,
         provide_run_summary=False,
         add_base_tools=False,
         additional_authorized_imports=[],
@@ -274,7 +332,7 @@ def _build_agent(
 
 def build_agent_bundle(
     *,
-    skills: dict[str, Skill],
+    skills: SkillCatalog | Mapping[str, Skill],
     context: ToolContext,
     models: ModelRegistry,
     state: StateStore,
@@ -304,7 +362,8 @@ def build_agent_bundle(
     managed = tuple(
         _build_agent(
             role=role,
-            skill=skills[skill_name],
+            skill_name=skill_name,
+            skills=skills,
             context=context,
             models=models,
             state=state,

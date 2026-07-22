@@ -1,14 +1,6 @@
 ---
 name: review-change
-description: Review the final branch diff without editing files.
-model: local-review
-tools:
-  - read_file
-  - inspect_diff
-  - run_verification
-  - review_diff
-  - git_status
-max_steps: 5
+description: Review the final branch diff without editing files. Use after deterministic verification to assess task fit, scope, and definite semantic issues.
 ---
 # Review Change
 

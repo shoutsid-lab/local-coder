@@ -1,13 +1,6 @@
 ---
 name: explore-repository
-description: Inspect repository structure and locate the smallest relevant code surface.
-model: local-plan
-tools:
-  - list_files
-  - search_repository
-  - read_file
-  - git_status
-max_steps: 1
+description: Inspect repository structure and locate the smallest relevant code surface. Use before planning a change when files, symbols, tests, or conventions must be identified without editing.
 ---
 # Explore Repository
 

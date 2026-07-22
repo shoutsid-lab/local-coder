@@ -27,6 +27,7 @@ from runtime.plans import (
     render_step_task,
 )
 from runtime.skills import discover_skills
+from runtime.skills_loader import discover_skills as discover_skill_catalog
 from runtime.state import StateStore
 from runtime.tools import (
     ToolContext,
@@ -587,13 +588,17 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
         state=store,
         task_file=task_file,
     )
+    catalog = discover_skill_catalog(ROOT / ".local-coder" / "skills")
+    activation_patcher = patch.object(catalog, "activate", wraps=catalog.activate)
+    activate = activation_patcher.start()
     bundle = build_agent_bundle(
-        skills=discover_skills(ROOT / ".local-coder" / "skills"),
+        skills=catalog,
         context=context,
         models=ModelRegistry(),
         state=store,
         run_id=run_id,
     )
+    assert activate.call_count == 0
 
     parameters = inspect.signature(bundle.managed[0].__call__).parameters
 
@@ -616,6 +621,7 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
         assert explorer("Inspect README.md", {"request": "context"}) == (
             "evidence summary"
         )
+    assert activate.call_args.args == ("explore-repository",)
     messages = generate.call_args.args[0]
     assert "You have no tools" in messages[0]["content"]
     assert "# local-coder" in messages[1]["content"]
@@ -630,6 +636,40 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
         implementer("Replace one sentence in README.md")
     assert "apply_atomic_edit exactly once" in run.call_args.args[0]
     assert "editable_files='README.md'" in run.call_args.args[0]
+    assert implementer.instructions.startswith("# Atomic Implementation")
+    assert [call.args for call in activate.call_args_list] == [
+        ("explore-repository",),
+        ("atomic-implementation",),
+    ]
+    activation_patcher.stop()
+
+
+def test_failed_skill_activation_is_audited_as_failed(tmp_path: Path) -> None:
+    from runtime.agents import ReadOnlyEvidenceAgent
+
+    store = StateStore(tmp_path / "agent.db")
+    run_id = store.create_run(
+        task="Inspect the repository",
+        mode="agentic",
+        repository=tmp_path,
+        base_branch="main",
+    )
+    agent = ReadOnlyEvidenceAgent(
+        name="explorer",
+        description="Read-only evidence",
+        activate_skill=lambda: (_ for _ in ()).throw(ValueError("invalid skill")),
+        context=SimpleNamespace(),
+        model=SimpleNamespace(),
+        state=store,
+        run_id=run_id,
+    )
+
+    with pytest.raises(ValueError, match="invalid skill"):
+        agent("Inspect README.md")
+
+    details = store.run_details(run_id)
+    assert details is not None
+    assert details["steps"][-1]["status"] == "failed"
 
 
 def test_reviewer_runs_only_fixed_read_only_gates(tmp_path: Path) -> None:

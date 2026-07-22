@@ -763,19 +763,22 @@ def add_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def handle_skills(_: argparse.Namespace) -> int:
-    from runtime.skills import discover_skills
+    from runtime.skills import runtime_skill_config
+    from runtime.skills_loader import discover_skills
 
     skills = discover_skills(ROOT / ".local-coder" / "skills")
-    payload = [
-        {
-            "name": skill.name,
-            "description": skill.description,
-            "model": skill.model,
-            "tools": list(skill.tools),
-            "max_steps": skill.max_steps,
-        }
-        for skill in skills.values()
-    ]
+    payload = []
+    for skill in skills.values():
+        config = runtime_skill_config(skill.name)
+        payload.append(
+            {
+                "name": skill.name,
+                "description": skill.description,
+                "model": config.model,
+                "tools": list(config.tools),
+                "max_steps": config.max_steps,
+            }
+        )
     print(json.dumps(payload, indent=2))
     return 0
 
