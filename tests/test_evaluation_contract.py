@@ -145,3 +145,26 @@ def test_scorecard_can_only_recommend_human_promotion() -> None:
     assert scorecard.gates[-1].name == "authority"
     assert scorecard.gates[-1].passed is None
     assert "human" in scorecard.gates[-1].evidence["required"]
+
+
+def test_campaign_scorecard_fails_closed_without_build_trajectory() -> None:
+    evaluation = PairedEvaluation(
+        baseline_commit="base",
+        candidate_commit="candidate",
+        development_suite_hash="development",
+        holdout_suite_hash="holdout",
+        holdout_oracle_hash="oracle",
+        environment_hash="environment",
+        candidate_patch_hash="patch",
+        repetitions=1,
+        budget=EvaluationBudget(),
+        results=(_result("baseline", False), _result("candidate", True)),
+        build_id="build",
+    )
+
+    scorecard = build_scorecard(evaluation, target_case_ids=["target"])
+
+    control = next(gate for gate in scorecard.gates if gate.name == "control")
+    assert control.passed is False
+    assert "missing_candidate_trajectory" in control.evidence["failures"]
+    assert scorecard.recommendation == "reject_at_control"

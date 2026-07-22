@@ -20,6 +20,7 @@ from evaluation.supervisor import (
     Supervisor,
     evaluate_pair,
 )
+from runtime.migrations import MigrationError
 from runtime.state import SCHEMA_VERSION, StateStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,6 +61,64 @@ def test_read_only_store_does_not_initialize_a_database(tmp_path: Path) -> None:
         StateStore(database, read_only=True)
 
     assert not database.exists()
+
+
+def test_migration_rejects_a_noncontiguous_ledger(tmp_path: Path) -> None:
+    database = tmp_path / "agent.db"
+    StateStore(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute("DELETE FROM schema_migrations WHERE version = 4")
+
+    with pytest.raises(MigrationError, match="not contiguous"):
+        StateStore(database)
+
+
+def test_migration_rejects_a_future_schema(tmp_path: Path) -> None:
+    database = tmp_path / "agent.db"
+    StateStore(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
+
+    with pytest.raises(MigrationError, match="newer than supported"):
+        StateStore(database)
+
+
+def test_failed_legacy_migration_rolls_back(tmp_path: Path) -> None:
+    database = tmp_path / "malformed.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE runs (id TEXT PRIMARY KEY)")
+        connection.execute("INSERT INTO runs VALUES ('legacy')")
+
+    with pytest.raises(MigrationError, match="incompatible columns"):
+        StateStore(database)
+
+    with sqlite3.connect(database) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        assert "schema_migrations" not in tables
+        assert connection.execute("SELECT id FROM runs").fetchone()[0] == "legacy"
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
+
+
+def test_read_only_store_reports_unmigrated_schema_without_writing(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "legacy.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE runs (id TEXT PRIMARY KEY)")
+
+    assert StateStore(database, read_only=True).schema_version() == 0
+    with sqlite3.connect(database) as connection:
+        assert "schema_migrations" not in {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
 
 
 def test_run_details_returns_steps_artifacts_and_metrics(tmp_path: Path) -> None:
@@ -283,6 +342,25 @@ def test_campaign_requires_one_human_approved_brief(tmp_path: Path) -> None:
         actor="human",
         rationale="The bounded hypothesis is safe to evaluate.",
     )
+    run_id = store.create_run(
+        task="Build candidate",
+        mode="agentic",
+        repository=tmp_path,
+        base_branch="main",
+    )
+    build_id = store.create_candidate_build(
+        campaign_id,
+        brief_id="brief",
+        overlay_hash=None,
+        overlay=None,
+    )
+    store.complete_candidate_build(
+        build_id,
+        run_id=run_id,
+        status="awaiting_approval",
+        branch="candidate",
+        worktree=str(tmp_path / "candidate"),
+    )
     evaluation_id = store.create_evaluation(
         campaign_id=campaign_id,
         baseline_commit="base",
@@ -293,6 +371,7 @@ def test_campaign_requires_one_human_approved_brief(tmp_path: Path) -> None:
         environment_hash="environment",
         repetitions=1,
         budget={"processes": 1},
+        build_id=build_id,
     )
 
     assert evaluation_id
@@ -307,7 +386,10 @@ def test_campaign_requires_one_human_approved_brief(tmp_path: Path) -> None:
             environment_hash="environment",
             repetitions=1,
             budget={"processes": 1},
+            build_id=build_id,
         )
+
+    assert store.campaign_details(campaign_id)["evaluations"][0]["build_id"] == build_id
 
 
 def test_supervisor_records_timeout_without_retrying(tmp_path: Path) -> None:

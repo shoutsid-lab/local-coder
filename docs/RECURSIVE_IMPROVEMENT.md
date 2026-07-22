@@ -60,6 +60,7 @@ result. A failed build consumes the bounded attempt rather than retrying indefin
 ```bash
 ./local-coder.py evaluate \
   --campaign-id CAMPAIGN_ID \
+  --build-id BUILD_ID \
   --baseline /path/to/clean/baseline \
   --candidate /path/to/clean/candidate \
   --target-case missing-match \
@@ -67,7 +68,8 @@ result. A failed build consumes the bounded attempt rather than retrying indefin
 ```
 
 The supervisor verifies manifest, oracle, commit, environment, and budget identity before
-execution. It runs baseline then candidate under the same configuration. Each repetition
+execution. It also requires the candidate path to be the exact worktree recorded for the
+named build. It runs baseline then candidate under the same configuration. Each repetition
 includes candidate-owned `make verify`, base-owned development contracts, and separately
 mounted holdout contracts. Timeouts, nonzero exits, malformed observations, and output
 limits are terminal recorded case results; there is no retry loop.
@@ -78,7 +80,9 @@ scope. Any protected or undeclared changed path fails the first safety gate.
 
 The scorecard is ordered and non-scalar: safety, correctness, regression, control,
 improvement, efficiency, then authority. Failure at an earlier gate cannot be traded for
-an efficiency or target-metric gain.
+an efficiency or target-metric gain. Campaign control and efficiency gates incorporate
+the recorded build trajectory, including rejected edits, tool failures, bounded retries,
+terminal status, fresh review, and model usage.
 
 ## 5. Record the human decision
 

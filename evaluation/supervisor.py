@@ -112,6 +112,7 @@ class PairedEvaluation:
     budget: EvaluationBudget
     results: tuple[CaseResult, ...]
     evaluation_id: str | None = None
+    build_id: str | None = None
 
     def to_dict(self, *, redact_holdout: bool = True) -> dict[str, Any]:
         """Return an inspection-ready, optionally redacted report."""
@@ -126,6 +127,7 @@ class PairedEvaluation:
             "repetitions": self.repetitions,
             "budget": asdict(self.budget),
             "evaluation_id": self.evaluation_id,
+            "build_id": self.build_id,
             "results": [
                 result.to_dict(redact_holdout=redact_holdout) for result in self.results
             ],
@@ -571,6 +573,7 @@ def evaluate_pair(
     expected_environment_hash: str | None = None,
     state: StateStore | None = None,
     campaign_id: str | None = None,
+    build_id: str | None = None,
 ) -> PairedEvaluation:
     """Evaluate clean baseline and candidate commits under one supervisor."""
     if repetitions < 1 or repetitions > 10:
@@ -613,6 +616,7 @@ def evaluate_pair(
             environment_hash=environment_hash,
             repetitions=repetitions,
             budget=asdict(budget),
+            build_id=build_id,
         )
         state.add_evaluation_artifact(
             evaluation_id,
@@ -696,6 +700,7 @@ def evaluate_pair(
         budget=budget,
         results=tuple(results),
         evaluation_id=evaluation_id,
+        build_id=build_id,
     )
 
 

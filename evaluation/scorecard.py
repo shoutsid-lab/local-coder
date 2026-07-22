@@ -37,6 +37,7 @@ def build_scorecard(
     evaluation: PairedEvaluation,
     *,
     target_case_ids: Iterable[str],
+    trajectory_evidence: dict[str, Any] | None = None,
 ) -> PromotionScorecard:
     """Apply safety-through-authority gates in strict lexicographic order."""
     baseline = _generation(evaluation.results, "baseline")
@@ -78,7 +79,19 @@ def build_scorecard(
         or result.process.output_truncated
         or result.failure in {"malformed_observation", "process_exit"}
     ]
-    control = Gate("control", not control_failures, {"failures": control_failures})
+    if evaluation.build_id is not None:
+        if trajectory_evidence is None:
+            control_failures.append("missing_candidate_trajectory")
+        else:
+            control_failures.extend(trajectory_evidence.get("failures", []))
+    control = Gate(
+        "control",
+        not control_failures,
+        {
+            "failures": control_failures,
+            "candidate_trajectory": trajectory_evidence,
+        },
+    )
 
     baseline_target = [result for result in baseline if result.case_id in targets]
     candidate_target = [result for result in candidate if result.case_id in targets]
@@ -102,20 +115,29 @@ def build_scorecard(
     )
 
     candidate_wall_ms = sum(result.process.duration_ms for result in candidate)
-    efficiency_passed = (
+    evaluator_efficiency = (
         candidate_wall_ms <= evaluation.budget.campaign_wall_seconds * 1000
         and len(candidate) <= evaluation.budget.max_processes
     )
+    trajectory_efficiency = (
+        trajectory_evidence is None
+        or trajectory_evidence.get("budget_within_limits") is True
+    )
+    efficiency_passed = evaluator_efficiency and trajectory_efficiency
+    trajectory_metrics = trajectory_evidence or {}
     efficiency = Gate(
         "efficiency",
         efficiency_passed,
         {
             "wall_time_ms": candidate_wall_ms,
             "processes": len(candidate),
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "model_calls": 0,
-            "note": "Frozen contracts and candidate verification are network-isolated.",
+            "prompt_tokens": trajectory_metrics.get("prompt_tokens", 0),
+            "completion_tokens": trajectory_metrics.get("completion_tokens", 0),
+            "model_calls": trajectory_metrics.get("model_calls", 0),
+            "candidate_build_budget": trajectory_metrics.get("budget_limits"),
+            "note": (
+                "Evaluation is network-isolated; build usage comes from audit state."
+            ),
         },
     )
 

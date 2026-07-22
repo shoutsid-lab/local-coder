@@ -8,10 +8,14 @@ health:
 	@curl -fsS http://127.0.0.1:8080/health | jq
 
 format:
-	$(PYTHON) -m black $(PYTHON_FILES)
+	@for file in $(PYTHON_FILES); do \
+		$(PYTHON) -m black --quiet "$$file" || exit 1; \
+	done
 
 format-check:
-	$(PYTHON) -m black --check $(PYTHON_FILES)
+	@for file in $(PYTHON_FILES); do \
+		$(PYTHON) -m black --check --quiet "$$file" || exit 1; \
+	done
 
 lint:
 	$(PYTHON) -m flake8 -j 1 $(PYTHON_FILES)

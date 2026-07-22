@@ -10,7 +10,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 6
+from .migrations import SCHEMA_VERSION as MIGRATION_SCHEMA_VERSION
+from .migrations import applied_schema_version, migrate
+
+SCHEMA_VERSION = MIGRATION_SCHEMA_VERSION
 
 
 def utc_now() -> str:
@@ -50,229 +53,16 @@ class StateStore:
         return connection
 
     def _initialize(self) -> None:
-        schema = """
-        CREATE TABLE IF NOT EXISTS runs (
-            id TEXT PRIMARY KEY,
-            task TEXT NOT NULL,
-            status TEXT NOT NULL,
-            mode TEXT NOT NULL,
-            repository TEXT NOT NULL,
-            base_branch TEXT,
-            branch TEXT,
-            worktree TEXT,
-            result TEXT,
-            error TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS agents (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-            role TEXT NOT NULL,
-            skill TEXT,
-            model_route TEXT NOT NULL,
-            status TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            UNIQUE(run_id, role)
-        );
-
-        CREATE TABLE IF NOT EXISTS steps (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-            agent_role TEXT,
-            step_index INTEGER NOT NULL,
-            status TEXT NOT NULL,
-            summary TEXT,
-            started_at TEXT NOT NULL,
-            completed_at TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS tool_calls (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-            agent_role TEXT,
-            tool_name TEXT NOT NULL,
-            arguments TEXT NOT NULL,
-            output TEXT,
-            status TEXT NOT NULL,
-            duration_ms REAL,
-            created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS artifacts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-            kind TEXT NOT NULL,
-            path TEXT,
-            content TEXT,
-            created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS verification_results (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-            command TEXT NOT NULL,
-            passed INTEGER NOT NULL,
-            output TEXT NOT NULL,
-            duration_ms REAL,
-            created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS model_metrics (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-            route TEXT NOT NULL,
-            prompt_tokens INTEGER,
-            completion_tokens INTEGER,
-            duration_ms REAL,
-            metadata TEXT,
-            created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS schema_migrations (
-            version INTEGER PRIMARY KEY,
-            applied_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS evaluation_campaigns (
-            id TEXT PRIMARY KEY,
-            baseline_commit TEXT NOT NULL,
-            status TEXT NOT NULL,
-            suite_hash TEXT NOT NULL,
-            budget TEXT NOT NULL,
-            max_candidates INTEGER NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS evaluation_runs (
-            id TEXT PRIMARY KEY,
-            campaign_id TEXT REFERENCES evaluation_campaigns(id),
-            baseline_commit TEXT NOT NULL,
-            candidate_commit TEXT NOT NULL,
-            suite_id TEXT NOT NULL,
-            suite_hash TEXT NOT NULL,
-            holdout_hash TEXT NOT NULL,
-            environment_hash TEXT NOT NULL,
-            repetitions INTEGER NOT NULL,
-            budget TEXT NOT NULL,
-            status TEXT NOT NULL,
-            scorecard TEXT,
-            started_at TEXT NOT NULL,
-            completed_at TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS evaluation_cases (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            evaluation_id TEXT NOT NULL REFERENCES evaluation_runs(id)
-                ON DELETE CASCADE,
-            generation TEXT NOT NULL,
-            repetition INTEGER NOT NULL,
-            case_id TEXT NOT NULL,
-            visibility TEXT NOT NULL,
-            result TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            UNIQUE(evaluation_id, generation, repetition, case_id)
-        );
-
-        CREATE TABLE IF NOT EXISTS improvement_briefs (
-            id TEXT PRIMARY KEY,
-            campaign_id TEXT NOT NULL REFERENCES evaluation_campaigns(id)
-                ON DELETE CASCADE,
-            evidence_run_ids TEXT NOT NULL,
-            baseline_commit TEXT NOT NULL,
-            failure_class TEXT NOT NULL,
-            hypothesis TEXT NOT NULL,
-            allowed_files TEXT NOT NULL,
-            forbidden_files TEXT NOT NULL,
-            acceptance_metrics TEXT NOT NULL,
-            suite_hash TEXT NOT NULL,
-            budget TEXT NOT NULL,
-            rollback_condition TEXT NOT NULL,
-            status TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            UNIQUE(campaign_id)
-        );
-
-        CREATE TABLE IF NOT EXISTS promotion_decisions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            evaluation_id TEXT NOT NULL REFERENCES evaluation_runs(id)
-                ON DELETE CASCADE,
-            actor TEXT NOT NULL,
-            decision TEXT NOT NULL,
-            rationale TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            UNIQUE(evaluation_id)
-        );
-
-        CREATE TABLE IF NOT EXISTS brief_approvals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            brief_id TEXT NOT NULL REFERENCES improvement_briefs(id)
-                ON DELETE CASCADE,
-            actor TEXT NOT NULL,
-            rationale TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            UNIQUE(brief_id)
-        );
-
-        CREATE TABLE IF NOT EXISTS run_context (
-            run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
-            baseline_commit TEXT,
-            expected_changed_paths TEXT,
-            suite_hash TEXT,
-            model_hash TEXT,
-            configuration_hash TEXT,
-            created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS evaluation_artifacts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            evaluation_id TEXT NOT NULL REFERENCES evaluation_runs(id)
-                ON DELETE CASCADE,
-            kind TEXT NOT NULL,
-            content_hash TEXT NOT NULL,
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS candidate_builds (
-            id TEXT PRIMARY KEY,
-            campaign_id TEXT NOT NULL REFERENCES evaluation_campaigns(id)
-                ON DELETE CASCADE,
-            brief_id TEXT NOT NULL REFERENCES improvement_briefs(id),
-            run_id TEXT REFERENCES runs(id),
-            overlay_hash TEXT,
-            overlay TEXT,
-            status TEXT NOT NULL,
-            branch TEXT,
-            worktree TEXT,
-            created_at TEXT NOT NULL,
-            completed_at TEXT
-        );
-        """
-        with self.connect() as connection:
-            connection.executescript(schema)
-            for version in range(1, SCHEMA_VERSION + 1):
-                connection.execute(
-                    """
-                    INSERT OR IGNORE INTO schema_migrations (version, applied_at)
-                    VALUES (?, ?)
-                    """,
-                    (version, utc_now()),
-                )
-            connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        connection = self.connect()
+        try:
+            migrate(connection, applied_at=utc_now())
+        finally:
+            connection.close()
 
     def schema_version(self) -> int:
         """Return the newest applied schema migration."""
         with self.connect() as connection:
-            try:
-                row = connection.execute(
-                    "SELECT MAX(version) FROM schema_migrations"
-                ).fetchone()
-            except sqlite3.OperationalError:
-                return int(connection.execute("PRAGMA user_version").fetchone()[0]) or 1
-        return int(row[0]) if row is not None and row[0] is not None else 1
+            return applied_schema_version(connection)
 
     def create_run(
         self,
@@ -848,6 +638,18 @@ class StateStore:
                 (run_id, status, branch, worktree, utc_now(), build_id),
             )
 
+    def candidate_build_details(self, build_id: str) -> dict[str, Any] | None:
+        """Return one candidate build and its audited run trajectory."""
+        with self.connect() as connection:
+            build = connection.execute(
+                "SELECT * FROM candidate_builds WHERE id = ?", (build_id,)
+            ).fetchone()
+        if build is None:
+            return None
+        result = dict(build)
+        result["run"] = self.run_details(result["run_id"]) if result["run_id"] else None
+        return result
+
     def create_evaluation(
         self,
         *,
@@ -860,6 +662,7 @@ class StateStore:
         environment_hash: str,
         repetitions: int,
         budget: Any,
+        build_id: str | None = None,
     ) -> str:
         """Create one immutable evaluation-lineage record."""
         evaluation_id = uuid.uuid4().hex[:12]
@@ -883,6 +686,34 @@ class StateStore:
                 ).fetchone()[0]
                 if approved != 1:
                     raise ValueError("Campaign requires one human-approved brief.")
+                if build_id is None:
+                    raise ValueError(
+                        "Campaign evaluation requires a candidate build ID."
+                    )
+                build = connection.execute(
+                    """
+                    SELECT candidate_builds.status, candidate_builds.run_id,
+                           candidate_builds.worktree,
+                           improvement_briefs.status AS brief_status
+                    FROM candidate_builds
+                    JOIN improvement_briefs
+                      ON improvement_briefs.id = candidate_builds.brief_id
+                    WHERE candidate_builds.id = ?
+                      AND candidate_builds.campaign_id = ?
+                    """,
+                    (build_id, campaign_id),
+                ).fetchone()
+                if build is None:
+                    raise ValueError("Candidate build does not belong to the campaign.")
+                if (
+                    build["status"] not in {"awaiting_approval", "needs_attention"}
+                    or build["run_id"] is None
+                    or build["worktree"] is None
+                    or build["brief_status"] != "approved"
+                ):
+                    raise ValueError(
+                        "Candidate build has no evaluable audited trajectory."
+                    )
                 if campaign["baseline_commit"] != baseline_commit:
                     raise ValueError("Evaluation baseline differs from the campaign.")
                 if campaign["suite_hash"] != suite_hash:
@@ -898,14 +729,16 @@ class StateStore:
             connection.execute(
                 """
                 INSERT INTO evaluation_runs (
-                    id, campaign_id, baseline_commit, candidate_commit, suite_id,
+                    id, campaign_id, build_id, baseline_commit,
+                    candidate_commit, suite_id,
                     suite_hash, holdout_hash, environment_hash, repetitions,
                     budget, status, started_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)
                 """,
                 (
                     evaluation_id,
                     campaign_id,
+                    build_id,
                     baseline_commit,
                     candidate_commit,
                     suite_id,

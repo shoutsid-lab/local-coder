@@ -63,7 +63,7 @@ The trusted control plane is implemented under `evaluation/`:
 
 - historical runs normalize into versioned outcomes without treating missing metrics as
   zero;
-- schema-versioned SQLite migrations preserve old run data and record run identity,
+- ordered transactional SQLite migrations preserve old run data and record run identity,
   campaigns, briefs, paired cases, scorecards, approvals, and decisions;
 - development cases and holdout oracles are loaded and hashed independently;
 - candidate verification and base-owned contracts run sequentially in networkless,
@@ -205,19 +205,23 @@ active worktrees or allow an unbounded daemon loop.
   inputs;
 - `evaluation/miner.py` and `evaluation/scorecard.py` — one-brief mining and ordered
   promotion gates;
-- additive state methods and schema versioning in `runtime/state.py`;
+- additive state methods in `runtime/state.py` and ordered migrations in
+  `runtime/migrations.py`;
 - read-only analysis and repository-read-only `evaluate` CLI commands;
 - protected `tests/test_evaluation_contract.py` and deterministic unit tests.
 
 ## Remaining hardening
 
 The control-plane checkpoint is usable but recursive improvement is not yet complete.
+Evaluation lineage now binds one campaign evaluation to one unique candidate-build ID.
+Its control gate fails closed on rejected edits, tool errors, excessive retries,
+`needs_attention`, stale review, failed final verification, or missing/over-budget model
+usage. Schema v7 is applied through an ordered, atomic ledger with structural and
+foreign-key compatibility checks; malformed, gapped, future, and partially migrated
+databases fail without partial writes.
+
 Next work must:
 
-- bind an evaluation to a specific recorded candidate-build ID and include rejected
-  edits, retries, `needs_attention`, and fresh-review evidence in the control gate;
-- replace latest-schema bootstrapping with ordered transactional migrations and explicit
-  compatibility checks for partially migrated databases;
 - enforce candidate-build token/model budgets from recorded usage and add a kernel-level
   PID/cgroup ceiling for sandbox descendants;
 - move or rotate holdout material outside candidate Git history when stronger secrecy

@@ -224,6 +224,98 @@ def normalize_run(details: dict[str, Any]) -> NormalizedOutcome:
     )
 
 
+def candidate_trajectory_evidence(
+    build: dict[str, Any],
+    budget: dict[str, Any],
+) -> dict[str, Any]:
+    """Derive fail-closed promotion evidence from one audited candidate build."""
+    details = build.get("run")
+    if not isinstance(details, dict):
+        return {
+            "build_id": build.get("id"),
+            "build_status": build.get("status"),
+            "trajectory_available": False,
+            "failures": ["missing_audited_run"],
+        }
+    outcome = normalize_run(details)
+    tool_calls = list(details.get("tool_calls", []))
+    verification = list(details.get("verification", []))
+    reviews = [
+        row for row in details.get("artifacts", []) if row.get("kind") == "review"
+    ]
+    latest_review = reviews[-1] if reviews else None
+    latest_verification = verification[-1] if verification else None
+    review_fresh = bool(
+        latest_review
+        and latest_verification
+        and isinstance(latest_review.get("created_at"), str)
+        and isinstance(latest_verification.get("created_at"), str)
+        and latest_review["created_at"] >= latest_verification["created_at"]
+    )
+    rejected_edits = sum(
+        row.get("tool_name") == "apply_atomic_edit" and row.get("status") == "error"
+        for row in tool_calls
+    )
+    tool_errors = sum(row.get("status") == "error" for row in tool_calls)
+    retry_count = max(len(verification) - 1, 0)
+    metrics = {
+        "prompt_tokens": outcome.prompt_tokens,
+        "completion_tokens": outcome.completion_tokens,
+        "model_calls": outcome.model_calls,
+    }
+    budget_limits = {
+        "prompt_tokens": budget.get("max_prompt_tokens"),
+        "completion_tokens": budget.get("max_completion_tokens"),
+        "model_calls": budget.get("max_model_calls"),
+    }
+    budget_known = all(
+        isinstance(metrics[name], int) and isinstance(budget_limits[name], int)
+        for name in metrics
+    )
+    budget_within_limits = budget_known and all(
+        metrics[name] <= budget_limits[name] for name in metrics
+    )
+    failures = []
+    if build.get("status") != "awaiting_approval":
+        failures.append("build_not_awaiting_approval")
+    if outcome.status != "awaiting_approval":
+        failures.append("run_not_awaiting_approval")
+    if rejected_edits:
+        failures.append("rejected_editor_attempts")
+    if tool_errors:
+        failures.append("tool_errors")
+    if retry_count > 2:
+        failures.append("retry_limit")
+    if outcome.verification_result != "pass":
+        failures.append("final_verification")
+    if outcome.review_result != "pass":
+        failures.append("final_review")
+    if not review_fresh:
+        failures.append("stale_or_missing_review")
+    if not budget_within_limits:
+        failures.append("model_budget")
+    return {
+        "build_id": build.get("id"),
+        "run_id": outcome.run_id,
+        "build_status": build.get("status"),
+        "run_status": outcome.status,
+        "trajectory_available": True,
+        "rejected_editor_attempts": rejected_edits,
+        "tool_errors": tool_errors,
+        "verification_attempts": len(verification),
+        "retry_count": retry_count,
+        "retry_limit": 2,
+        "final_verification": outcome.verification_result,
+        "final_review": outcome.review_result,
+        "review_fresh": review_fresh,
+        **metrics,
+        "budget_limits": budget_limits,
+        "budget_known": budget_known,
+        "budget_within_limits": budget_within_limits,
+        "failures": failures,
+    }
+
+
 def analyze_run_records(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
     """Return normalized outcomes and deterministic failure clusters."""
     outcomes = [normalize_run(record) for record in records]

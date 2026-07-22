@@ -236,6 +236,9 @@ def _load_evaluation_inputs(args: argparse.Namespace):
 
 def handle_evaluate(args: argparse.Namespace) -> int:
     """Run and record one bounded paired generation evaluation."""
+    from dataclasses import asdict
+
+    from evaluation.outcomes import candidate_trajectory_evidence, stable_hash
     from evaluation.scorecard import build_scorecard
     from evaluation.supervisor import EvaluationError, evaluate_pair
     from runtime.state import StateStore
@@ -244,7 +247,10 @@ def handle_evaluate(args: argparse.Namespace) -> int:
         development, holdout, oracle, oracle_hash = _load_evaluation_inputs(args)
         budget = _evaluation_budget(args)
         state = StateStore(args.database.resolve())
+        trajectory = None
         if args.campaign_id is not None:
+            if args.build_id is None:
+                raise ValueError("Campaign evaluation requires --build-id.")
             campaign = state.campaign_details(args.campaign_id)
             approved = (
                 [brief for brief in campaign["briefs"] if brief["status"] == "approved"]
@@ -262,7 +268,17 @@ def handle_evaluate(args: argparse.Namespace) -> int:
                 raise ValueError("Target cases do not match the approved brief.")
             if args.allowed_file and set(args.allowed_file) != allowed_candidate_paths:
                 raise ValueError("CLI allowed paths do not match the approved brief.")
+            build = state.candidate_build_details(args.build_id)
+            if build is None or build["campaign_id"] != args.campaign_id:
+                raise ValueError("Candidate build does not belong to the campaign.")
+            if Path(build["worktree"] or "").resolve() != args.candidate.resolve():
+                raise ValueError(
+                    "Candidate path differs from the recorded build worktree."
+                )
+            trajectory = candidate_trajectory_evidence(build, asdict(budget))
         else:
+            if args.build_id is not None:
+                raise ValueError("Standalone evaluation cannot name a campaign build.")
             if not args.allowed_file:
                 raise ValueError("Standalone evaluation requires --allowed-file.")
             allowed_candidate_paths = set(args.allowed_file)
@@ -280,12 +296,22 @@ def handle_evaluate(args: argparse.Namespace) -> int:
             expected_environment_hash=args.expected_environment_hash,
             state=state,
             campaign_id=args.campaign_id,
+            build_id=args.build_id,
         )
         scorecard = build_scorecard(
             evaluation,
             target_case_ids=args.target_case,
+            trajectory_evidence=trajectory,
         )
         if evaluation.evaluation_id is not None:
+            if trajectory is not None:
+                trajectory_text = json.dumps(trajectory, sort_keys=True)
+                state.add_evaluation_artifact(
+                    evaluation.evaluation_id,
+                    kind="candidate_trajectory",
+                    content_hash=stable_hash(trajectory),
+                    content=trajectory_text,
+                )
             state.complete_evaluation(
                 evaluation.evaluation_id,
                 status="completed",
@@ -631,6 +657,10 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_parser.add_argument("--candidate", type=Path, required=True)
     evaluate_parser.add_argument("--database", type=Path, default=STATE_PATH)
     evaluate_parser.add_argument("--campaign-id")
+    evaluate_parser.add_argument(
+        "--build-id",
+        help="Exact audited candidate build; required with --campaign-id.",
+    )
     evaluate_parser.add_argument(
         "--allowed-file",
         action="append",
