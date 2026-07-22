@@ -2,7 +2,7 @@ PYTHON := .venv/bin/python
 PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runtime/*.py tests/*.py
 
 .PHONY: health format format-check lint agent-check agent-install agent-smoke handoff-check test verify \
-	metrics review review-cached skills runs
+	metrics review review-cached skills skills-lint runs
 
 health:
 	@curl -fsS http://127.0.0.1:8080/health | jq
@@ -58,6 +58,9 @@ review-cached:
 
 skills:
 	$(PYTHON) local-coder.py skills
+
+skills-lint:
+	$(PYTHON) -m runtime.skills_lint .local-coder/skills
 
 runs:
 	$(PYTHON) local-coder.py runs

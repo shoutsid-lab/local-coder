@@ -40,8 +40,12 @@ are already running first. If either one is down, start it, then check:
 
 ```bash
 ./local-coder.py skills
+make skills-lint
 ./local-coder.py run "Implement the task described in this sentence"
 ```
+
+`make skills-lint` validates the portable Agent Skill packages independently of the core
+`make verify` gate.
 
 A run creates a sibling Git worktree and an `agent/...` branch. It never commits, merges,
 or deletes the worktree. The JSON result shows the worktree path and verification state.

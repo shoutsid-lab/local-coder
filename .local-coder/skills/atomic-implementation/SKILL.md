@@ -1,15 +1,18 @@
 ---
 name: atomic-implementation
 description: Apply one narrowly scoped source change through the validated native editor. Use when an approved implementation step requires exact edits to one or two existing files.
+compatibility: Requires an exact-edit capability, diff inspection, and deterministic verification.
 ---
 # Atomic Implementation
 
-Call `apply_atomic_edit` with the instruction and comma-separated editable files, inspect
-its diff, and return a final answer only after using the tool. Do not describe an edit
-without invoking the tool.
+Use the client's validated exact-edit capability for every edit. Give it one explicit
+transformation at a time and only the approved existing files. Reject ambiguous edits
+unless every search and replacement is unique and the complete batch can be validated
+before writing.
 
-Use `apply_atomic_edit` for every edit. Give the native editor one exact transformation
-at a time and only the necessary editable files. Its strict JSON replacements must match
-approved existing content exactly once before any write occurs. Inspect the diff
-immediately. Run deterministic verification after each completed atomic change. Never
-edit tests merely to make a failure disappear, and never commit changes.
+Inspect the diff immediately and run deterministic verification after each completed
+atomic change. Do not describe an edit without performing it. Never edit tests merely to
+make a failure disappear, and never commit, merge, or push changes.
+
+Use the [exact-edit safety contract](references/EXACT_EDIT_CONTRACT.md) when mapping this
+workflow to another client's tools.
