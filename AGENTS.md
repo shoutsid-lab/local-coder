@@ -65,3 +65,23 @@ deeper documents for detail.
 
 They expect llama-server on `127.0.0.1:8080` and LiteLLM on `127.0.0.1:4000`.
 Check whether both are already running before starting anything new.
+
+## Roadmap work-item labels
+
+- Every roadmap track and subsection label (`A1`, `B2`, `C3`, ...) is permanent once a
+  roadmap document ships, even after that roadmap is completed, retired, or superseded.
+  These labels get written into commit messages, PR titles, and the audit trail, so
+  reusing one makes `git log --grep`, blame, and `analyze-runs`/GEPA history mining
+  return commits from two unrelated pieces of work with no way to tell them apart.
+- Never restart labeling at `A1` (or any earlier-used letter/number pair) when writing a
+  new roadmap, adding a track to an existing one, or authoring a roadmap that replaces
+  an earlier one. Labels are sequential across the repository's entire history, not
+  per-document.
+- Before assigning new labels, find the highest track letter ever used — check the
+  current `ROADMAP.md`, then `docs/HANDOFF.md` and any prior roadmap it references — and
+  start the next track one letter after it. Do not infer availability from the current
+  `ROADMAP.md` alone if an earlier roadmap has already been retired out of it.
+- Every roadmap must open with a **Track ledger** line stating which letter range it
+  claims and which earlier ranges are retired, so the next actor doesn't have to
+  reconstruct the sequence from `git log`.
+- This applies to any primary actor that authors or edits `ROADMAP.md`.
