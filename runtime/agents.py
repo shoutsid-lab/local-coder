@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .models import AuditedModel, ModelRegistry, ModelUsageBudget
@@ -32,6 +34,168 @@ def _ground_evidence_response(*, role: str, response: str, evidence: list[str]) 
             "is not a completion status.\n\n" + "\n\n".join(evidence)
         )
     return response
+
+
+def _prediction_value(prediction: Any, name: str) -> Any:
+    """Read one typed DSPy prediction field from object or mapping output."""
+    if isinstance(prediction, Mapping):
+        return prediction[name]
+    return getattr(prediction, name)
+
+
+def _prediction_usage(
+    prediction: Any,
+    route: str,
+) -> tuple[int | None, int | None]:
+    """Return prompt and completion usage attached by DSPy's tracker."""
+    get_usage = getattr(prediction, "get_lm_usage", None)
+    if not callable(get_usage):
+        return None, None
+    usage_by_lm = get_usage() or {}
+    usage = usage_by_lm.get(f"openai/{route}")
+    if not isinstance(usage, Mapping):
+        usage = next(
+            (item for item in usage_by_lm.values() if isinstance(item, Mapping)),
+            {},
+        )
+    prompt = usage.get("prompt_tokens")
+    completion = usage.get("completion_tokens")
+    return (
+        prompt if isinstance(prompt, int) else None,
+        completion if isinstance(completion, int) else None,
+    )
+
+
+def _string_list(
+    value: Any,
+    *,
+    field_name: str,
+    minimum: int = 0,
+    maximum: int = 12,
+    item_limit: int = 800,
+) -> list[str]:
+    """Validate one bounded typed string-list prediction field."""
+    if not isinstance(value, list) or not minimum <= len(value) <= maximum:
+        raise RuntimeError(f"DSPy {field_name} must contain {minimum}-{maximum} items.")
+    normalized: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip() or len(item) > item_limit:
+            raise RuntimeError(f"DSPy {field_name} contains an invalid item.")
+        normalized.append(item.strip())
+    return normalized
+
+
+def _repository_paths(
+    value: Any,
+    *,
+    field_name: str,
+    worktree: Path,
+    minimum: int = 0,
+    maximum: int = 8,
+) -> list[str]:
+    """Validate bounded repository-relative paths that already exist."""
+    items = _string_list(
+        value,
+        field_name=field_name,
+        minimum=minimum,
+        maximum=maximum,
+        item_limit=240,
+    )
+    paths: list[str] = []
+    for item in items:
+        cleaned = item.strip("` ")
+        candidate = PurePosixPath(cleaned)
+        if candidate.is_absolute() or not candidate.parts or ".." in candidate.parts:
+            raise RuntimeError(f"DSPy {field_name} contains an unsafe path.")
+        normalized = candidate.as_posix()
+        if not (worktree / normalized).is_file():
+            raise RuntimeError(
+                f"DSPy {field_name} references a missing file: {normalized}"
+            )
+        if normalized not in paths:
+            paths.append(normalized)
+    if len(paths) < minimum:
+        raise RuntimeError(f"DSPy {field_name} contains too few unique paths.")
+    return paths
+
+
+def _format_explorer_prediction(prediction: Any, *, worktree: Path) -> str:
+    """Validate and render the typed explorer contract as manager-facing text."""
+    findings = _string_list(
+        _prediction_value(prediction, "findings"),
+        field_name="explorer findings",
+        minimum=1,
+    )
+    relevant_files = _repository_paths(
+        _prediction_value(prediction, "relevant_files"),
+        field_name="explorer relevant_files",
+        worktree=worktree,
+        minimum=1,
+    )
+    constraints = _string_list(
+        _prediction_value(prediction, "constraints"),
+        field_name="explorer constraints",
+    )
+    questions = _string_list(
+        _prediction_value(prediction, "unresolved_questions"),
+        field_name="explorer unresolved_questions",
+    )
+    sections = [
+        "Read-only findings:\n" + "\n".join(f"- {item}" for item in findings),
+        "Relevant files:\n" + "\n".join(f"- {item}" for item in relevant_files),
+    ]
+    if constraints:
+        sections.append(
+            "Constraints:\n" + "\n".join(f"- {item}" for item in constraints)
+        )
+    if questions:
+        sections.append(
+            "Unresolved questions:\n" + "\n".join(f"- {item}" for item in questions)
+        )
+    return "\n\n".join(sections)
+
+
+def _format_planner_prediction(prediction: Any, *, worktree: Path) -> str:
+    """Validate and render one typed task-plan step."""
+    instruction = _prediction_value(prediction, "instruction")
+    if (
+        not isinstance(instruction, str)
+        or not instruction.strip()
+        or len(instruction) > 1200
+    ):
+        raise RuntimeError("DSPy planner instruction is invalid.")
+    editable_files = _repository_paths(
+        _prediction_value(prediction, "editable_files"),
+        field_name="planner editable_files",
+        worktree=worktree,
+        minimum=1,
+        maximum=2,
+    )
+    acceptance_criteria = _string_list(
+        _prediction_value(prediction, "acceptance_criteria"),
+        field_name="planner acceptance_criteria",
+        minimum=1,
+        maximum=6,
+    )
+    dependencies = _string_list(
+        _prediction_value(prediction, "depends_on"),
+        field_name="planner depends_on",
+        maximum=6,
+        item_limit=120,
+    )
+    sections = [
+        f"Atomic instruction: {instruction.strip()}",
+        "Editable files:\n" + "\n".join(f"- {item}" for item in editable_files),
+        "Acceptance criteria:\n"
+        + "\n".join(f"- {item}" for item in acceptance_criteria),
+    ]
+    if dependencies:
+        sections.append(
+            "Depends on:\n" + "\n".join(f"- {item}" for item in dependencies)
+        )
+    else:
+        sections.append("Depends on: none")
+    return "\n\n".join(sections)
 
 
 def _implementation_report(tool_calls: list[dict[str, Any]]) -> tuple[str, bool]:
@@ -65,15 +229,25 @@ class AgentBundle:
 
 @dataclass
 class ReadOnlyEvidenceAgent:
-    """Gather recorded evidence, then request one text-only role response."""
+    """Gather bounded evidence, then invoke one typed DSPy role program."""
 
     name: str
     description: str
     activate_skill: Callable[[], Skill]
     context: ToolContext
-    model: Any
+    model_route: str
+    lm_factory: Callable[[], Any]
+    program_runner: Callable[..., Any]
+    program_name: str
     state: StateStore | None = None
     run_id: str | None = None
+    usage_budget: ModelUsageBudget | None = None
+    _lm: Any | None = field(default=None, init=False, repr=False)
+
+    def _language_model(self) -> Any:
+        if self._lm is None:
+            self._lm = self.lm_factory()
+        return self._lm
 
     def __call__(
         self,
@@ -86,14 +260,22 @@ class ReadOnlyEvidenceAgent:
             self.state.start_step(
                 self.run_id,
                 agent_role=self.name,
-                summary="Read-only evidence request",
+                summary=f"DSPy {self.name} evidence request",
             )
             if self.state is not None and self.run_id is not None
             else None
         )
         status = "completed"
+        prompt_tokens: int | None = None
+        completion_tokens: int | None = None
+        started = time.perf_counter()
+        metadata: dict[str, Any] = {
+            "source": f"dspy-{self.name}",
+            "program": self.program_name,
+            "adapter": "JSONAdapter",
+        }
         try:
-            skill = self.activate_skill()
+            self.activate_skill()
             authoritative_task = self.context.task_file.read_text(encoding="utf-8")
             named_files = list(
                 dict.fromkeys(
@@ -111,42 +293,52 @@ class ReadOnlyEvidenceAgent:
                     continue
             if not evidence:
                 evidence.append(self.context.list_files("*"))
-
-            response = self.model.generate(
-                [
-                    {
-                        "role": "system",
-                        "content": (
-                            f"{skill.instructions}\n\n"
-                            "Return concise plain text only. You have no tools and "
-                            "must "
-                            "not emit code, tool calls, or editing instructions. Base "
-                            "the response only on the supplied repository evidence. "
-                            "This is a read-only observation made before "
-                            "implementation. Never claim that an edit was completed, "
-                            "applied, or successful."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Authoritative task:\n{authoritative_task}\n\n"
-                            f"Delegated task:\n{task}\n\n"
-                            f"Repository evidence:\n{'\n\n'.join(evidence)}"
-                        ),
-                    },
-                ],
-                tools_to_call_from=None,
+            if self.usage_budget is not None:
+                self.usage_budget.reserve_call()
+            prediction = self.program_runner(
+                lm=self._language_model(),
+                task=authoritative_task,
+                delegated_task=task,
+                repository_evidence=evidence,
             )
-            return _ground_evidence_response(
-                role=self.name,
-                response=str(response.content),
-                evidence=evidence,
+            prompt_tokens, completion_tokens = _prediction_usage(
+                prediction, self.model_route
             )
-        except Exception:
+            if self.usage_budget is not None:
+                self.usage_budget.record_usage(prompt_tokens, completion_tokens)
+            if self.name == "explorer":
+                response = _format_explorer_prediction(
+                    prediction,
+                    worktree=self.context.worktree.path,
+                )
+                response = _ground_evidence_response(
+                    role=self.name,
+                    response=response,
+                    evidence=evidence,
+                )
+            elif self.name == "planner":
+                response = _format_planner_prediction(
+                    prediction,
+                    worktree=self.context.worktree.path,
+                )
+            else:
+                raise RuntimeError(f"Unsupported DSPy evidence role: {self.name}")
+            metadata["status"] = "success"
+            return response
+        except Exception as exc:
             status = "failed"
+            metadata.update(status="error", error_type=type(exc).__name__)
             raise
         finally:
+            if self.state is not None and self.run_id is not None:
+                self.state.add_model_metrics(
+                    self.run_id,
+                    route=self.model_route,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    duration_ms=(time.perf_counter() - started) * 1000,
+                    metadata=metadata,
+                )
             if self.state is not None and step_id is not None:
                 self.state.complete_step(step_id, status=status)
 
@@ -345,20 +537,36 @@ def _build_agent(
         model_route=model_route,
     )
     if role in {"explorer", "planner"}:
+        from .dspy_lm import build_dspy_lm
+        from .dspy_programs.explorer import run_explorer_program
+        from .dspy_programs.planner import run_planner_program
+
+        program_runner = (
+            run_explorer_program if role == "explorer" else run_planner_program
+        )
+        program_name = "ExplorerProgram" if role == "explorer" else "PlannerProgram"
+
+        def lm_factory() -> Any:
+            route = models.routes[model_route]
+            return build_dspy_lm(
+                model_route,
+                api_base=models.api_base,
+                api_key=models.api_key,
+                max_tokens=route.max_tokens,
+            )
+
         return ReadOnlyEvidenceAgent(
             name=role,
             description=description,
             activate_skill=activate,
             context=role_context,
-            model=AuditedModel(
-                models.build(model_route),
-                route=model_route,
-                state=state,
-                run_id=run_id,
-                usage_budget=usage_budget,
-            ),
+            model_route=model_route,
+            lm_factory=lm_factory,
+            program_runner=program_runner,
+            program_name=program_name,
             state=state,
             run_id=run_id,
+            usage_budget=usage_budget,
         )
     if role == "reviewer":
         return ReadOnlyReviewAgent(

@@ -141,8 +141,14 @@ def structured_output_probe(url: str, model: str, attempts: int) -> None:
             raise RuntimeError(f"Structured-output path failed on attempt {attempt}")
 
 
-def dspy_reviewer_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
-    """Return unique audited DSPy reviewer backend markers."""
+def dspy_role_backends(
+    model_metrics: list[dict[str, Any]],
+    *,
+    route: str,
+    source: str,
+    program: str,
+) -> list[str]:
+    """Return unique audited DSPy backend markers for one fixed role."""
     backends: set[str] = set()
     for metric in model_metrics:
         metadata = metric.get("metadata")
@@ -153,13 +159,43 @@ def dspy_reviewer_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
         except json.JSONDecodeError:
             continue
         if (
-            metric.get("route") == "local-review"
-            and parsed_metadata.get("source") == "dspy-reviewer"
-            and parsed_metadata.get("program") == "ReviewerProgram"
+            metric.get("route") == route
+            and parsed_metadata.get("source") == source
+            and parsed_metadata.get("program") == program
             and parsed_metadata.get("adapter") == "JSONAdapter"
         ):
-            backends.add("ReviewerProgram/JSONAdapter")
+            backends.add(f"{program}/JSONAdapter")
     return sorted(backends)
+
+
+def dspy_explorer_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
+    """Return unique audited DSPy explorer backend markers."""
+    return dspy_role_backends(
+        model_metrics,
+        route="local-plan",
+        source="dspy-explorer",
+        program="ExplorerProgram",
+    )
+
+
+def dspy_planner_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
+    """Return unique audited DSPy planner backend markers."""
+    return dspy_role_backends(
+        model_metrics,
+        route="local-plan",
+        source="dspy-planner",
+        program="PlannerProgram",
+    )
+
+
+def dspy_reviewer_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
+    """Return unique audited DSPy reviewer backend markers."""
+    return dspy_role_backends(
+        model_metrics,
+        route="local-review",
+        source="dspy-reviewer",
+        program="ReviewerProgram",
+    )
 
 
 def check_skills() -> None:
@@ -286,6 +322,8 @@ def main() -> int:
         if call["status"] == "error"
     ]
     routes = sorted({metric["route"] for metric in details["model_metrics"]})
+    explorer_backends = dspy_explorer_backends(details["model_metrics"])
+    planner_backends = dspy_planner_backends(details["model_metrics"])
     reviewer_backends = dspy_reviewer_backends(details["model_metrics"])
     worktree_value = details.get("worktree")
     worktree = Path(worktree_value) if worktree_value else None
@@ -305,6 +343,8 @@ def main() -> int:
         and editor_calls[0]["status"] == "success"
         and not failed_tools
         and routes == ["local-fast", "local-plan", "local-review"]
+        and explorer_backends == ["ExplorerProgram/JSONAdapter"]
+        and planner_backends == ["PlannerProgram/JSONAdapter"]
         and reviewer_backends == ["ReviewerProgram/JSONAdapter"]
         and changed == [EXPECTED_FILE]
         and TARGET_SENTINEL in edited
@@ -333,6 +373,8 @@ def main() -> int:
             for result in details["verification"]
         ],
         "model_routes": routes,
+        "explorer_backends": explorer_backends,
+        "planner_backends": planner_backends,
         "reviewer_backends": reviewer_backends,
         "changed_files": changed,
         "report": str(report_path),

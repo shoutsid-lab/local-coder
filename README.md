@@ -10,8 +10,8 @@ machine used to build this repository.
   `local-review`.
 - **smolagents CodeAgent** coordinates managed explorer, planner, implementer,
   repairer, and reviewer agents.
-- **DSPy** now provides the typed reviewer program behind the existing read-only
-  review adapter, routed through `local-review`.
+- **DSPy** provides typed explorer, planner, and reviewer programs behind the
+  existing read-only adapters, routed through `local-plan` and `local-review`.
 - A **validated native editor** converts narrow instructions into strict exact edits.
 - **Git worktrees** isolate every agentic run.
 - **SQLite** records runs, agents, tool calls, artifacts, verification, and metrics.
@@ -144,8 +144,8 @@ make live-e2e
 The target runs the static verification gates, skill-package checks, all three
 LiteLLM route probes, constrained-output probes through llama.cpp and LiteLLM,
 and one isolated real editing run against `profiles/live-e2e-canary.txt`. The
-strict result also requires the semantic review metric to identify the
-`ReviewerProgram` DSPy backend. A successful canary worktree is removed
+strict result also requires audited DSPy backend markers for `ExplorerProgram`,
+`PlannerProgram`, and `ReviewerProgram`. A successful canary worktree is removed
 automatically; failures are preserved for inspection. The compact shareable result is written to
 `.local-coder/live-e2e/latest-summary.json`.
 

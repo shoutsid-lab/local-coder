@@ -796,23 +796,101 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
     assert bundle.manager.planning_interval is None
 
     explorer = bundle.managed[0]
+
+    def explorer_usage() -> dict[str, dict[str, int]]:
+        return {
+            "openai/local-plan": {
+                "prompt_tokens": 11,
+                "completion_tokens": 7,
+            }
+        }
+
+    explorer_prediction = SimpleNamespace(
+        findings=["README.md defines the project overview."],
+        relevant_files=["README.md"],
+        constraints=["Keep the existing architecture links intact."],
+        unresolved_questions=[],
+        get_lm_usage=explorer_usage,
+    )
     with patch.object(
-        explorer.model,
-        "generate",
-        return_value=SimpleNamespace(content="evidence summary"),
-    ) as generate:
+        explorer,
+        "program_runner",
+        return_value=explorer_prediction,
+    ) as run_program:
         assert explorer("Inspect README.md", {"request": "context"}) == (
-            "evidence summary"
+            "Read-only findings:\n"
+            "- README.md defines the project overview.\n\n"
+            "Relevant files:\n- README.md\n\n"
+            "Constraints:\n- Keep the existing architecture links intact."
         )
     assert activate.call_args.args == ("explore-repository",)
-    messages = generate.call_args.args[0]
-    assert "You have no tools" in messages[0]["content"]
-    assert "# local-coder" in messages[1]["content"]
-    assert generate.call_args.kwargs["tools_to_call_from"] is None
+    assert "# local-coder" in run_program.call_args.kwargs["repository_evidence"][0]
+    assert run_program.call_args.kwargs["delegated_task"] == "Inspect README.md"
     details = store.run_details(run_id)
     assert details is not None
     assert details["tool_calls"][0]["agent_role"] == "explorer"
     assert details["tool_calls"][0]["tool_name"] == "read_file"
+    explorer_metric = details["model_metrics"][-1]
+    assert explorer_metric["route"] == "local-plan"
+    assert explorer_metric["prompt_tokens"] == 11
+    assert explorer_metric["completion_tokens"] == 7
+    assert json.loads(explorer_metric["metadata"]) == {
+        "source": "dspy-explorer",
+        "program": "ExplorerProgram",
+        "adapter": "JSONAdapter",
+        "status": "success",
+    }
+
+    planner = bundle.managed[1]
+
+    def planner_usage() -> dict[str, dict[str, int]]:
+        return {
+            "openai/local-plan": {
+                "prompt_tokens": 13,
+                "completion_tokens": 9,
+            }
+        }
+
+    planner_prediction = SimpleNamespace(
+        instruction=(
+            "Replace the exact existing sentence in README.md with the requested "
+            "sentence."
+        ),
+        editable_files=["README.md"],
+        acceptance_criteria=[
+            "README.md contains the requested sentence exactly once.",
+            "make verify passes and the diff contains no unrelated changes.",
+        ],
+        depends_on=[],
+        get_lm_usage=planner_usage,
+    )
+    with patch.object(
+        planner,
+        "program_runner",
+        return_value=planner_prediction,
+    ) as run_planner:
+        planner_result = planner("Plan the README.md replacement")
+    assert planner_result == (
+        "Atomic instruction: Replace the exact existing sentence in README.md "
+        "with the requested sentence.\n\n"
+        "Editable files:\n- README.md\n\n"
+        "Acceptance criteria:\n"
+        "- README.md contains the requested sentence exactly once.\n"
+        "- make verify passes and the diff contains no unrelated changes.\n\n"
+        "Depends on: none"
+    )
+    assert run_planner.call_args.kwargs["delegated_task"] == (
+        "Plan the README.md replacement"
+    )
+    details = store.run_details(run_id)
+    assert details is not None
+    planner_metric = details["model_metrics"][-1]
+    assert json.loads(planner_metric["metadata"]) == {
+        "source": "dspy-planner",
+        "program": "PlannerProgram",
+        "adapter": "JSONAdapter",
+        "status": "success",
+    }
 
     implementer = bundle.managed[2]
 
@@ -839,6 +917,7 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
     assert implementer.instructions.startswith("# Atomic Implementation")
     assert [call.args for call in activate.call_args_list] == [
         ("explore-repository",),
+        ("plan-change",),
         ("atomic-implementation",),
     ]
     activation_patcher.stop()
@@ -854,12 +933,19 @@ def test_failed_skill_activation_is_audited_as_failed(tmp_path: Path) -> None:
         repository=tmp_path,
         base_branch="main",
     )
+
+    def fail_activation() -> None:
+        raise ValueError("invalid skill")
+
     agent = ReadOnlyEvidenceAgent(
         name="explorer",
         description="Read-only evidence",
-        activate_skill=lambda: (_ for _ in ()).throw(ValueError("invalid skill")),
+        activate_skill=fail_activation,
         context=SimpleNamespace(),
-        model=SimpleNamespace(),
+        model_route="local-plan",
+        lm_factory=lambda: SimpleNamespace(),
+        program_runner=lambda **_: SimpleNamespace(),
+        program_name="ExplorerProgram",
         state=store,
         run_id=run_id,
     )
@@ -1622,3 +1708,95 @@ def test_dspy_reviewer_cannot_pass_with_reported_issues() -> None:
             verification_output="Verification: PASS",
             reviewer_runner=runner,
         )
+
+
+def test_dspy_explorer_prediction_rejects_missing_repository_path(
+    tmp_path: Path,
+) -> None:
+    from runtime.agents import _format_explorer_prediction
+
+    prediction = SimpleNamespace(
+        findings=["A relevant file was identified."],
+        relevant_files=["missing.py"],
+        constraints=[],
+        unresolved_questions=[],
+    )
+
+    with pytest.raises(RuntimeError, match="references a missing file"):
+        _format_explorer_prediction(prediction, worktree=tmp_path)
+
+
+def test_dspy_planner_prediction_rejects_more_than_two_editable_files(
+    tmp_path: Path,
+) -> None:
+    from runtime.agents import _format_planner_prediction
+
+    for name in ("one.py", "two.py", "three.py"):
+        (tmp_path / name).write_text("pass\n", encoding="utf-8")
+    prediction = SimpleNamespace(
+        instruction="Update three files.",
+        editable_files=["one.py", "two.py", "three.py"],
+        acceptance_criteria=["Run make verify."],
+        depends_on=[],
+    )
+
+    with pytest.raises(RuntimeError, match="planner editable_files"):
+        _format_planner_prediction(prediction, worktree=tmp_path)
+
+
+def test_dspy_evidence_failure_is_audited_without_model_prose(
+    tmp_path: Path,
+) -> None:
+    from runtime.agents import ReadOnlyEvidenceAgent
+
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    (repository / "README.md").write_text("baseline\n", encoding="utf-8")
+    task_file = repository / "TASK.md"
+    task_file.write_text("Inspect README.md.\n", encoding="utf-8")
+    store = StateStore(tmp_path / "agent.db")
+    run_id = store.create_run(
+        task="Inspect README.md",
+        mode="agentic",
+        repository=repository,
+        base_branch="main",
+    )
+    context = ToolContext(
+        root=repository,
+        worktree=Worktree(repository, "agent/test", "main"),
+        run_id=run_id,
+        state=store,
+        task_file=task_file,
+        agent_role="explorer",
+    )
+
+    def malformed_runner(**_: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            findings=[],
+            relevant_files=["README.md"],
+            constraints=[],
+            unresolved_questions=[],
+        )
+
+    agent = ReadOnlyEvidenceAgent(
+        name="explorer",
+        description="Read-only evidence",
+        activate_skill=lambda: SimpleNamespace(),
+        context=context,
+        model_route="local-plan",
+        lm_factory=lambda: SimpleNamespace(model="openai/local-plan"),
+        program_runner=malformed_runner,
+        program_name="ExplorerProgram",
+        state=store,
+        run_id=run_id,
+    )
+
+    with pytest.raises(RuntimeError, match="explorer findings"):
+        agent("Inspect README.md")
+
+    details = store.run_details(run_id)
+    assert details is not None
+    assert details["steps"][-1]["status"] == "failed"
+    metadata = json.loads(details["model_metrics"][-1]["metadata"])
+    assert metadata["status"] == "error"
+    assert metadata["source"] == "dspy-explorer"

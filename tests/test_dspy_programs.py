@@ -119,3 +119,74 @@ def test_live_e2e_report_accepts_current_summary(
         "passed": False,
         "base_commit": "current-commit",
     }
+
+
+def test_explorer_signature_and_program_contract() -> None:
+    dspy = pytest.importorskip("dspy")
+    from runtime.dspy_programs.explorer import (
+        ExplorerProgram,
+        ExplorerSignature,
+    )
+
+    assert list(ExplorerSignature.input_fields) == [
+        "task",
+        "delegated_task",
+        "repository_evidence",
+    ]
+    assert list(ExplorerSignature.output_fields) == [
+        "findings",
+        "relevant_files",
+        "constraints",
+        "unresolved_questions",
+    ]
+    program = ExplorerProgram()
+    assert isinstance(program.predict, dspy.ChainOfThought)
+
+
+def test_planner_signature_and_program_contract() -> None:
+    dspy = pytest.importorskip("dspy")
+    from runtime.dspy_programs.planner import PlannerProgram, PlannerSignature
+
+    assert list(PlannerSignature.input_fields) == [
+        "task",
+        "delegated_task",
+        "repository_evidence",
+    ]
+    assert list(PlannerSignature.output_fields) == [
+        "instruction",
+        "editable_files",
+        "acceptance_criteria",
+        "depends_on",
+    ]
+    program = PlannerProgram()
+    assert isinstance(program.predict, dspy.ChainOfThought)
+
+
+def test_live_e2e_requires_all_read_only_dspy_backend_markers() -> None:
+    from runtime.live_e2e import (
+        dspy_explorer_backends,
+        dspy_planner_backends,
+        dspy_reviewer_backends,
+    )
+
+    metrics = [
+        {
+            "route": "local-plan",
+            "metadata": '{"source":"dspy-explorer","program":'
+            '"ExplorerProgram","adapter":"JSONAdapter"}',
+        },
+        {
+            "route": "local-plan",
+            "metadata": '{"source":"dspy-planner","program":'
+            '"PlannerProgram","adapter":"JSONAdapter"}',
+        },
+        {
+            "route": "local-review",
+            "metadata": '{"source":"dspy-reviewer","program":'
+            '"ReviewerProgram","adapter":"JSONAdapter"}',
+        },
+    ]
+
+    assert dspy_explorer_backends(metrics) == ["ExplorerProgram/JSONAdapter"]
+    assert dspy_planner_backends(metrics) == ["PlannerProgram/JSONAdapter"]
+    assert dspy_reviewer_backends(metrics) == ["ReviewerProgram/JSONAdapter"]

@@ -7,6 +7,8 @@ from pathlib import Path
 
 from .agents import build_agent_bundle
 from .dspy_lm import build_dspy_lm
+from .dspy_programs.explorer import ExplorerProgram
+from .dspy_programs.planner import PlannerProgram
 from .dspy_programs.reviewer import ReviewerProgram
 from .models import ModelRegistry
 from .skills_loader import discover_skills
@@ -39,7 +41,11 @@ def main() -> int:
             task_file=task_file,
             agent_role="orchestrator",
         )
+        explorer_lm = build_dspy_lm("local-plan")
+        planner_lm = build_dspy_lm("local-plan")
         reviewer_lm = build_dspy_lm("local-review")
+        explorer_program = ExplorerProgram()
+        planner_program = PlannerProgram()
         reviewer_program = ReviewerProgram()
         bundle = build_agent_bundle(
             skills=discover_skills(root / ".local-coder" / "skills"),
@@ -53,13 +59,28 @@ def main() -> int:
     expected = ["explorer", "planner", "implementer", "repairer", "reviewer"]
     if names != expected:
         raise RuntimeError(f"Unexpected managed-agent order: {names}")
+    if explorer_lm.model != "openai/local-plan":
+        raise RuntimeError(f"Unexpected DSPy explorer route: {explorer_lm.model}")
+    if planner_lm.model != "openai/local-plan":
+        raise RuntimeError(f"Unexpected DSPy planner route: {planner_lm.model}")
     if reviewer_lm.model != "openai/local-review":
         raise RuntimeError(f"Unexpected DSPy reviewer route: {reviewer_lm.model}")
+    if bundle.managed[0].program_name != "ExplorerProgram":
+        raise RuntimeError("Explorer is not bound to the DSPy explorer program.")
+    if bundle.managed[1].program_name != "PlannerProgram":
+        raise RuntimeError("Planner is not bound to the DSPy planner program.")
     print("Agent hierarchy: OK")
     print(f"Manager: {bundle.manager.__class__.__name__}")
     print(
         f"Managed agents: {', '.join(names)} "
         "(read-only evidence/review adapters and CodeAgent workers)"
+    )
+    print(
+        f"DSPy explorer: {explorer_program.__class__.__name__} "
+        f"-> {explorer_lm.model}"
+    )
+    print(
+        f"DSPy planner: {planner_program.__class__.__name__} " f"-> {planner_lm.model}"
     )
     print(
         f"DSPy reviewer: {reviewer_program.__class__.__name__} "
