@@ -133,36 +133,24 @@ run `make route-probe ROUTE=<alias> MODE=exact` or `MODE=reasoning` independentl
 allowance, while the separate capability probe fails closed unless a bounded reasoning
 phase is followed by usable final content.
 
-### F2. Add route-specific reasoning profiles and budgets
+### F2. Add route-specific reasoning profiles and budgets — complete
 
-Extend route configuration without making one global generation policy serve every
-model.
+**Delivered:** `runtime/route_profiles.py` is the typed source for logical and provider
+aliases, reasoning mode, bounded reasoning/final allowances, sampling, timeout, retries,
+history preservation, and model-switch requirements. smolagents and DSPy now consume the
+same profiles.
 
-A reasoning-capable route profile must be able to declare:
+`local-reason` is additive and operator-managed. The existing `local-fast`, `local-plan`,
+and `local-review` assignments are unchanged, and no default command requires a second
+model service. Bounded examples cover exact probing, planner, reviewer, and diagnostic
+work. Provider-reported completion usage continues to include reasoning tokens.
 
-- logical route name;
-- llama.cpp/LiteLLM model alias;
-- reasoning mode: `off`, `auto`, or `on`;
-- bounded reasoning and final-completion allowances;
-- temperature, top-p, top-k, and repetition penalty;
-- timeout and retry policy;
-- whether reasoning history preservation is required; and
-- whether the route requires an operator-managed model switch.
+**Verification:** `make route-profile-check` freezes policy validation and both adapter
+paths. `litellm-config.yaml` exposes `local-reason` without repointing any current role.
 
-Introduce `local-reason` as an additive optional route. Do not repoint `local-plan` or
-`local-review` until qualification evidence exists. Token and call budgets must count all
-provider-reported completion tokens, including tokens spent before the final answer.
-
-Deliver profile examples for:
-
-- exact probes with reasoning disabled;
-- bounded planner reasoning;
-- bounded reviewer reasoning; and
-- long-form diagnostic evaluation with an explicit larger allowance.
-
-**Exit criteria:** each route can carry its own reasoning and sampling policy, while the
-three existing routes remain backward compatible and the default local loop starts with
-no new service requirement.
+**Exit criteria met:** every route carries explicit generation policy, invalid or
+unbounded combinations fail before a request, and the current local loop remains
+backward compatible.
 
 ### F3. Qualify Qwythos for planner and reviewer work
 
@@ -289,8 +277,8 @@ boundaries are fixed by this roadmap.
 
 - **Phase 0 — Response contract (F0):** normalize reasoning and final content separately
   and retain the observed failure as a deterministic regression test.
-- **Phase 1 — Probe and route policy (F1–F2):** F1 exact and reasoning probes are
-  complete; F2 adds route-specific budget tests without changing current routes.
+- **Phase 1 — Probe and route policy (F1–F2): complete.** Exact and reasoning probes
+  use bounded policy, and additive route profiles do not change current role assignments.
 - **Phase 2 — Model qualification (F3):** decide planner and reviewer suitability from
   frozen replay, independent holdout, and resource evidence.
 - **Phase 3 — On-demand lifecycle (F4):** switch fast and reasoning profiles serially

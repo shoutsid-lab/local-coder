@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .model_response import ROUTE_OK, normalize_model_response, normalize_provider_error
+from .route_profiles import REASONING_PROFILE_EXAMPLES
 from .state import StateStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,8 +33,8 @@ EXPECTED_SKILLS = [
     "test-and-repair",
 ]
 
-EXACT_PROBE_MAX_TOKENS = 64
-EXACT_PROBE_THINKING_BUDGET = 0
+EXACT_PROBE_MAX_TOKENS = REASONING_PROFILE_EXAMPLES["exact-probe"].max_tokens
+EXACT_PROBE_THINKING_BUDGET = REASONING_PROFILE_EXAMPLES["exact-probe"].reasoning_tokens
 REASONING_PROBE_MAX_TOKENS = 256
 REASONING_PROBE_THINKING_BUDGET = 128
 

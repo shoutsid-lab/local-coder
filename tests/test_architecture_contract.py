@@ -13,6 +13,7 @@ def test_logical_model_routes_remain_stable() -> None:
         "local-fast",
         "local-plan",
         "local-review",
+        "local-reason",
     }
 
 

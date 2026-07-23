@@ -1599,6 +1599,7 @@ def test_model_registry_exposes_role_aliases() -> None:
         "local-fast",
         "local-plan",
         "local-review",
+        "local-reason",
     }
 
 

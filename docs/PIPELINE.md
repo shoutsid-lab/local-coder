@@ -223,3 +223,28 @@ Set `LIVE_E2E_REASONING_ROUTE=<alias>` to add the optional reasoning probe witho
 the default route set. A reasoning-only response stopped by `finish_reason=length` fails as
 `reasoning_only_truncated`; if that occurs during an exact probe, verify the model template
 honors the per-request controls before increasing its token ceiling.
+
+## Route-specific generation profiles
+
+Generation policy is defined in `runtime/route_profiles.py`; it is not inferred from a
+role name or applied as one global default. The existing `local-fast`, `local-plan`, and
+`local-review` aliases remain assigned to the current local coding model with reasoning
+disabled. The optional `local-reason` alias is additive and requires an operator-managed
+model switch before use.
+
+| Profile | Reasoning | Total completion | Reasoning / final | Purpose |
+|---|---:|---:|---:|---|
+| `local-fast` | off | 2048 | 0 / 2048 | implementation and repair |
+| `local-plan` | off | 3072 | 0 / 3072 | current explorer and planner |
+| `local-review` | off | 2048 | 0 / 2048 | current reviewer |
+| `local-reason` | on | 2048 | 1024 / 1024 | optional bounded planner candidate |
+
+The reasoning route starts with temperature `0.6`, top-p `0.95`, top-k `20`, repetition
+penalty `1.05`, a 300-second timeout, no provider retry, no reasoning-history
+preservation, and an explicit model-switch requirement. These are qualification inputs,
+not proof that the route is suitable or a new default.
+
+Additional bounded examples cover exact probing, reviewer work, and long-form diagnostics.
+All provider-reported completion tokens remain part of the existing completion-token
+budget, including tokens consumed before final content. Run `make route-profile-check` to
+verify profile validation and adapter wiring without starting any model service.

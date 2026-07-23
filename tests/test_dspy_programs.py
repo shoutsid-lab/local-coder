@@ -25,14 +25,23 @@ def test_dspy_lm_factory_uses_existing_litellm_alias() -> None:
                 "model_type": "chat",
                 "api_base": "http://127.0.0.1:4000/v1",
                 "api_key": "local",
-                "temperature": 0,
+                "temperature": 0.0,
                 "max_tokens": 2048,
+                "extra_body": {
+                    "chat_template_kwargs": {"enable_thinking": False},
+                    "thinking_budget_tokens": 0,
+                },
                 "cache": False,
                 "num_retries": 0,
             },
         )
     ]
-    assert DSPY_ROUTES == {"local-fast", "local-plan", "local-review"}
+    assert DSPY_ROUTES == {
+        "local-fast",
+        "local-plan",
+        "local-review",
+        "local-reason",
+    }
 
 
 def test_dspy_lm_factory_applies_explicit_timeout() -> None:

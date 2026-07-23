@@ -16,3 +16,11 @@ model_list:
       model: openai/local-coder
       api_base: http://127.0.0.1:8080/v1
       api_key: local-no-key
+
+  # Optional reasoning route. It is inert until an operator starts a server whose
+  # model alias is local-reason; no existing role points to this route by default.
+  - model_name: local-reason
+    litellm_params:
+      model: openai/local-reason
+      api_base: http://127.0.0.1:8080/v1
+      api_key: local-no-key

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from .route_profiles import DEFAULT_ROUTE_PROFILES, get_route_profile
+
 LITELLM_API_BASE = "http://127.0.0.1:4000/v1"
 LITELLM_API_KEY = "local"
-DSPY_ROUTES = frozenset({"local-fast", "local-plan", "local-review"})
+DSPY_ROUTES = frozenset(DEFAULT_ROUTE_PROFILES)
 
 
 def build_dspy_lm(
@@ -14,14 +16,16 @@ def build_dspy_lm(
     *,
     api_base: str = LITELLM_API_BASE,
     api_key: str = LITELLM_API_KEY,
-    max_tokens: int = 2048,
+    max_tokens: int | None = None,
     timeout: int | None = None,
     dspy_module: Any | None = None,
 ) -> Any:
     """Return a deterministic DSPy LM for one trusted LiteLLM alias."""
     if route not in DSPY_ROUTES:
         raise ValueError(f"Unsupported DSPy route: {route}")
-    if max_tokens <= 0:
+    profile = get_route_profile(route)
+    effective_max_tokens = profile.max_tokens if max_tokens is None else max_tokens
+    if effective_max_tokens <= 0:
         raise ValueError("max_tokens must be positive")
     if timeout is not None and timeout <= 0:
         raise ValueError("timeout must be positive")
@@ -37,11 +41,12 @@ def build_dspy_lm(
         "model_type": "chat",
         "api_base": api_base,
         "api_key": api_key,
-        "temperature": 0,
-        "max_tokens": max_tokens,
+        **profile.request_kwargs(),
+        "max_tokens": effective_max_tokens,
         "cache": False,
-        "num_retries": 0,
+        "num_retries": profile.retries,
     }
-    if timeout is not None:
-        options["timeout"] = timeout
+    effective_timeout = profile.timeout_seconds if timeout is None else timeout
+    if timeout is not None or effective_timeout != 180:
+        options["timeout"] = effective_timeout
     return dspy_module.LM(f"openai/{route}", **options)

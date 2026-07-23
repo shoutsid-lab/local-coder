@@ -92,3 +92,12 @@ allowance. The optional reasoning probe enables a 128-token thinking budget with
 final answer. Focused tests preserve the observed reasoning-only truncation failure, detect
 ignored exact-probe controls, and confirm that full reasoning text is never emitted in the
 probe report.
+
+## 2026-07-23 — F2 additive route profiles
+
+F2 added a single typed route-policy source shared by smolagents and DSPy. The existing
+three routes retain their role assignments and local-model dependency, while
+`local-reason` is present only as an optional operator-managed alias. Tests freeze
+reasoning mode, separate reasoning/final budgets, sampling values, timeouts, retry policy,
+history preservation, switch requirements, and provider kwargs. No planner or reviewer
+was repointed and no second model service became required by the default loop.

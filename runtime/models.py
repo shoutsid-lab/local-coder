@@ -11,16 +11,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from .model_response import normalize_model_response, normalize_provider_error
+from .route_profiles import DEFAULT_ROUTE_PROFILES, RouteProfile
 from .state import StateStore
 
-
-@dataclass(frozen=True)
-class ModelRoute:
-    """A logical role routed by LiteLLM."""
-
-    alias: str
-    max_tokens: int = 2048
-    temperature: float = 0.0
+ModelRoute = RouteProfile
 
 
 class ModelBudgetExceeded(RuntimeError):
@@ -126,11 +120,7 @@ class ModelRegistry:
     ) -> None:
         self.api_base = api_base
         self.api_key = api_key
-        self.routes = {
-            "local-fast": ModelRoute("local-fast", max_tokens=2048),
-            "local-plan": ModelRoute("local-plan", max_tokens=3072),
-            "local-review": ModelRoute("local-review", max_tokens=2048),
-        }
+        self.routes = dict(DEFAULT_ROUTE_PROFILES)
 
     def build(self, alias: str) -> Any:
         """Build a smolagents LiteLLMModel lazily."""
@@ -147,8 +137,7 @@ class ModelRegistry:
             model_id=f"openai/{route.alias}",
             api_base=self.api_base,
             api_key=self.api_key,
-            temperature=route.temperature,
-            max_tokens=route.max_tokens,
+            **route.request_kwargs(),
         )
 
     def litellm_available(self, timeout: float = 2.0) -> bool:
