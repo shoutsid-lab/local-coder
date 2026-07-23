@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import dspy
 
+from runtime.prompt_activation import load_active_prompt_state
+
 from .implementer import AtomicEditSpec
 
 
@@ -83,6 +85,7 @@ def run_repairer_program(
 ) -> dspy.Prediction:
     """Run the repairer with typed JSON decoding and usage tracking."""
     program = RepairerProgram()
+    load_active_prompt_state(program, "repairer")
     with dspy.context(
         lm=lm,
         adapter=dspy.JSONAdapter(),

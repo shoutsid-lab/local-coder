@@ -1,8 +1,8 @@
 # GEPA Prompt Campaigns
 
 C2.1 makes an offline GEPA result a first-class campaign candidate. C2.2 adds
-trusted paired prompt evaluation while preserving the same separate decision and
-activation boundaries.
+trusted paired prompt evaluation. Track D adds separate authorized activation, rollback,
+and unattended lifecycle completion without changing optimization behavior.
 
 ## Boundary
 
@@ -29,7 +29,8 @@ or promotion action.
 
 Paired prompt evaluation and scorecard lineage are implemented. Evaluation archives the
 inert DSPy program state and trusted evaluator identity but performs no activation.
-`record-decision` remains separate, and activation remains a later campaign slice.
+Deployment remains separate: only a promoted evaluation from a cleanly closed campaign may
+be atomically activated, and every activation or rollback is archived independently.
 
 ## Create a campaign
 
@@ -126,13 +127,26 @@ oracle outputs remain redacted from stdout. A deferred campaign binds to its fir
 external holdout identity exactly once; subsequent holdout or evaluator mismatches fail
 closed.
 
-An eligible result may then receive an explicit decision without activating the prompt:
+An eligible result may receive an explicit decision without activating the prompt:
 
 ```bash
 ./local-coder.py record-decision EVALUATION_ID promote \
   --actor trusted-reviewer \
   --rationale 'All predeclared prompt gates passed.'
 ```
+
+For unattended completion after candidate construction, use:
+
+```bash
+scripts/run-prompt-lifecycle.sh \
+  CAMPAIGN_ID BUILD_ID /path/manifest.json /path/oracle.json \
+  "Chief Scoop Officer" --activate
+```
+
+The script runs or reuses evaluation, derives `promote` or `reject` from the frozen
+scorecard, closes and audits the campaign, and activates only when promotion is valid.
+See [`PROMPT_DEPLOYMENT.md`](PROMPT_DEPLOYMENT.md) for explicit activation, inspection,
+and rollback commands.
 
 ## Fail-closed behavior
 

@@ -65,7 +65,11 @@ def _artifact_valid(artifact: dict[str, Any]) -> bool:
         return parsed is not None and stable_hash(parsed) == content_hash
     if kind == "prompt_program_state":
         return hash_text(content) == content_hash
-    if kind == "prompt_evaluation_identity":
+    if kind in {
+        "prompt_evaluation_identity",
+        "prompt_activation",
+        "prompt_rollback",
+    }:
         parsed = _json_object(content)
         return parsed is not None and stable_hash(parsed) == content_hash
     return False
@@ -308,6 +312,19 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
             if campaign_kind == "prompt-optimization"
             else ("candidate_patch", "candidate_trajectory")
         )
+        deployment_artifacts = [
+            artifact
+            for kind in ("prompt_activation", "prompt_rollback")
+            for artifact in artifacts_by_kind.get(kind, [])
+        ]
+        deployment_invalid = any(
+            not _artifact_valid(artifact)
+            or (
+                (_json_object(artifact.get("content")) or {}).get("evaluation_id")
+                != evaluation_id
+            )
+            for artifact in deployment_artifacts
+        )
         if any(
             len(artifacts_by_kind.get(kind, [])) != 1 for kind in required_artifacts
         ):
@@ -315,6 +332,8 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
         elif not all(
             _artifact_valid(artifacts_by_kind[kind][0]) for kind in required_artifacts
         ):
+            artifact_failures.append(evaluation_id)
+        elif deployment_invalid:
             artifact_failures.append(evaluation_id)
         elif campaign_kind == "prompt-optimization":
             identity_artifact = artifacts_by_kind["prompt_evaluation_identity"][0]

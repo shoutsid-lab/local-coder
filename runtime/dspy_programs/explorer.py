@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import dspy
 
+from runtime.prompt_activation import load_active_prompt_state
+
 
 class ExplorerSignature(dspy.Signature):
     """Turn supplied repository evidence into grounded read-only findings.
@@ -67,6 +69,7 @@ def run_explorer_program(
 ) -> dspy.Prediction:
     """Run the explorer with typed JSON decoding and per-call usage tracking."""
     program = ExplorerProgram()
+    load_active_prompt_state(program, "explorer")
     with dspy.context(
         lm=lm,
         adapter=dspy.JSONAdapter(),

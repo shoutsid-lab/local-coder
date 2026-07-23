@@ -104,7 +104,40 @@ Each signature is wrapped in a small `dspy.Module` (e.g. `dspy.ChainOfThought` o
 
 ---
 
-## 4. Phased delivery plan
+## 4. Track D — Prompt deployment and unattended lifecycle
+
+**Goal:** complete the operational path after evaluation without spending more optimization
+compute. A prompt remains inert until a separate operator-controlled deployment action.
+
+### D1. Promotion-bound activation
+- Require a completed paired evaluation, all promotion gates, a recorded `promote` decision,
+  and a `completed_clean` campaign before activation.
+- Copy the exact hash-verified DSPy state into an operator-owned history store and atomically
+  replace the active role pointer.
+- Load active state only inside the runtime role adapters; missing state keeps the code
+  baseline, while malformed or hash-mismatched state fails closed.
+
+### D2. Rollback and lineage
+- Preserve every activated program state under `.local-coder/prompt-programs/history/`.
+- Roll back atomically to the previous authorized activation, or to the code baseline when
+  no prior activation exists.
+- Archive activation and rollback actions as separate hash-bound evaluation artifacts; the
+  candidate artifact itself remains inert and unchanged.
+
+### D3. One-command lifecycle completion
+- Add a script that runs or reuses paired evaluation, derives the only scorecard-consistent
+  decision, closes and audits the campaign, and optionally activates only an eligible
+  candidate.
+- Retain a complete evidence bundle for valid promotions and valid rejections alike.
+
+**Implemented together:** `runtime/prompt_activation.py`,
+`evaluation/prompt_deployment.py`, `scripts/run-prompt-lifecycle.sh`, explicit activation and
+rollback CLI commands, and `docs/PROMPT_DEPLOYMENT.md`. Prompt optimization quality work can
+continue later without blocking deployment infrastructure.
+
+---
+
+## 5. Phased delivery plan
 
 | Phase | Scope | Exit criteria |
 |---|---|---|
@@ -113,12 +146,13 @@ Each signature is wrapped in a small `dspy.Module` (e.g. `dspy.ChainOfThought` o
 | **2 — DSPy signatures behind adapters** | B1 + B2 + B3, one role at a time (reviewer first — read-only, lowest blast radius; implementer/repairer last — they hold write authority) | Each role's DSPy module produces output that `runtime/editor.py` and the existing verification pipeline accept unmodified; `make agent-smoke` green after each role migrates |
 | **3 — GEPA dataset + offline optimization** | C1, run entirely offline against exported run history, no runtime wiring yet | A `gepa_dataset.py` export from real `.local-coder/state/agent.db` history produces a valid DSPy training/dev/holdout split |
 | **4 — GEPA inside the campaign system** | C2 + C3 | An `optimize-prompts` campaign runs end-to-end through `create-campaign → approve-brief → build-candidate → evaluate → record-decision`, producing an auditable, promotable prompt candidate with no change to the promotion-authority boundary |
+| **5 — Prompt deployment** | D1 + D2 + D3 | A promoted prompt can be atomically activated, inspected, rolled back, and completed through one unattended lifecycle command; rejected candidates never alter runtime behavior |
 
 Each phase is independently revertible: DSPy modules can be swapped back for the current hand-written prompts without touching the editor, worktree, or verification layers, and GEPA campaigns are additive to `docs/RECURSIVE_IMPROVEMENT.md`, not a replacement of the code-candidate path.
 
 ---
 
-## 5. Explicit non-goals
+## 6. Explicit non-goals
 
 - No change to which component may write source (`runtime/editor.py` only, unchanged).
 - No change to the three LiteLLM route names or the requirement to run entirely on the current GTX 1660 Ti / 8 GiB profile for the core `run`/`repair`/`review` path.
@@ -127,7 +161,7 @@ Each phase is independently revertible: DSPy modules can be swapped back for the
   `docs/HANDOFF.md` are trusted planning and completion records; protected-file changes
   remain explicit, reviewable actions rather than candidate-controlled edits.
 
-## 6. Open questions for the primary actor
+## 7. Open questions for the primary actor
 
 1. Should Phase 2's DSPy migration happen role-by-role in separate PRs (safer, matches the "narrowly scoped" convention in `AGENTS.md`) or as one coordinated change?
 2. Should the `optimize-prompts` campaign kind live in the same `evaluation/` module tree as code campaigns, or in a sibling `evaluation/prompt_optimization/` package to keep the protected `evaluation/` contract tests scoped to code evaluation only?

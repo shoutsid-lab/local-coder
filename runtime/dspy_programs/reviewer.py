@@ -6,6 +6,8 @@ from typing import Literal
 
 import dspy
 
+from runtime.prompt_activation import load_active_prompt_state
+
 ReviewVerdict = Literal["pass", "fail", "needs_attention"]
 
 
@@ -84,6 +86,7 @@ def run_reviewer_program(
 ) -> dspy.Prediction:
     """Run the reviewer with JSON-typed decoding and per-call usage tracking."""
     program = ReviewerProgram()
+    load_active_prompt_state(program, "reviewer")
     with dspy.context(
         lm=lm,
         adapter=dspy.JSONAdapter(),

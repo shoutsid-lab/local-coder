@@ -132,7 +132,11 @@ archives paired cases, the candidate program state, and the prompt-evaluator ide
 Source-worktree flags are rejected for this path. Exact holdout case scores, outputs, and
 observation hashes remain redacted from CLI stdout. Older C2.1 prompt campaigns bind the
 prompt-evaluator hash once before their first evaluation; new campaigns freeze it at
-creation. Neither evaluation path activates or promotes its candidate.
+creation. Neither evaluation path activates or promotes its candidate. A separate
+operator command may later activate only a promoted prompt evaluation from a campaign that
+closed cleanly; the exact program state is copied into a hash-verified history store and the
+role pointer is replaced atomically. Rollback restores the previous authorized state or the
+code baseline. See `docs/PROMPT_DEPLOYMENT.md`.
 
 ## 5. Record the authorization decision
 
@@ -146,9 +150,11 @@ creation. Neither evaluation path activates or promotes its candidate.
 ./local-coder.py audit-campaign CAMPAIGN_ID
 ```
 
-Recording `promote` does not alter Git. An authorized actor must independently commit,
-merge, or otherwise promote an accepted candidate. Worktree retention and cleanup remain
-explicit operations.
+Recording `promote` does not alter Git or active prompt state. Source candidates still
+require an independent commit or merge. Prompt candidates require a separate
+`activate-prompt` or `finalize-prompt-campaign --activate` action after a clean close and
+successful audit. Worktree retention, prompt activation, and rollback remain explicit
+operator-controlled operations.
 
 `audit-campaign` opens SQLite read-only and fails closed unless the campaign has one
 approved brief, bounded build lineage, frozen suite/holdout/environment identity, paired

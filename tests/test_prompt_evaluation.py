@@ -22,6 +22,7 @@ from evaluation.prompt_campaign import (
     prompt_candidate_content,
 )
 from evaluation.manifests import load_suite
+from evaluation.prompt_deployment import finalize_prompt_campaign
 from evaluation.prompt_evaluator import (
     PromptEvaluationError,
     build_prompt_scorecard,
@@ -32,6 +33,7 @@ from evaluation.prompt_evaluator import (
 )
 from evaluation.scorecard import Gate, PromotionScorecard
 from evaluation.supervisor import EvaluationBudget, environment_identity
+from runtime.prompt_activation import activate_prompt_candidate
 from runtime.state import StateStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -613,13 +615,26 @@ def test_paired_prompt_evaluation_records_standard_scorecard(
     assert all(result["score"] == "<redacted>" for result in holdout_results)
     assert all(result["observation_hash"] == "<redacted>" for result in holdout_results)
 
-    store.record_promotion_decision(
+    finalization = finalize_prompt_campaign(
+        store,
+        campaign_id,
+        actor="review-model",
+        rationale="All prompt gates passed.",
+        activate=False,
+        repository_root=ROOT,
+    )
+    assert finalization["decision"] == "promote"
+    assert finalization["status"] == "completed_clean"
+    assert finalization["audit"]["passed"] is True
+    activation = activate_prompt_candidate(
+        store,
         evaluation.evaluation_id,
         actor="review-model",
-        decision="promote",
-        rationale="All prompt gates passed.",
+        rationale="Deploy the promoted prompt.",
+        repository_root=ROOT,
+        store_root=tmp_path / "prompt-store",
     )
-    assert store.close_campaign_from_evidence(campaign_id) == "completed_clean"
+    assert activation["role"] == "planner"
     assert audit_campaign(StateStore(store.path, read_only=True), campaign_id).passed
 
     with store.connect() as connection:

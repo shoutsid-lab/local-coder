@@ -24,3 +24,5 @@ htmlcov/
 .local-coder/gepa-runs/
 .local-coder/gepa-collections/
 .local-coder/gepa-campaigns/
+.local-coder/prompt-programs/
+.local-coder/prompt-lifecycle-runs/

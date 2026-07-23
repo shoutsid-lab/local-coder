@@ -229,7 +229,10 @@ promotion. Build outcomes distinguish an accepted `candidate_ready` instruction 
 `candidate_rejected` and `no_improvement`; only the accepted changed candidate may enter
 paired prompt evaluation. That evaluator replays the frozen development split and a
 separately provisioned external `prompt-replay` holdout without activating the program.
+After an eligible scorecard, explicit promotion, clean campaign close, and audit, the
+operator may atomically activate the hash-bound state or roll back to the previous state.
 The report preserves approximate metric-call targets, actual counts, and the hard campaign
 model-call limit. Known DSPy `prefix` deprecations are filtered narrowly while unexpected
-warnings remain visible. See [`docs/GEPA_CAMPAIGNS.md`](docs/GEPA_CAMPAIGNS.md) and
-[`docs/PROMPT_HOLDOUT.md`](docs/PROMPT_HOLDOUT.md).
+warnings remain visible. See [`docs/GEPA_CAMPAIGNS.md`](docs/GEPA_CAMPAIGNS.md),
+[`docs/PROMPT_HOLDOUT.md`](docs/PROMPT_HOLDOUT.md), and
+[`docs/PROMPT_DEPLOYMENT.md`](docs/PROMPT_DEPLOYMENT.md).

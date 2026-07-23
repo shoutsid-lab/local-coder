@@ -1196,6 +1196,100 @@ def handle_record_decision(args: argparse.Namespace) -> int:
     return 0
 
 
+def handle_finalize_prompt_campaign(args: argparse.Namespace) -> int:
+    """Derive the decision, close, audit, and optionally activate a prompt campaign."""
+    from evaluation.prompt_deployment import (
+        PromptDeploymentError,
+        finalize_prompt_campaign,
+    )
+    from runtime.state import StateStore
+
+    try:
+        result = finalize_prompt_campaign(
+            StateStore(args.database.resolve()),
+            args.campaign_id,
+            actor=args.actor,
+            rationale=args.rationale,
+            activate=args.activate,
+            repository_root=ROOT,
+            prompt_store_root=(
+                args.prompt_store.resolve() if args.prompt_store else None
+            ),
+        )
+    except PromptDeploymentError as exc:
+        print(f"Prompt campaign finalization failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0 if result["decision"] == "promote" else 2
+
+
+def handle_activate_prompt(args: argparse.Namespace) -> int:
+    """Activate one explicitly promoted prompt evaluation."""
+    from runtime.prompt_activation import (
+        PromptActivationError,
+        activate_prompt_candidate,
+    )
+    from runtime.state import StateStore
+
+    try:
+        result = activate_prompt_candidate(
+            StateStore(args.database.resolve()),
+            args.evaluation_id,
+            actor=args.actor,
+            rationale=args.rationale,
+            repository_root=ROOT,
+            store_root=(args.prompt_store.resolve() if args.prompt_store else None),
+        )
+    except PromptActivationError as exc:
+        print(f"Prompt activation failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+def handle_rollback_prompt(args: argparse.Namespace) -> int:
+    """Rollback one active prompt to its previous state or code baseline."""
+    from runtime.prompt_activation import (
+        PromptActivationError,
+        rollback_active_prompt,
+    )
+    from runtime.state import StateStore
+
+    try:
+        result = rollback_active_prompt(
+            StateStore(args.database.resolve()),
+            args.role,
+            actor=args.actor,
+            rationale=args.rationale,
+            repository_root=ROOT,
+            store_root=(args.prompt_store.resolve() if args.prompt_store else None),
+        )
+    except PromptActivationError as exc:
+        print(f"Prompt rollback failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+def handle_show_active_prompts(args: argparse.Namespace) -> int:
+    """Show the validated active prompt inventory."""
+    from runtime.prompt_activation import (
+        PromptActivationError,
+        active_prompt_inventory,
+    )
+
+    try:
+        inventory = active_prompt_inventory(
+            repository_root=ROOT,
+            store_root=(args.prompt_store.resolve() if args.prompt_store else None),
+        )
+    except PromptActivationError as exc:
+        print(f"Active prompt inspection failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({"active_prompts": inventory}, indent=2, sort_keys=True))
+    return 0
+
+
 def handle_close_campaign(args: argparse.Namespace) -> int:
     """Close a decided campaign from its stored safety and regression evidence."""
     from runtime.state import StateStore
@@ -1670,6 +1764,53 @@ def build_parser() -> argparse.ArgumentParser:
     close_parser.add_argument("campaign_id")
     close_parser.add_argument("--database", type=Path, default=STATE_PATH)
     close_parser.set_defaults(handler=handle_close_campaign)
+
+    finalize_prompt_parser = subparsers.add_parser(
+        "finalize-prompt-campaign",
+        help=(
+            "Derive the prompt decision, close and audit the campaign, and "
+            "optionally activate an eligible candidate."
+        ),
+    )
+    finalize_prompt_parser.add_argument("campaign_id")
+    finalize_prompt_parser.add_argument("--actor", required=True)
+    finalize_prompt_parser.add_argument("--rationale", required=True)
+    finalize_prompt_parser.add_argument("--activate", action="store_true")
+    finalize_prompt_parser.add_argument("--database", type=Path, default=STATE_PATH)
+    finalize_prompt_parser.add_argument("--prompt-store", type=Path)
+    finalize_prompt_parser.set_defaults(handler=handle_finalize_prompt_campaign)
+
+    activate_prompt_parser = subparsers.add_parser(
+        "activate-prompt",
+        help="Atomically activate one promoted prompt evaluation.",
+    )
+    activate_prompt_parser.add_argument("evaluation_id")
+    activate_prompt_parser.add_argument("--actor", required=True)
+    activate_prompt_parser.add_argument("--rationale", required=True)
+    activate_prompt_parser.add_argument("--database", type=Path, default=STATE_PATH)
+    activate_prompt_parser.add_argument("--prompt-store", type=Path)
+    activate_prompt_parser.set_defaults(handler=handle_activate_prompt)
+
+    rollback_prompt_parser = subparsers.add_parser(
+        "rollback-prompt",
+        help="Restore the previous active prompt or the code baseline.",
+    )
+    rollback_prompt_parser.add_argument(
+        "role",
+        choices=("explorer", "planner", "implementer", "repairer", "reviewer"),
+    )
+    rollback_prompt_parser.add_argument("--actor", required=True)
+    rollback_prompt_parser.add_argument("--rationale", required=True)
+    rollback_prompt_parser.add_argument("--database", type=Path, default=STATE_PATH)
+    rollback_prompt_parser.add_argument("--prompt-store", type=Path)
+    rollback_prompt_parser.set_defaults(handler=handle_rollback_prompt)
+
+    active_prompts_parser = subparsers.add_parser(
+        "show-active-prompts",
+        help="Show hash-verified active DSPy prompt states.",
+    )
+    active_prompts_parser.add_argument("--prompt-store", type=Path)
+    active_prompts_parser.set_defaults(handler=handle_show_active_prompts)
 
     show_campaign_parser = subparsers.add_parser(
         "show-campaign",

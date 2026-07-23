@@ -2,7 +2,7 @@ PYTHON := .venv/bin/python
 PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runtime/*.py runtime/dspy_programs/*.py tests/*.py
 
 .PHONY: health format format-check lint agent-check agent-install agent-smoke handoff-check test verify \
-	metrics review review-cached skills skills-lint gepa-dataset-check gepa-runner-check gepa-experiment-check prompt-campaign-check runs live-e2e live-e2e-report
+	metrics review review-cached skills skills-lint gepa-dataset-check gepa-runner-check gepa-experiment-check prompt-campaign-check prompt-deployment-check runs live-e2e live-e2e-report
 
 health:
 	@curl -fsS http://127.0.0.1:8080/health | jq
@@ -35,7 +35,8 @@ handoff-check: verify agent-smoke
 	@test -f AGENTS.md -a -f ROADMAP.md -a -f docs/HANDOFF.md \
 		-a -f docs/ARCHITECTURE.md \
 		-a -f docs/PIPELINE.md -a -f docs/CONVENTIONS.md \
-		-a -f docs/RECURSIVE_IMPROVEMENT.md
+		-a -f docs/RECURSIVE_IMPROVEMENT.md \
+		-a -f docs/PROMPT_DEPLOYMENT.md
 	@test -z "$$(git status --porcelain)" || (echo "Handoff check failed: working tree is not clean."; git status --short; exit 1)
 
 test:
@@ -74,6 +75,9 @@ gepa-experiment-check:
 prompt-campaign-check:
 	$(PYTHON) -m pytest -q --tb=short \
 		tests/test_prompt_campaign.py tests/test_prompt_evaluation.py
+
+prompt-deployment-check:
+	$(PYTHON) -m pytest -q --tb=short tests/test_prompt_activation.py
 
 runs:
 	$(PYTHON) local-coder.py runs

@@ -5,6 +5,8 @@ from __future__ import annotations
 import dspy
 from pydantic import BaseModel, ConfigDict, Field
 
+from runtime.prompt_activation import load_active_prompt_state
+
 
 class AtomicEditSpec(BaseModel):
     """One exact replacement proposed for an approved existing file."""
@@ -78,6 +80,7 @@ def run_implementer_program(
 ) -> dspy.Prediction:
     """Run the implementer with typed JSON decoding and usage tracking."""
     program = ImplementerProgram()
+    load_active_prompt_state(program, "implementer")
     with dspy.context(
         lm=lm,
         adapter=dspy.JSONAdapter(),

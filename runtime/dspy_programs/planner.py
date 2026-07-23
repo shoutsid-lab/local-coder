@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import dspy
 
+from runtime.prompt_activation import load_active_prompt_state
+
 
 class PlannerSignature(dspy.Signature):
     """Convert supplied repository evidence into one atomic task-plan step.
@@ -66,6 +68,7 @@ def run_planner_program(
 ) -> dspy.Prediction:
     """Run the planner with typed JSON decoding and per-call usage tracking."""
     program = PlannerProgram()
+    load_active_prompt_state(program, "planner")
     with dspy.context(
         lm=lm,
         adapter=dspy.JSONAdapter(),
