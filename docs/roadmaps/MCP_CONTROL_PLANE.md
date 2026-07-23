@@ -222,4 +222,6 @@ When Track E is complete:
 - mark this document complete rather than replacing it with another active plan;
 - record delivered evidence in `docs/HANDOFF.md` and `docs/VALIDATION_HISTORY.md`;
 - update root `ROADMAP.md` to remove Track E from active work; and
-- allocate **Track F** to the next separate programme roadmap.
+- leave Track F to the already allocated
+  [`REASONING_MODEL_ROUTES.md`](REASONING_MODEL_ROUTES.md) programme and allocate
+  **Track G** to the next separate roadmap.

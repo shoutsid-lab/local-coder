@@ -25,8 +25,9 @@
 - Put detailed active programme roadmaps under `docs/roadmaps/` and link them from the
   root roadmap and documentation index.
 - Treat track letters as repository-global, monotonic identifiers. Tracks A–D are retired,
-  the MCP control-plane roadmap owns Track E, and the next separate programme starts at
-  Track F. Never reuse a retired track label.
+  the MCP control-plane roadmap owns Track E, the reasoning-capable model roadmap owns
+  Track F, and the next separate programme starts at Track G. Never reuse a retired or
+  allocated track label.
 - Treat root `R1`, `R2`, and similar labels as queue identifiers, not programme-track
   labels.
 - Every programme roadmap must declare its status, target repository, owned track label,

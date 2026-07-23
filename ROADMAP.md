@@ -38,6 +38,17 @@ internal agent runtime, changing source-write authority, or making the local loo
 on an external service. Tracks A–D are complete and retired; Track E is globally reserved
 for this programme.
 
+## Queued programme roadmap
+
+**Next programme: Track F — reasoning-capable model routes**
+
+The detailed plan lives in
+[`docs/roadmaps/REASONING_MODEL_ROUTES.md`](docs/roadmaps/REASONING_MODEL_ROUTES.md).
+It hardens response contracts for reasoning models, adds a qualified optional
+`local-reason` route, evaluates Qwythos for planner/reviewer use, and introduces bounded
+serial model switching. Track F does not replace the current 3B fast path and does not
+start until Track E completes unless reasoning compatibility blocks active work.
+
 ## R1 — Deployment safety and recovery
 
 **Priority:** queued after Track E unless deployment recovery becomes urgent
@@ -88,18 +99,6 @@ Reduce one-sample model noise without making the local workflow unbounded.
 **Exit criteria:** unstable candidates cannot pass through a single favorable sample, and
 all added inference remains explicitly bounded.
 
-## R4 — Optional reflection capacity
-
-**Priority:** optional
-
-Allow an operator-selected reflection route or stronger external model for offline GEPA
-while preserving the trusted-evaluator boundary.
-
-- Keep the default local route unchanged.
-- Require explicit configuration outside candidate-controlled state.
-- Record provider, route, model identity, token usage, and retry-accounting limits.
-- Never make a cloud dependency mandatory for the local coding loop.
-
 ## R5 — Skills ecosystem work
 
 **Priority:** optional
@@ -110,8 +109,9 @@ while preserving the trusted-evaluator boundary.
 
 ## Permanent constraints
 
-- Keep llama.cpp, LiteLLM, and logical routes `local-fast`, `local-plan`, and
-  `local-review`.
+- Keep llama.cpp, LiteLLM, and the existing logical routes `local-fast`,
+  `local-plan`, and `local-review`; any `local-reason` route must be additive, optional,
+  and qualified before it changes role defaults.
 - Keep the native exact editor as the only agent source-writing boundary.
 - Keep Git worktrees for run isolation and SQLite for audit lineage.
 - Do not add automatic source commit, merge, push, or destructive worktree cleanup.

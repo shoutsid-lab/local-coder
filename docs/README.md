@@ -14,6 +14,9 @@
 - [Repository active queue](../ROADMAP.md) — current priorities and deferred work.
 - [MCP control-plane integration](roadmaps/MCP_CONTROL_PLANE.md) — Track E detailed
   implementation plan for optional trusted-planner MCP tooling.
+- [Reasoning-capable model routes](roadmaps/REASONING_MODEL_ROUTES.md) — Track F
+  plan for reasoning-aware response contracts, Qwythos qualification, and on-demand
+  planner/reviewer routing.
 
 ## Improvement and prompt operations
 
