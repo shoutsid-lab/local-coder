@@ -1,5 +1,8 @@
 # Recursive Improvement Control Plane — Completion Record
 
+**Historical reference:** indexed by [`HISTORY.md`](HISTORY.md); not part of the
+routine required-reading path.
+
 **Status: Complete.** This document records the bounded recursive-improvement control
 plane delivered by the repository. It is a stable baseline, not the active work queue.
 Current forward work starts in [`../ROADMAP.md`](../ROADMAP.md).

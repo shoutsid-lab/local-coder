@@ -60,3 +60,16 @@ The evidence proves bounded exact edits, complete diff inspection, deterministic
 verification, conservative status derivation, frozen campaign identities, auditable
 bounded recursion, and preserved external authorization. It does not prove broad
 autonomous decomposition or safe candidate self-promotion.
+
+## Strategic evidence reset
+
+The prompt campaign and deployment work established prevention and audit guarantees, but
+not a positive capability result: the only live optimized planner candidate was rejected,
+and the original seed corpus was synthetic. The repository therefore froze additional
+GEPA and deployment hardening behind an explicit evidence gate.
+
+Track F now tests an optional reasoning-capable planner/reviewer route, while Track G
+builds a benchmark from real repository tasks and failures. Future roadmap investment is
+to follow measured task outcomes rather than control-plane completeness. Existing
+candidate-neutral authorization remains as integrity protection and future-capability
+insurance, not as a claim that the current 3B model is an active adversary.

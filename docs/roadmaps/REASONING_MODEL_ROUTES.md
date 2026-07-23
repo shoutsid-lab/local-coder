@@ -1,11 +1,10 @@
 # ROADMAP: Reasoning-Capable Model Routes
 
 **Target repository:** `shoutsid-lab/local-coder`
-**Status:** Planned — queued after Track E unless reasoning-route compatibility blocks
-current work
-**Track ledger:** Tracks A–D are complete and retired. Track E belongs to
-[`MCP_CONTROL_PLANE.md`](MCP_CONTROL_PLANE.md). This roadmap claims **Track F**. The next
-separate programme roadmap must start at Track G.
+**Status:** Active — primary capability programme, paired with Track G evidence
+**Track:** F
+**Related programmes:** Track G provides the real-task corpus and comparison evidence.
+Track E MCP integration remains queued behind the shared capability milestone.
 
 ## 0. Why this document exists
 
@@ -31,6 +30,12 @@ This roadmap adds a general reasoning-model contract before introducing any spec
 model. `Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_K_M.gguf` is the first qualification target,
 not a permanent architectural dependency. The existing 3B coding model remains the
 default fast path unless replay evidence justifies an explicit role-level override.
+
+Qualification evidence comes from
+[`REAL_TASK_EVIDENCE.md`](REAL_TASK_EVIDENCE.md), not only synthetic prompt replays. Track
+F may implement response normalization and bounded route profiles before the corpus is
+complete, but it cannot change planner or reviewer defaults until Track G comparison and
+holdout evidence exists.
 
 Constraint mapping:
 
@@ -143,9 +148,10 @@ no new service requirement.
 
 Treat Qwythos as a candidate route, not as a trusted upgrade by model reputation.
 
-Qualification compares `local-reason` with the current planner/reviewer routes on frozen
-replay suites and an independent holdout. Freeze acceptance thresholds before running the
-comparison.
+Qualification uses the frozen real-task corpus and comparison matrix defined by
+[`REAL_TASK_EVIDENCE.md`](REAL_TASK_EVIDENCE.md), plus focused response-contract fixtures.
+Synthetic sentinel tasks remain smoke tests only. Freeze acceptance thresholds before
+running the comparison and preserve an independent final holdout.
 
 Measure at least:
 
@@ -311,7 +317,7 @@ When Track F is complete:
   `docs/VALIDATION_HISTORY.md`;
 - update root `ROADMAP.md` to remove Track F from active work;
 - keep rejected models and configurations as evidence, not active defaults; and
-- allocate **Track G** to the next separate programme roadmap.
+- use an unused descriptive identifier; Track H is the next available letter if needed.
 
 ## 7. Technical references
 

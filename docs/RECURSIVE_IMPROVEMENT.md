@@ -1,5 +1,8 @@
 # Recursive Improvement Programme — Complete
 
+**Historical reference:** indexed by [`HISTORY.md`](HISTORY.md); not part of the
+routine required-reading path.
+
 **Status:** Complete through prompt deployment and rollback.
 
 This document is closed as an implementation programme. New engineering work belongs only

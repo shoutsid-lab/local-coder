@@ -14,12 +14,11 @@ replace the local stack with a cloud-first design.
 1. `ROADMAP.md` — active implementation direction and next work.
 2. `docs/ARCHITECTURE.md` — frozen architecture and component boundaries.
 3. `docs/PIPELINE.md` — deterministic workflow and safety gates.
-4. `docs/HANDOFF.md` — completed recursive-improvement control-plane record.
-5. `docs/CONVENTIONS.md` — coding and editing conventions.
+4. `docs/CONVENTIONS.md` — coding, evidence, and roadmap conventions.
 
-Treat `ROADMAP.md` as the active work queue and the remaining documents as the source
-of truth for established behaviour and boundaries. Keep this file short and use the
-deeper documents for detail.
+Treat these as the living required-reading set. Completed programme records are indexed by
+`docs/HISTORY.md` and are consulted only when a task touches their subsystem or rationale.
+Keep this file short and use deeper documents for detail.
 
 ## Required development workflow
 
@@ -41,6 +40,9 @@ deeper documents for detail.
 - Never add an automatic commit, merge, push, or destructive worktree cleanup step.
 - Never weaken verification, acceptance criteria, or protected tests to make a run pass.
 - Do not introduce Claude or a required cloud model dependency.
+- Do not expand GEPA, campaign, or prompt-deployment machinery merely because the change
+  is easy to formalize. Follow the evidence gate in `ROADMAP.md` and prioritize measured
+  capability bottlenecks.
 - Do not download larger models or change hardware profiles unless the task explicitly
   requests it.
 
@@ -68,20 +70,13 @@ Check whether both are already running before starting anything new.
 
 ## Roadmap work-item labels
 
-- Every roadmap track and subsection label (`A1`, `B2`, `C3`, ...) is permanent once a
-  roadmap document ships, even after that roadmap is completed, retired, or superseded.
-  These labels get written into commit messages, PR titles, and the audit trail, so
-  reusing one makes `git log --grep`, blame, and `analyze-runs`/GEPA history mining
-  return commits from two unrelated pieces of work with no way to tell them apart.
-- Never restart labeling at `A1` (or any earlier-used letter/number pair) when writing a
-  new roadmap, adding a track to an existing one, or authoring a roadmap that replaces
-  an earlier one. Labels are sequential across the repository's entire history, not
-  per-document.
-- Before assigning new labels, find the highest track letter ever used — check the
-  current `ROADMAP.md`, then `docs/HANDOFF.md` and any prior roadmap it references — and
-  start the next track one letter after it. Do not infer availability from the current
-  `ROADMAP.md` alone if an earlier roadmap has already been retired out of it.
-- Every roadmap must open with a **Track ledger** line stating which letter range it
-  claims and which earlier ranges are retired, so the next actor doesn't have to
-  reconstruct the sequence from `git log`.
-- This applies to any primary actor that authors or edits `ROADMAP.md`.
+- Use descriptive programme names; track letters are optional navigation aids.
+- Before assigning a track label, check `ROADMAP.md`, `docs/roadmaps/`, and
+  `docs/HISTORY.md` for a collision. Do not reuse a label that would make current or
+  retained records ambiguous.
+- Do not reconstruct the repository's entire Git history merely to prove a letter is
+  globally unused. The indexed roadmap and history documents are the naming registry.
+- Root queue identifiers such as `R1` and `S1` are local to `ROADMAP.md` and are not
+  programme-track claims.
+- A detailed programme roadmap must state its status, relationship to the root queue,
+  evidence requirements, and completion condition.

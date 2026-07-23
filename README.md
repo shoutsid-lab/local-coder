@@ -224,17 +224,13 @@ LIVE_E2E_KEEP_WORKTREE=1 make live-e2e
 
 | Document | Purpose |
 | --- | --- |
-| [`ROADMAP.md`](ROADMAP.md) | Active and deferred engineering work only. |
+| [`ROADMAP.md`](ROADMAP.md) | Active priorities, evidence gates, and deferred work. |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Component and trust boundaries. |
 | [`docs/PIPELINE.md`](docs/PIPELINE.md) | Editing, verification, review, and approval flow. |
-| [`docs/HANDOFF.md`](docs/HANDOFF.md) | Completed recursive-improvement control-plane record. |
-| [`docs/RECURSIVE_IMPROVEMENT.md`](docs/RECURSIVE_IMPROVEMENT.md) | Closed programme summary and operating references. |
-| [`docs/GEPA_DATASET.md`](docs/GEPA_DATASET.md) | Audited dataset export. |
-| [`docs/GEPA_OPTIMIZATION.md`](docs/GEPA_OPTIMIZATION.md) | Direct offline optimization runner. |
-| [`docs/GEPA_CAMPAIGNS.md`](docs/GEPA_CAMPAIGNS.md) | Prompt campaign construction and evaluation. |
-| [`docs/PROMPT_HOLDOUT.md`](docs/PROMPT_HOLDOUT.md) | External holdout format and isolation. |
-| [`docs/PROMPT_DEPLOYMENT.md`](docs/PROMPT_DEPLOYMENT.md) | Promotion-bound activation and rollback. |
-| [`docs/VALIDATION_HISTORY.md`](docs/VALIDATION_HISTORY.md) | Historical evidence behind retained controls. |
+| [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) | Coding, evidence, and roadmap rules. |
+| [`docs/README.md`](docs/README.md) | Complete operator and programme-document index. |
+| [`docs/HISTORY.md`](docs/HISTORY.md) | Concise completed-programme and evidence index. |
 
-Primary actors should read `AGENTS.md`, `ROADMAP.md`, `docs/ARCHITECTURE.md`, and
-`docs/PIPELINE.md` before changing the repository.
+Primary actors should read `AGENTS.md`, `ROADMAP.md`, `docs/ARCHITECTURE.md`,
+`docs/PIPELINE.md`, and `docs/CONVENTIONS.md` before changing the repository. Detailed
+operator and historical references are linked from `docs/README.md`.

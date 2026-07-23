@@ -123,6 +123,11 @@ The current model is unreliable for:
 
 Broader tasks must therefore be decomposed into atomic operations before execution.
 
+The primary capability experiment is now an optional reasoning-capable planner/reviewer
+route evaluated on real repository tasks. Prompt optimization is retained, but it is not
+assumed to overcome base-model reasoning limits and is not the current investment
+priority.
+
 ## Git Policy
 
 * Start tasks from a clean working tree.
@@ -169,11 +174,11 @@ files are ignored and must not be committed.
 ## Primary Actor Maintenance
 
 The primary actor must follow `AGENTS.md` and use `ROADMAP.md` as the active work queue.
-`docs/HANDOFF.md` records the completed recursive-improvement baseline. The architecture
-is fixed unless an authorized actor explicitly changes it. `make verify` is the routine
-gate; `make handoff-check` is the final clean-tree handoff gate. Recursive-improvement
-work must additionally follow the trusted evaluator, holdout, and promotion boundaries
-defined in `docs/HANDOFF.md` and `docs/RECURSIVE_IMPROVEMENT.md`.
+`docs/HISTORY.md` indexes completed programmes; detailed completion records are consulted
+only when a task touches those subsystems. The architecture is fixed unless an authorized
+actor explicitly changes it. `make verify` is the routine gate; `make handoff-check` is
+the final clean-tree handoff gate. Improvement work must preserve the trusted evaluator,
+holdout, decision, and deployment boundaries.
 
 ## Recursive Improvement Pipeline
 

@@ -23,6 +23,19 @@ prompt-search metric, not the promotion-grade decision by itself. A `candidate_r
 program state must subsequently pass the separate paired prompt evaluator and an external
 `prompt-replay` holdout described in [`PROMPT_HOLDOUT.md`](PROMPT_HOLDOUT.md).
 
+## Evidence status and feature moratorium
+
+The first checked-in optimization corpus is a synthetic sentinel-replacement smoke suite.
+The first live planner campaign produced a changed candidate but was rejected after three
+external holdout case regressions. This proves the fail-closed evaluation path, not the
+value of prompt optimization for real coding work.
+
+The runner remains supported for bounded experiments and defect fixes. Do not add new
+selection, repeated-evaluation, or deployment-hardening features until the evidence gate
+in [`../ROADMAP.md`](../ROADMAP.md) is met. The next substantive campaign should use the
+real-task corpus defined by
+[`roadmaps/REAL_TASK_EVIDENCE.md`](roadmaps/REAL_TASK_EVIDENCE.md).
+
 ## Dataset readiness
 
 A real optimization fails closed unless the selected role has:

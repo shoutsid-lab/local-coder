@@ -128,6 +128,11 @@ The trusted evaluator runs outside candidate worktrees. A candidate cannot alter
 brief, evaluator, contracts, holdout cases, scorecard ordering, or promotion policy.
 Evaluation produces a recommendation; a separate trusted actor records the decision.
 
+These boundaries are integrity controls and future-capability insurance. They protect
+against accidental lineage errors, malformed outputs, externally supplied candidates,
+implementation defects, and stronger future models. They do not imply that the current
+3B model is a sophisticated active adversary.
+
 ## Prompt-candidate improvement path
 
 Prompt optimization is parallel to source improvement but does not use a worktree. The
@@ -235,6 +240,10 @@ The architecture requires only:
 
 Larger or specialized local models can replace a route when hardware permits. They do not
 change the editor, evaluator, campaign, audit, deployment, or rollback contracts.
+
+Current engineering priority is to measure whether a stronger planner/reviewer route
+improves real task outcomes. Additional optimization and deployment controls should be
+justified by that evidence rather than by control-plane completeness alone.
 
 ## Architectural invariants
 

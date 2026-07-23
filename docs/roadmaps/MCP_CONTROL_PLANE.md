@@ -2,17 +2,21 @@
 
 **Target repository:** `shoutsid-lab/local-coder`
 
-**Status:** Active — detailed implementation roadmap, indexed by
-[`ROADMAP.md`](../../ROADMAP.md)
-**Track ledger:** Tracks A–D are complete and retired. Their labels must not be reused.
-This roadmap claims **Track E**. The next detailed programme roadmap must start at
-Track F. Root-roadmap identifiers such as `R1` are queue identifiers, not track labels.
+**Status:** Queued — optional operator transport, behind the Track F/G capability
+milestone
+**Track:** E
+**Priority note:** read-only groundwork may proceed opportunistically, but MCP work must
+not delay reasoning-route qualification or real-task evidence collection.
 
 ## 0. Why this document exists
 
 The root [`ROADMAP.md`](../../ROADMAP.md) remains the repository-wide active queue and
-index. This document is the detailed implementation plan for one active programme:
-exposing the trusted external control-plane CLI through Model Context Protocol (MCP).
+index. This document is the detailed implementation plan for exposing the trusted
+external control-plane CLI through Model Context Protocol (MCP).
+
+MCP improves operator ergonomics but does not raise agent task capability. The programme
+is therefore queued behind Track F reasoning routes and Track G real-task evidence. E0/E1
+may proceed only when they do not displace that capability work.
 
 The completed Agent Skills, DSPy, GEPA, paired-evaluation, and prompt-deployment work is
 part of the stable baseline recorded in [`../HANDOFF.md`](../HANDOFF.md) and
@@ -222,6 +226,6 @@ When Track E is complete:
 - mark this document complete rather than replacing it with another active plan;
 - record delivered evidence in `docs/HANDOFF.md` and `docs/VALIDATION_HISTORY.md`;
 - update root `ROADMAP.md` to remove Track E from active work; and
-- leave Track F to the already allocated
-  [`REASONING_MODEL_ROUTES.md`](REASONING_MODEL_ROUTES.md) programme and allocate
-  **Track G** to the next separate roadmap.
+- preserve the already allocated Track F and Track G programme records; and
+- use an unused descriptive identifier for later programmes, with Track H as the next
+  available letter if a letter is useful.
