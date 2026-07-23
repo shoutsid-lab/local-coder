@@ -890,19 +890,22 @@ def evaluate_prompt_pair(
             budget=budget,
         )
     if accounting is None:
-        accounting = lambda: {
-            "hard_limit": budget.max_model_calls,
-            "baseline": 0,
-            "candidate": 0,
-            "total": 0,
-            "at_limit": False,
-            "blocked_calls": 0,
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "prompt_token_limit": budget.max_prompt_tokens,
-            "completion_token_limit": budget.max_completion_tokens,
-            "provider_retries_included": False,
-        }
+
+        def accounting() -> dict[str, Any]:
+            return {
+                "hard_limit": budget.max_model_calls,
+                "baseline": 0,
+                "candidate": 0,
+                "total": 0,
+                "at_limit": False,
+                "blocked_calls": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "prompt_token_limit": budget.max_prompt_tokens,
+                "completion_token_limit": budget.max_completion_tokens,
+                "provider_retries_included": False,
+            }
+
     development = _development_cases(spec)
     holdout_cases = [
         (case.case_id, case.inputs, holdout_oracle[case.case_id], 1.0)
