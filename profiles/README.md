@@ -8,6 +8,12 @@ not start servers by themselves. Keep only one large model resident at a time on
 hardware. LiteLLM aliases (`local-fast`, `local-plan`, `local-review`) remain stable even
 when their physical backend changes.
 
-`qwythos-f3-qualification-v1.json` is not a launch profile. It freezes the F3
-planner/reviewer acceptance policy and candidate role generation settings before live evidence
-is collected.
+`qwythos-f3-qualification-v1.json` is not a launch profile. It is the retained first
+F3 policy and historical decision contract. Its first focused collector combined structural
+schema checks with fixture-specific expected answers, so it must not be used to compare
+schema reliability between models without the correction below.
+
+`qwythos-f3-focused-contract-v2.json` freezes the corrected diagnostic comparison protocol.
+It runs the existing Qwen planner/reviewer profiles and the Qwythos reasoning profiles on
+identical fixtures while keeping JSON validity, schema adherence, and task semantics as
+separate measurements. It is diagnostic evidence, not a final qualification policy.

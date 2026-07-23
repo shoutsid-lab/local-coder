@@ -50,12 +50,16 @@ It first fixes reasoning/final-content contracts, then qualifies an optional
 `local-reason` route for planner and reviewer use. The existing 3B implementer and repairer
 remain the default fast coding path.
 
-F0–F2 and the F3 qualification-policy slice are complete. Focused F3 collection tooling
-now verifies the active candidate, runs frozen exact/planner/reviewer contracts, exercises
-an 8K context, and records bounded resource measurements without changing role
-assignments. The next capability work is the first live Qwythos collection followed by
-Track G baseline/development/holdout comparison. MTP and automatic supervision remain
-optional.
+F0–F2 and the first F3 policy/resource slice are complete. The first live Qwythos run
+verified final-answer completion, reasoning presence, 8K context handling, throughput,
+and current-machine memory use. It also exposed that the v1 focused collector conflated
+schema validity with fixture-specific task correctness.
+
+The immediate F3 work is now the corrected v2 focused comparison: run the existing Qwen
+baseline and Qwythos candidate on identical fixtures, classify JSON/schema/semantic
+behavior separately, then use Track G development and holdout evidence to freeze a second
+qualification policy. No route assignment changes before that evidence exists. MTP and
+automatic supervision remain optional.
 
 ## Active priority 2: Track G — real-task capability evidence
 

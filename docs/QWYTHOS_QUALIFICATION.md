@@ -1,167 +1,225 @@
 # Qwythos F3 qualification
 
-**Status:** Qualification policy, decision contract, and focused live collector
-implemented; the first machine run, startup/switch timing, development corpus, and final
-holdout evidence remain pending.
+**Status:** The first Qwythos focused/resource run completed. Its v1 contract field
+combined schema adherence with fixture-specific task expectations, so it is retained as
+historical resource evidence rather than used to decide whether Qwythos or Qwen has better
+structured-output reliability. A corrected v2 baseline/candidate diagnostic protocol is
+implemented. Track G quality cases, startup timing, model-switch timing, and the final
+qualification policy remain pending.
 
-This document describes the bounded F3 decision surface for
+This document describes the bounded F3 evidence surface for
 `Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_K_M.gguf`. It does not claim that the model is
-qualified. Existing planner and reviewer route assignments remain unchanged until a
-complete evidence report passes the frozen policy.
+qualified. Existing planner and reviewer route assignments remain unchanged.
 
-## Frozen policy
+## What the first run established
+
+The first live collection was bound to implementation commit `003b831` and successfully:
+
+- completed five exact, five planner, and five reviewer attempts;
+- completed an additional exact request with 8,194 provider-reported prompt tokens;
+- produced a final answer for every request;
+- observed reasoning on every reasoning-enabled planner/reviewer request;
+- recorded no malformed tool call;
+- measured roughly 13.7 to 15.5 generated tokens per second;
+- measured 5,912 MiB operator-observed VRAM under WSL; and
+- measured approximately 3,493 MiB peak `llama-server` process RSS.
+
+The report remains under the ignored `.local-coder/qualifications/` directory. It is valid
+resource and response-completion evidence for that exact runtime configuration.
+
+It is not a fair Qwen-versus-Qwythos schema comparison. The v1 collector's
+`schema_valid` implementation checked both structure and fixture-specific expected
+answers. In particular:
+
+- the planner check required `editable_files == ["calculator.py"]` and an empty
+  `depends_on` array; and
+- the reviewer check required `verdict == "fail"`, at least one issue, and no unrelated
+  changes.
+
+A structurally valid JSON response with a different task conclusion was therefore recorded
+as a schema failure. The resulting two-of-five planner and two-of-five reviewer rates
+cannot distinguish malformed JSON, wrong fields, and semantic disagreement.
+
+## Retained v1 policy and collector
 
 [`../profiles/qwythos-f3-qualification-v1.json`](../profiles/qwythos-f3-qualification-v1.json)
-is the machine-readable source of truth. The report must bind to its canonical SHA-256,
-the exact candidate model identity, `local-reason`, the existing planner/reviewer
-baselines, and the tested role generation profiles.
+is retained unchanged as the first frozen policy. Its hash-bound evidence and decision
+engine remain reproducible. Do not edit it or reinterpret its combined `schema_valid`
+field after collection.
 
-The first policy freezes:
+`runtime/route_qualification_collect.py` remains the resource-oriented Qwythos collector.
+It verifies the exact GGUF, `local-reason` alias, clean implementation commit, 8K context,
+process RSS, and VRAM evidence. It persists no prompt, final-answer, or reasoning text.
 
-- five thinking-disabled exact attempts;
-- five thinking-enabled planner contract attempts;
-- five thinking-enabled reviewer contract attempts;
-- complete final-answer and schema adherence in all focused contract suites;
-- no reasoning leakage in exact mode and observable reasoning in reasoning mode;
-- no non-`route_ok` outcome or malformed tool call;
-- at least four development and two independent holdout cases per role;
-- no aggregate score or success-rate regression;
-- no loss of a baseline success, out-of-scope change, or material per-case regression;
-- no more than 0.5 additional mean repair iterations;
-- bounded startup, switch, memory, throughput, context, and p95 latency limits for the
-  current local machine.
-
-Changing a threshold requires a new policy version. Do not edit the active policy after
-collecting evidence against its hash.
-
-## Focused live collection
-
-`runtime/route_qualification_collect.py` performs the evidence that can be gathered before
-Track G cases exist. It refuses to run from a dirty tree and verifies all of the following
-before sending a model request:
-
-- `/health` reports ready;
-- `/props` names the exact frozen GGUF basename;
-- `/v1/models` exposes the `local-reason` alias;
-- the configured context can accommodate the frozen 8K probe and final allowance;
-- one unambiguous `llama-server` PID owns the named model; and
-- process RSS can be sampled and VRAM evidence is available from process attribution or
-  an explicit independent measurement.
-
-The collector then runs five thinking-disabled exact attempts, five reasoning-enabled
-planner attempts, five reasoning-enabled reviewer attempts, and one additional exact
-request whose provider-reported prompt use is at least 8,192 tokens. Planner and reviewer
-fixtures use their real typed field contracts without a response grammar, so schema
-success remains model evidence rather than grammar enforcement. Sampling and generation
-budgets come directly from the frozen policy.
-
-No prompt response, final answer, or reasoning trace is written to disk. Each attempt
-stores only the normalized outcome, final/schema/reasoning presence, malformed-tool-call
-status, token counts, latency, and throughput. Reports are created atomically under the
-ignored `.local-coder/qualifications/` directory and are never overwritten.
-
-Prerequisites:
-
-```bash
-# Qwythos must already be the only llama.cpp model on :8080.
-# Required server property:
-#   --alias local-reason
-# --metrics is strongly preferred for direct generation throughput.
-# LiteLLM must already be routing local-reason through :4000.
-make route-qualification-collect-check
-make route-qualification-collect ENVIRONMENT=amelia-gtx1660-v1
-```
-
-If process discovery is ambiguous, pass `SERVER_PID=<pid>`. NVIDIA documents
-`nvidia-smi` as having a limited feature set under WSL 2, so a driver that cannot attribute
-memory to the Linux server PID may instead use an independently observed
-`PEAK_VRAM_MIB=<value>`. Separately measured lifecycle values can also be bound during
-collection:
-
-```bash
-make route-qualification-collect \
-  ENVIRONMENT=amelia-gtx1660-v1 \
-  STARTUP_SECONDS=52.4 \
-  MODEL_SWITCH_SECONDS=71.8 \
-  PEAK_VRAM_MIB=5210
-```
-
-Without those values, the report marks them as pending. F4 owns reproducible serial
-startup and switch measurement. The focused report is deliberately not accepted as a
-final qualification report: Track G must still provide corpus identity and planner/reviewer
-baseline-versus-candidate cases before `make route-qualification` can decide a role.
-
-Resource meanings are fixed for this collector:
-
-- peak system memory is the sampled `llama-server` `VmRSS` from `/proc`;
-- peak VRAM is NVIDIA memory attributed to that server PID, or an explicit independent
-  measurement when WSL does not expose process attribution;
-- tested context is the prompt-token count returned by the live context request; and
-- generation throughput prefers llama.cpp's `predicted_tokens_seconds` metric, falling
-  back to completion tokens divided by total request latency when metrics are unavailable.
-
-## Evidence contract
-
-The input report is one JSON object with:
-
-- policy, candidate, route, role-profile, baseline-route, implementation-commit, corpus,
-  and environment identities;
-- individual focused contract attempts for `exact`, `planner`, and `reviewer`;
-- individual planner and reviewer cases split into `development` and `holdout`;
-- baseline and candidate scores, success flags, repair iterations, and scope results;
-- normalized response outcome, final/schema validity, malformed-tool-call status, and
-  bounded reasoning presence;
-- prompt, completion, and available reasoning-token counts;
-- latency and generation throughput per attempt or case; and
-- startup time, model-switch time, peak VRAM, peak system memory, and tested context.
-
-Full reasoning text is neither required nor accepted. Track G owns corpus construction,
-case provenance, deterministic verification, and holdout isolation. F3 only validates the
-complete report and derives a decision from the frozen evidence.
-
-## Commands
-
-Print the policy hash before collecting evidence:
+Historical v1 commands remain available:
 
 ```bash
 make route-qualification-policy-hash
-```
-
-Run the deterministic contract tests:
-
-```bash
 make route-qualification-check
+make route-qualification-collect-check
+make route-qualification EVIDENCE=/path/to/qwythos-f3-evidence.json
 ```
 
-Evaluate a completed report:
+The v1 decision engine should only receive a complete v1 evidence object whose role cases,
+lifecycle measurements, and policy binding satisfy that historical schema. The first
+focused report alone is not such an object.
+
+## Corrected focused-contract protocol
+
+[`../profiles/qwythos-f3-focused-contract-v2.json`](../profiles/qwythos-f3-focused-contract-v2.json)
+freezes the corrected comparison protocol. It is deliberately separate from the final
+qualification policy.
+
+The protocol runs identical exact, planner, and reviewer fixtures against two operational
+subjects:
+
+- **baseline:** the existing Qwen model exposed by llama.cpp as `local-coder`, with
+  `local-plan` and `local-review` using their current reasoning-disabled deterministic
+  profiles; and
+- **candidate:** Qwythos exposed as `local-reason`, with the proposed reasoning-enabled
+  planner and reviewer profiles.
+
+This is an operational route comparison, not a controlled scientific comparison of model
+weights. The routes intentionally use the profiles that local-coder would actually deploy.
+The fixture content, number of attempts, collector implementation, and machine identifier
+are held constant.
+
+Each attempt records these dimensions separately:
+
+- `json_valid`: whether a planner/reviewer final answer is one raw JSON value;
+- `schema_valid`: whether required fields and field types match the typed role contract;
+- `task_semantics_valid`: whether the response reaches the expected conclusion for the
+  synthetic boundary fixture;
+- `contract_failures`: bounded classification codes such as `non_json_final`,
+  `schema_mismatch`, or `task_semantics_mismatch`;
+- normalized response outcome, final-answer presence, reasoning presence, and malformed
+  tool-call status; and
+- prompt/completion token counts, available reasoning-token count, latency, and generation
+  throughput.
+
+For the exact suite, JSON validity is not applicable. Exact string adherence is represented
+by schema and task-semantic validity.
+
+No prompt, final answer, or reasoning trace is written to the report. Reports are hash
+bound to the protocol and created under `.local-coder/qualifications/` without replacing
+prior evidence.
+
+## Collect the baseline
+
+Commit the diagnostic implementation first; collection refuses a dirty working tree.
+Then run the existing Qwen server with the exact model and alias frozen in the protocol:
 
 ```bash
-make route-qualification \
-  EVIDENCE=/path/to/qwythos-f3-evidence.json
+~/llama.cpp/build/bin/llama-server \
+  --model ~/models/qwen2.5-coder-3b-instruct-q4_k_m.gguf \
+  --alias local-coder \
+  --host 127.0.0.1 \
+  --port 8080 \
+  --ctx-size 32768 \
+  --parallel 1 \
+  --n-gpu-layers all \
+  --flash-attn on \
+  --cache-type-k q8_0 \
+  --cache-type-v q8_0 \
+  --ubatch-size 256 \
+  --metrics \
+  --slot-save-path ~/llama.cpp/cache/
 ```
 
-Require a specific outcome when scripting the operator workflow:
+With LiteLLM running on port 4000:
 
 ```bash
-make route-qualification \
-  EVIDENCE=/path/to/qwythos-f3-evidence.json \
-  REQUIRE=both
+make route-contract-diagnostic-check
+make route-contract-diagnostic-collect \
+  SUBJECT=baseline \
+  ENVIRONMENT=amelia-gtx1660-v1
 ```
 
-`REQUIRE` may be `any`, `planner`, `reviewer`, or `both`. A valid report always prints the
-full machine-readable decision. An unmet required outcome exits with status 2; malformed,
-incomplete, stale-policy, or identity-mismatched evidence exits with status 1.
+The default output is:
 
-## Decision outcomes
+```text
+.local-coder/qualifications/baseline-f3-contract-v2-<timestamp>.json
+```
 
-The decision engine can return:
+## Collect the candidate
 
-- `qualified_for_both`;
-- `qualified_for_planner_only`;
-- `qualified_for_reviewer_only`;
-- `diagnostic_only` when contracts and resources pass but both role comparisons fail; or
-- `rejected` when a global contract or resource gate fails.
+Stop the Qwen server and start Qwythos as `local-reason` using the intended candidate
+configuration. Only one model should be resident on this hardware.
 
-Planner and reviewer quality gates are evaluated independently. Global response-contract
-or resource failures reject both roles. No outcome changes runtime route assignments;
-that remains F5 work after successful F3 evidence and bounded F4 model switching.
+```bash
+~/llama.cpp/build/bin/llama-server \
+  --model ~/models/Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_K_M.gguf \
+  --alias local-reason \
+  --host 127.0.0.1 \
+  --port 8080 \
+  --ctx-size 32768 \
+  --parallel 1 \
+  --n-gpu-layers all \
+  --flash-attn on \
+  --cache-type-k q8_0 \
+  --cache-type-v q8_0 \
+  --ubatch-size 256 \
+  --reasoning-format deepseek \
+  --reasoning-budget 1024 \
+  --spec-type draft-mtp \
+  --spec-draft-n-max 2 \
+  --metrics \
+  --slot-save-path ~/llama.cpp/cache/
+```
+
+Collect the candidate under the same implementation commit and environment identifier:
+
+```bash
+make route-contract-diagnostic-collect \
+  SUBJECT=candidate \
+  ENVIRONMENT=amelia-gtx1660-v1
+```
+
+The default output is:
+
+```text
+.local-coder/qualifications/candidate-f3-contract-v2-<timestamp>.json
+```
+
+## Compare the reports
+
+```bash
+make route-contract-diagnostic-compare \
+  BASELINE=.local-coder/qualifications/baseline-f3-contract-v2-<timestamp>.json \
+  CANDIDATE=.local-coder/qualifications/candidate-f3-contract-v2-<timestamp>.json
+```
+
+An optional `OUTPUT=path.json` stores the comparison. The comparison refuses reports with
+different protocol hashes, fixture versions, environment identifiers, or implementation
+commits.
+
+The result reports baseline metrics, candidate metrics, and candidate-minus-baseline rates
+for each suite. Its `qualification_claim` is always `null`. Synthetic focused fixtures can
+diagnose contract behavior but cannot establish real planner or reviewer quality.
+
+## Remaining qualification work
+
+After the corrected focused comparison:
+
+1. inspect the bounded failure classes rather than raw model text;
+2. decide whether prompt/profile changes are justified before freezing a second
+   qualification policy;
+3. run Track G development and independent holdout cases for both planner and reviewer;
+4. measure cold startup and serial model-switch time; and
+5. bind focused, resource, lifecycle, and real-task evidence into one new versioned
+   decision contract.
+
+The final policy must separate structural contract gates from scored task quality. It must
+also use observed hardware behavior rather than treating an arbitrary VRAM reserve as a
+model-quality failure.
+
+Possible final outcomes remain independent:
+
+- qualified for planner only;
+- qualified for reviewer only;
+- qualified for both;
+- retained only as an operator-invoked diagnostic route; or
+- rejected for local-coder use.
+
+No evidence outcome changes runtime route assignments. Route activation remains later
+Track F work after qualification and bounded switching are complete.

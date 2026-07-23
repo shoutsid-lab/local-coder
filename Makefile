@@ -5,8 +5,10 @@ PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runt
 	metrics review review-cached skills skills-lint gepa-dataset-check gepa-runner-check \
 	gepa-experiment-check prompt-campaign-check prompt-deployment-check route-probe-check \
 	route-profile-check route-qualification-check route-qualification-collect-check \
-	route-qualification-policy-hash route-qualification-collect route-qualification \
-	route-probe runs live-e2e live-e2e-report
+	route-contract-diagnostic-check route-contract-diagnostic-collect \
+	route-contract-diagnostic-compare route-qualification-policy-hash \
+	route-qualification-collect route-qualification route-probe runs live-e2e \
+	live-e2e-report
 
 health:
 	@curl -fsS http://127.0.0.1:8080/health | jq
@@ -28,6 +30,7 @@ agent-check:
 	$(PYTHON) -m py_compile $(PYTHON_FILES)
 	$(PYTHON) -m json.tool evaluation/suites/atomic-v1.json >/dev/null
 	$(PYTHON) -m json.tool profiles/qwythos-f3-qualification-v1.json >/dev/null
+	$(PYTHON) -m json.tool profiles/qwythos-f3-focused-contract-v2.json >/dev/null
 
 agent-install:
 	$(PYTHON) -m pip install -r requirements-agent.txt
@@ -94,6 +97,23 @@ route-qualification-check:
 
 route-qualification-collect-check:
 	$(PYTHON) -m pytest -q --tb=short tests/test_route_qualification_collect.py
+
+route-contract-diagnostic-check:
+	$(PYTHON) -m pytest -q --tb=short tests/test_route_contract_diagnostic.py
+
+route-contract-diagnostic-collect:
+	@test -n "$(SUBJECT)" -a -n "$(ENVIRONMENT)" || (echo "Usage: make route-contract-diagnostic-collect SUBJECT=baseline|candidate ENVIRONMENT=machine-id [OUTPUT=path]"; exit 1)
+	$(PYTHON) -m runtime.route_contract_diagnostic collect \
+		--subject "$(SUBJECT)" \
+		--environment-id "$(ENVIRONMENT)" \
+		$(if $(OUTPUT),--output "$(OUTPUT)",)
+
+route-contract-diagnostic-compare:
+	@test -n "$(BASELINE)" -a -n "$(CANDIDATE)" || (echo "Usage: make route-contract-diagnostic-compare BASELINE=baseline.json CANDIDATE=candidate.json [OUTPUT=path]"; exit 1)
+	$(PYTHON) -m runtime.route_contract_diagnostic compare \
+		--baseline "$(BASELINE)" \
+		--candidate "$(CANDIDATE)" \
+		$(if $(OUTPUT),--output "$(OUTPUT)",)
 
 route-qualification-policy-hash:
 	$(PYTHON) -m runtime.route_qualification --print-policy-hash

@@ -220,33 +220,6 @@ LIVE_E2E_ATTEMPTS=3 make live-e2e
 LIVE_E2E_KEEP_WORKTREE=1 make live-e2e
 ```
 
-## Evaluate Qwythos qualification evidence
-
-F3 keeps Qwythos on the optional `local-reason` route until a complete Track G report
-passes the frozen planner/reviewer policy. The decision command does not call a model or
-change route assignments.
-
-```bash
-make route-qualification-policy-hash
-make route-qualification-check
-make route-qualification-collect-check
-make route-qualification-collect ENVIRONMENT=amelia-gtx1660-v1
-make route-qualification EVIDENCE=/path/to/qwythos-f3-evidence.json
-```
-
-The live collector requires a clean committed tree, Qwythos running as `local-reason`,
-LiteLLM on port 4000, and `nvidia-smi` or an explicit WSL VRAM measurement. Enabling
-llama.cpp metrics gives direct generation throughput; otherwise the collector records a
-conservative request-level lower bound. It records five exact, five
-planner, five reviewer, and one 8K-context contract attempt without retaining final or
-reasoning text. Its ignored report is a focused F3 fragment; Track G role cases and any
-pending startup/switch measurements still have to be assembled into the final evidence
-object.
-
-See [`docs/QWYTHOS_QUALIFICATION.md`](docs/QWYTHOS_QUALIFICATION.md) for collection
-prerequisites, the evidence contract, resource bounds, role-specific outcomes, and
-optional `REQUIRE` enforcement.
-
 ## Documentation map
 
 | Document | Purpose |

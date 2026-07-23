@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "protocol_id": "qwythos-f3-focused-contract-v2",
+  "fixture_version": "calculator-boundary-v2",
+  "attempts_per_suite": 5,
+  "subjects": {
+    "baseline": {
+      "model_file": "qwen2.5-coder-3b-instruct-q4_k_m.gguf",
+      "llama_alias": "local-coder",
+      "routes": {
+        "exact": "local-plan",
+        "planner": "local-plan",
+        "reviewer": "local-review"
+      },
+      "profiles": {
+        "planner": {
+          "reasoning_mode": "off",
+          "max_tokens": 3072,
+          "reasoning_tokens": 0,
+          "temperature": 0.0,
+          "top_p": 1.0,
+          "top_k": null,
+          "repetition_penalty": null,
+          "timeout_seconds": 180
+        },
+        "reviewer": {
+          "reasoning_mode": "off",
+          "max_tokens": 2048,
+          "reasoning_tokens": 0,
+          "temperature": 0.0,
+          "top_p": 1.0,
+          "top_k": null,
+          "repetition_penalty": null,
+          "timeout_seconds": 180
+        }
+      }
+    },
+    "candidate": {
+      "model_file": "Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_K_M.gguf",
+      "llama_alias": "local-reason",
+      "routes": {
+        "exact": "local-reason",
+        "planner": "local-reason",
+        "reviewer": "local-reason"
+      },
+      "profiles": {
+        "planner": {
+          "reasoning_mode": "on",
+          "max_tokens": 2048,
+          "reasoning_tokens": 1024,
+          "temperature": 0.6,
+          "top_p": 0.95,
+          "top_k": 20,
+          "repetition_penalty": 1.05,
+          "timeout_seconds": 300
+        },
+        "reviewer": {
+          "reasoning_mode": "on",
+          "max_tokens": 1536,
+          "reasoning_tokens": 768,
+          "temperature": 0.6,
+          "top_p": 0.95,
+          "top_k": 20,
+          "repetition_penalty": 1.05,
+          "timeout_seconds": 300
+        }
+      }
+    }
+  }
+}

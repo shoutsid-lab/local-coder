@@ -156,34 +156,48 @@ backward compatible.
 
 Treat Qwythos as a candidate route, not as a trusted upgrade by model reputation.
 
-#### F3.1 Freeze the qualification policy and decision contract — complete
+#### F3.1 Freeze the first qualification policy and decision contract — complete
 
-The versioned policy in `profiles/qwythos-f3-qualification-v1.json` now binds the exact
+The versioned policy in `profiles/qwythos-f3-qualification-v1.json` binds the exact
 candidate identity, role route profiles, baseline routes, focused contract suites, minimum
-role-case counts, regression limits, and current-machine resource bounds before live
-evidence is collected. `runtime/route_qualification.py` validates a complete report,
-rejects stale-policy or identity mismatches, and derives planner and reviewer decisions
-independently without changing runtime route assignments. Full reasoning text is excluded
-from the evidence contract.
+role-case counts, regression limits, and current-machine resource bounds.
+`runtime/route_qualification.py` validates a complete v1 report, rejects stale-policy or
+identity mismatches, and derives planner and reviewer decisions independently without
+changing runtime route assignments. Full reasoning text is excluded from the evidence
+contract.
 
-Focused deterministic coverage lives in `tests/test_route_qualification.py`; operator
-commands and report requirements are documented in `docs/QWYTHOS_QUALIFICATION.md`. This
-slice establishes no model-quality claim. F3 still requires live contract/resource
-measurements and the Track G development/final-holdout comparison.
+The v1 policy and its hash-bound evidence remain immutable. The first live run later
+showed that the collector's `schema_valid` implementation bundled structural validation
+with fixture-specific expected answers. The v1 artifacts are therefore retained as
+historical evidence rather than edited after collection.
 
-#### F3.2 Add bounded focused-contract and resource collection — tooling complete
+#### F3.2 Add bounded focused-contract and resource collection — live run complete
 
-`runtime/route_qualification_collect.py` now verifies the active GGUF and route alias,
-binds collection to a clean implementation commit, executes the frozen exact/planner/
-reviewer attempts, performs a provider-reported 8K context request, and samples the active
+`runtime/route_qualification_collect.py` verifies the active GGUF and route alias, binds
+collection to a clean implementation commit, executes the v1 exact/planner/reviewer
+attempts, performs a provider-reported 8K context request, and samples the active
 `llama-server` process RSS and NVIDIA memory. It persists only normalized metadata under
 the ignored qualification directory; final and reasoning text are never retained.
 
-The collector does not fabricate unavailable lifecycle or quality evidence. Startup and
-serial switch timings remain pending unless supplied from an independent measurement, and
-Track G still owns corpus identity plus baseline/candidate development and holdout cases.
-Therefore the tooling is complete but no Qwythos qualification result exists until the
-first live collection and Track G comparison are assembled into the F3 report.
+The first operator run completed all 16 requests, reached 8,194 provider-reported prompt
+tokens, retained final answers on every request, and collected current-machine throughput,
+VRAM, and process-RSS evidence. Startup and serial switch timings remain pending. Its
+combined schema/semantic field is not used to claim comparative schema reliability.
+
+#### F3.3 Correct focused diagnostics and compare the operational baseline — tooling complete
+
+`profiles/qwythos-f3-focused-contract-v2.json` freezes identical exact, planner, and
+reviewer fixtures for the existing Qwen baseline and the Qwythos candidate while retaining
+each route's intended operational generation profile.
+`runtime/route_contract_diagnostic.py` collects hash-bound reports with JSON validity,
+schema validity, fixture semantics, and bounded failure classifications represented as
+separate fields. It stores no prompt, final-answer, or reasoning text.
+
+The comparison command refuses protocol, fixture, environment, or implementation-commit
+mismatches and reports candidate-minus-baseline rates without issuing a qualification
+claim. The next operator action is to collect the baseline and candidate reports under the
+same commit, compare them, and use the result with Track G evidence to define a corrected
+second qualification policy.
 
 Qualification uses the frozen real-task corpus and comparison matrix defined by
 [`REAL_TASK_EVIDENCE.md`](REAL_TASK_EVIDENCE.md), plus focused response-contract fixtures.
