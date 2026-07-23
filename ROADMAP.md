@@ -27,9 +27,20 @@ Completion records and operator references:
 - [`docs/GEPA_CAMPAIGNS.md`](docs/GEPA_CAMPAIGNS.md)
 - [`docs/PROMPT_DEPLOYMENT.md`](docs/PROMPT_DEPLOYMENT.md)
 
+## Active programme roadmap
+
+**Current primary programme: Track E — MCP control-plane integration**
+
+The detailed implementation plan lives in
+[`docs/roadmaps/MCP_CONTROL_PLANE.md`](docs/roadmaps/MCP_CONTROL_PLANE.md). It adds an
+optional MCP server over the existing trusted-planner CLI without adding MCP tools to the
+internal agent runtime, changing source-write authority, or making the local loop depend
+on an external service. Tracks A–D are complete and retired; Track E is globally reserved
+for this programme.
+
 ## R1 — Deployment safety and recovery
 
-**Priority:** next
+**Priority:** queued after Track E unless deployment recovery becomes urgent
 
 Strengthen the active prompt store without changing candidate-construction or evaluation
 semantics.

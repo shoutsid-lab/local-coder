@@ -17,3 +17,22 @@
   files into the candidate contract sandbox.
 - Record brief approvals and promotion decisions with an actor and rationale; do not
   infer authorization from the candidate model response or a decision record.
+
+## Roadmap conventions
+
+- Keep root [`ROADMAP.md`](../ROADMAP.md) as the repository-wide active queue and index;
+  do not replace it with a detailed programme plan.
+- Put detailed active programme roadmaps under `docs/roadmaps/` and link them from the
+  root roadmap and documentation index.
+- Treat track letters as repository-global, monotonic identifiers. Tracks A–D are retired,
+  the MCP control-plane roadmap owns Track E, and the next separate programme starts at
+  Track F. Never reuse a retired track label.
+- Treat root `R1`, `R2`, and similar labels as queue identifiers, not programme-track
+  labels.
+- Every programme roadmap must declare its status, target repository, owned track label,
+  constraints, phased exit criteria, non-goals, and succession rule.
+- A programme roadmap may refine implementation work but must not silently weaken
+  `AGENTS.md`, architecture invariants, evaluation controls, approval gates, or source-write
+  authority.
+- When a programme completes, mark its document complete, update `docs/HANDOFF.md` and
+  `docs/VALIDATION_HISTORY.md`, and remove it from active work in the root roadmap.

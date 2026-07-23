@@ -9,6 +9,12 @@
 - [Agent Skills](AGENT_SKILLS.md) — portable role-skill discovery and activation.
 - [DSPy integration](DSPY_INTEGRATION.md) — typed role programs behind stable adapters.
 
+## Active programme roadmaps
+
+- [Repository active queue](../ROADMAP.md) — current priorities and deferred work.
+- [MCP control-plane integration](roadmaps/MCP_CONTROL_PLANE.md) — Track E detailed
+  implementation plan for optional trusted-planner MCP tooling.
+
 ## Improvement and prompt operations
 
 - [Completed handoff](HANDOFF.md) — recursive-improvement control-plane completion record.
