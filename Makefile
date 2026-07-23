@@ -2,7 +2,10 @@ PYTHON := .venv/bin/python
 PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runtime/*.py runtime/dspy_programs/*.py tests/*.py
 
 .PHONY: health format format-check lint agent-check agent-install agent-smoke handoff-check test verify \
-	metrics review review-cached skills skills-lint gepa-dataset-check gepa-runner-check gepa-experiment-check prompt-campaign-check prompt-deployment-check route-probe-check route-profile-check route-probe runs live-e2e live-e2e-report
+	metrics review review-cached skills skills-lint gepa-dataset-check gepa-runner-check \
+	gepa-experiment-check prompt-campaign-check prompt-deployment-check route-probe-check \
+	route-profile-check route-qualification-check route-qualification-policy-hash \
+	route-qualification route-probe runs live-e2e live-e2e-report
 
 health:
 	@curl -fsS http://127.0.0.1:8080/health | jq
@@ -23,6 +26,7 @@ lint:
 agent-check:
 	$(PYTHON) -m py_compile $(PYTHON_FILES)
 	$(PYTHON) -m json.tool evaluation/suites/atomic-v1.json >/dev/null
+	$(PYTHON) -m json.tool profiles/qwythos-f3-qualification-v1.json >/dev/null
 
 agent-install:
 	$(PYTHON) -m pip install -r requirements-agent.txt
@@ -83,6 +87,16 @@ route-probe-check:
 
 route-profile-check:
 	$(PYTHON) -m pytest -q --tb=short tests/test_route_profiles.py
+
+route-qualification-check:
+	$(PYTHON) -m pytest -q --tb=short tests/test_route_qualification.py
+
+route-qualification-policy-hash:
+	$(PYTHON) -m runtime.route_qualification --print-policy-hash
+
+route-qualification:
+	@test -n "$(EVIDENCE)" || (echo "Usage: make route-qualification EVIDENCE=path/to/report.json [REQUIRE=any|planner|reviewer|both]"; exit 1)
+	$(PYTHON) -m runtime.route_qualification "$(EVIDENCE)" $(if $(REQUIRE),--require "$(REQUIRE)",)
 
 route-probe:
 	@test -n "$(ROUTE)" || (echo "Usage: make route-probe ROUTE=local-fast [MODE=exact|reasoning]"; exit 1)

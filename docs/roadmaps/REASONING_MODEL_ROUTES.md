@@ -152,9 +152,24 @@ paths. `litellm-config.yaml` exposes `local-reason` without repointing any curre
 unbounded combinations fail before a request, and the current local loop remains
 backward compatible.
 
-### F3. Qualify Qwythos for planner and reviewer work
+### F3. Qualify Qwythos for planner and reviewer work — in progress
 
 Treat Qwythos as a candidate route, not as a trusted upgrade by model reputation.
+
+#### F3.1 Freeze the qualification policy and decision contract — complete
+
+The versioned policy in `profiles/qwythos-f3-qualification-v1.json` now binds the exact
+candidate identity, role route profiles, baseline routes, focused contract suites, minimum
+role-case counts, regression limits, and current-machine resource bounds before live
+evidence is collected. `runtime/route_qualification.py` validates a complete report,
+rejects stale-policy or identity mismatches, and derives planner and reviewer decisions
+independently without changing runtime route assignments. Full reasoning text is excluded
+from the evidence contract.
+
+Focused deterministic coverage lives in `tests/test_route_qualification.py`; operator
+commands and report requirements are documented in `docs/QWYTHOS_QUALIFICATION.md`. This
+slice establishes no model-quality claim. F3 still requires live contract/resource
+measurements and the Track G development/final-holdout comparison.
 
 Qualification uses the frozen real-task corpus and comparison matrix defined by
 [`REAL_TASK_EVIDENCE.md`](REAL_TASK_EVIDENCE.md), plus focused response-contract fixtures.

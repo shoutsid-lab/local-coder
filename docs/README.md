@@ -25,6 +25,8 @@
 - [Trusted task plans](TASK_PLANS.md) — hash-approved, one-step-at-a-time decomposition.
 - [Agent Skills](AGENT_SKILLS.md) — portable role-skill discovery and activation.
 - [DSPy integration](DSPY_INTEGRATION.md) — typed role programs behind stable adapters.
+- [Qwythos F3 qualification](QWYTHOS_QUALIFICATION.md) — frozen acceptance policy,
+  evidence contract, and independent planner/reviewer decision command.
 - [GEPA dataset](GEPA_DATASET.md) — audited offline dataset export.
 - [GEPA optimization](GEPA_OPTIMIZATION.md) — direct bounded optimization runner and
   evidence limits.

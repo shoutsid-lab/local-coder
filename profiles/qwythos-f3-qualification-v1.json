@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "policy_id": "qwythos-f3-v1",
+  "candidate_model": "Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_K_M.gguf",
+  "candidate_route": "local-reason",
+  "baseline_routes": {
+    "planner": "local-plan",
+    "reviewer": "local-review"
+  },
+  "expected_profiles": {
+    "planner": {
+      "reasoning_mode": "on",
+      "max_tokens": 2048,
+      "reasoning_tokens": 1024,
+      "final_answer_tokens": 1024,
+      "temperature": 0.6,
+      "top_p": 0.95,
+      "top_k": 20,
+      "repetition_penalty": 1.05,
+      "timeout_seconds": 300,
+      "retries": 0
+    },
+    "reviewer": {
+      "reasoning_mode": "on",
+      "max_tokens": 1536,
+      "reasoning_tokens": 768,
+      "final_answer_tokens": 768,
+      "temperature": 0.6,
+      "top_p": 0.95,
+      "top_k": 20,
+      "repetition_penalty": 1.05,
+      "timeout_seconds": 300,
+      "retries": 0
+    }
+  },
+  "contract_suites": {
+    "exact": {
+      "minimum_attempts": 5,
+      "maximum_completion_tokens": 64,
+      "thinking_enabled": false,
+      "minimum_final_answer_rate": 1.0,
+      "minimum_schema_rate": 1.0,
+      "minimum_reasoning_presence_rate": 0.0,
+      "maximum_reasoning_presence_rate": 0.0
+    },
+    "planner": {
+      "minimum_attempts": 5,
+      "maximum_completion_tokens": 2048,
+      "thinking_enabled": true,
+      "minimum_final_answer_rate": 1.0,
+      "minimum_schema_rate": 1.0,
+      "minimum_reasoning_presence_rate": 1.0,
+      "maximum_reasoning_presence_rate": 1.0
+    },
+    "reviewer": {
+      "minimum_attempts": 5,
+      "maximum_completion_tokens": 1536,
+      "thinking_enabled": true,
+      "minimum_final_answer_rate": 1.0,
+      "minimum_schema_rate": 1.0,
+      "minimum_reasoning_presence_rate": 1.0,
+      "maximum_reasoning_presence_rate": 1.0
+    }
+  },
+  "role_thresholds": {
+    "minimum_development_cases": 4,
+    "minimum_holdout_cases": 2,
+    "minimum_mean_score_delta": 0.0,
+    "maximum_case_score_regression": 0.1,
+    "maximum_mean_repair_iteration_delta": 0.5
+  },
+  "resource_limits": {
+    "maximum_startup_seconds": 180.0,
+    "maximum_model_switch_seconds": 180.0,
+    "maximum_peak_vram_mib": 5632.0,
+    "maximum_peak_system_memory_mib": 7168.0,
+    "minimum_context_tokens_tested": 8192,
+    "minimum_generation_tokens_per_second": 2.0,
+    "maximum_p95_case_latency_seconds": 300.0
+  }
+}

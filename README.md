@@ -220,6 +220,21 @@ LIVE_E2E_ATTEMPTS=3 make live-e2e
 LIVE_E2E_KEEP_WORKTREE=1 make live-e2e
 ```
 
+## Evaluate Qwythos qualification evidence
+
+F3 keeps Qwythos on the optional `local-reason` route until a complete Track G report
+passes the frozen planner/reviewer policy. The decision command does not call a model or
+change route assignments.
+
+```bash
+make route-qualification-policy-hash
+make route-qualification-check
+make route-qualification EVIDENCE=/path/to/qwythos-f3-evidence.json
+```
+
+See [`docs/QWYTHOS_QUALIFICATION.md`](docs/QWYTHOS_QUALIFICATION.md) for the evidence
+contract, resource bounds, role-specific outcomes, and optional `REQUIRE` enforcement.
+
 ## Documentation map
 
 | Document | Purpose |
