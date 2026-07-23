@@ -69,7 +69,6 @@ def _identity(subject_name: str) -> dict[str, Any]:
 
 def _report(subject_name: str) -> dict[str, Any]:
     protocol = load_protocol()
-    subject = protocol.subjects[subject_name]
 
     def lm_factory(route: str) -> SimpleNamespace:
         return SimpleNamespace(route=route)
