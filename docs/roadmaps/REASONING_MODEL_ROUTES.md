@@ -171,6 +171,20 @@ commands and report requirements are documented in `docs/QWYTHOS_QUALIFICATION.m
 slice establishes no model-quality claim. F3 still requires live contract/resource
 measurements and the Track G development/final-holdout comparison.
 
+#### F3.2 Add bounded focused-contract and resource collection — tooling complete
+
+`runtime/route_qualification_collect.py` now verifies the active GGUF and route alias,
+binds collection to a clean implementation commit, executes the frozen exact/planner/
+reviewer attempts, performs a provider-reported 8K context request, and samples the active
+`llama-server` process RSS and NVIDIA memory. It persists only normalized metadata under
+the ignored qualification directory; final and reasoning text are never retained.
+
+The collector does not fabricate unavailable lifecycle or quality evidence. Startup and
+serial switch timings remain pending unless supplied from an independent measurement, and
+Track G still owns corpus identity plus baseline/candidate development and holdout cases.
+Therefore the tooling is complete but no Qwythos qualification result exists until the
+first live collection and Track G comparison are assembled into the F3 report.
+
 Qualification uses the frozen real-task corpus and comparison matrix defined by
 [`REAL_TASK_EVIDENCE.md`](REAL_TASK_EVIDENCE.md), plus focused response-contract fixtures.
 Synthetic sentinel tasks remain smoke tests only. Freeze acceptance thresholds before

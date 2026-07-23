@@ -50,10 +50,12 @@ It first fixes reasoning/final-content contracts, then qualifies an optional
 `local-reason` route for planner and reviewer use. The existing 3B implementer and repairer
 remain the default fast coding path.
 
-F0–F2 are complete: model responses share one fail-closed contract, exact and bounded
-reasoning probes are separate, and typed route profiles expose `local-reason` without
-changing current role assignments. The next capability work is F3 qualification against
-Track G real-task evidence. MTP and automatic supervision remain optional.
+F0–F2 and the F3 qualification-policy slice are complete. Focused F3 collection tooling
+now verifies the active candidate, runs frozen exact/planner/reviewer contracts, exercises
+an 8K context, and records bounded resource measurements without changing role
+assignments. The next capability work is the first live Qwythos collection followed by
+Track G baseline/development/holdout comparison. MTP and automatic supervision remain
+optional.
 
 ## Active priority 2: Track G — real-task capability evidence
 

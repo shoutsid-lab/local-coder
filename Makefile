@@ -4,8 +4,9 @@ PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runt
 .PHONY: health format format-check lint agent-check agent-install agent-smoke handoff-check test verify \
 	metrics review review-cached skills skills-lint gepa-dataset-check gepa-runner-check \
 	gepa-experiment-check prompt-campaign-check prompt-deployment-check route-probe-check \
-	route-profile-check route-qualification-check route-qualification-policy-hash \
-	route-qualification route-probe runs live-e2e live-e2e-report
+	route-profile-check route-qualification-check route-qualification-collect-check \
+	route-qualification-policy-hash route-qualification-collect route-qualification \
+	route-probe runs live-e2e live-e2e-report
 
 health:
 	@curl -fsS http://127.0.0.1:8080/health | jq
@@ -91,8 +92,21 @@ route-profile-check:
 route-qualification-check:
 	$(PYTHON) -m pytest -q --tb=short tests/test_route_qualification.py
 
+route-qualification-collect-check:
+	$(PYTHON) -m pytest -q --tb=short tests/test_route_qualification_collect.py
+
 route-qualification-policy-hash:
 	$(PYTHON) -m runtime.route_qualification --print-policy-hash
+
+route-qualification-collect:
+	@test -n "$(ENVIRONMENT)" || (echo "Usage: make route-qualification-collect ENVIRONMENT=machine-id [OUTPUT=path] [SERVER_PID=pid] [STARTUP_SECONDS=n] [MODEL_SWITCH_SECONDS=n] [PEAK_VRAM_MIB=n]"; exit 1)
+	$(PYTHON) -m runtime.route_qualification_collect \
+		--environment-id "$(ENVIRONMENT)" \
+		$(if $(OUTPUT),--output "$(OUTPUT)",) \
+		$(if $(SERVER_PID),--server-pid "$(SERVER_PID)",) \
+		$(if $(STARTUP_SECONDS),--startup-seconds "$(STARTUP_SECONDS)",) \
+		$(if $(MODEL_SWITCH_SECONDS),--model-switch-seconds "$(MODEL_SWITCH_SECONDS)",) \
+		$(if $(PEAK_VRAM_MIB),--peak-vram-mib "$(PEAK_VRAM_MIB)",)
 
 route-qualification:
 	@test -n "$(EVIDENCE)" || (echo "Usage: make route-qualification EVIDENCE=path/to/report.json [REQUIRE=any|planner|reviewer|both]"; exit 1)
