@@ -205,6 +205,7 @@ def build_prompt_improvement_brief(
     rollback_condition: str,
     forbidden_files: Iterable[str],
     evidence_run_ids: Iterable[str],
+    evaluation_holdout: dict[str, object] | None = None,
 ) -> dict[str, Any]:
     """Build one inert prompt-specific improvement brief."""
     metrics = (
@@ -219,6 +220,17 @@ def build_prompt_improvement_brief(
             "role": spec.role,
         },
     )
+    holdout = dict(
+        evaluation_holdout
+        or {
+            "mode": "unspecified",
+            "identity_hash": None,
+        }
+    )
+    if holdout.get("mode") not in {"external", "deferred", "unspecified"}:
+        raise PromptCampaignError("Unsupported prompt evaluation holdout mode.")
+    metadata = spec.to_metadata()
+    metadata["evaluation_holdout"] = holdout
     body = {
         "evidence_run_ids": tuple(sorted(set(evidence_run_ids))),
         "baseline_commit": baseline_commit,
@@ -233,7 +245,7 @@ def build_prompt_improvement_brief(
         "suite_hash": suite_hash,
         "budget": budget,
         "rollback_condition": rollback_condition.strip(),
-        "metadata": spec.to_metadata(),
+        "metadata": metadata,
     }
     if not body["rollback_condition"]:
         raise PromptCampaignError("A prompt campaign rollback condition is required.")

@@ -398,6 +398,76 @@ def _load_evaluation_inputs(
     return development, holdout, oracle, oracle_hash
 
 
+def _load_campaign_evaluation_identity(
+    args: argparse.Namespace,
+    *,
+    kind: str,
+    prompt_spec=None,
+) -> tuple[str, str | None, dict[str, object]]:
+    """Freeze campaign evaluation identity without weakening holdout gates."""
+    from evaluation.manifests import load_suite
+    from evaluation.outcomes import stable_hash
+    from evaluation.prompt_campaign import PROMPT_OPTIMIZATION_CAMPAIGN_KIND
+
+    has_suite = args.holdout_suite is not None
+    has_oracle = args.holdout_oracle is not None
+    if has_suite != has_oracle:
+        raise ValueError(
+            "Holdout inputs must provide both --holdout-suite and " "--holdout-oracle."
+        )
+
+    if has_suite:
+        development, holdout, _, oracle_hash = _load_evaluation_inputs(
+            args,
+            require_external_holdout=True,
+        )
+        holdout_hash = stable_hash(
+            {"manifest": holdout.manifest_hash, "oracle": oracle_hash}
+        )
+        suite_hash = stable_hash(
+            {
+                "development": development.manifest_hash,
+                "holdout": holdout.manifest_hash,
+            }
+        )
+        return (
+            suite_hash,
+            holdout_hash,
+            {
+                "mode": "external",
+                "identity_hash": holdout_hash,
+            },
+        )
+
+    if kind != PROMPT_OPTIMIZATION_CAMPAIGN_KIND:
+        raise ValueError(
+            "Source campaigns require --holdout-suite and --holdout-oracle."
+        )
+    if prompt_spec is None:
+        raise ValueError("Prompt campaign specification is missing.")
+
+    development = load_suite(
+        args.development_suite,
+        expected_visibility="development",
+    )
+    suite_hash = stable_hash(
+        {
+            "development": development.manifest_hash,
+            "prompt_dataset": prompt_spec.dataset_hash,
+            "prompt_dataset_manifest": prompt_spec.dataset_manifest_hash,
+        }
+    )
+    return (
+        suite_hash,
+        None,
+        {
+            "mode": "deferred",
+            "identity_hash": None,
+            "required_before": "paired_prompt_evaluation",
+        },
+    )
+
+
 def handle_evaluate(args: argparse.Namespace) -> int:
     """Run and record one bounded paired generation evaluation."""
     from dataclasses import asdict
@@ -570,7 +640,7 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
     from dataclasses import asdict
 
     from evaluation.miner import campaign_candidate_limit, mine_improvement_brief
-    from evaluation.outcomes import normalize_run, stable_hash
+    from evaluation.outcomes import normalize_run
     from evaluation.prompt_campaign import (
         PROMPT_OPTIMIZATION_CAMPAIGN_KIND,
         PromptCampaignError,
@@ -587,22 +657,9 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
 
     try:
         store = StateStore(args.database.resolve())
-        development, holdout, _, oracle_hash = _load_evaluation_inputs(
-            args,
-            require_external_holdout=True,
-        )
-        suite_hash = stable_hash(
-            {
-                "development": development.manifest_hash,
-                "holdout": holdout.manifest_hash,
-            }
-        )
         budget_value = _evaluation_budget(args)
         budget_value.validate()
         budget = asdict(budget_value)
-        holdout_hash = stable_hash(
-            {"manifest": holdout.manifest_hash, "oracle": oracle_hash}
-        )
         _, evaluator_environment_hash = environment_identity(ROOT)
         forbidden = set(PIPELINE_CONTROLS) | {
             "evaluation/",
@@ -633,6 +690,13 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
                 seed=args.prompt_seed,
                 num_threads=args.prompt_num_threads,
             )
+            suite_hash, holdout_hash, evaluation_holdout = (
+                _load_campaign_evaluation_identity(
+                    args,
+                    kind=args.kind,
+                    prompt_spec=spec,
+                )
+            )
             brief = build_prompt_improvement_brief(
                 spec,
                 baseline_commit=baseline_commit,
@@ -641,8 +705,13 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
                 rollback_condition=args.rollback_condition,
                 forbidden_files=forbidden,
                 evidence_run_ids=spec.source_run_ids,
+                evaluation_holdout=evaluation_holdout,
             )
         else:
+            suite_hash, holdout_hash, _ = _load_campaign_evaluation_identity(
+                args,
+                kind=args.kind,
+            )
             if not args.run_id or not args.allowed_file or not args.target_case:
                 raise ValueError(
                     "Source campaigns require --run-id, --allowed-file, and "
@@ -976,11 +1045,23 @@ def handle_audit_campaign(args: argparse.Namespace) -> int:
     return 0 if report.passed else 2
 
 
-def add_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
+def add_evaluation_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    require_holdout: bool = True,
+) -> None:
     """Add shared immutable-suite and hard-budget arguments."""
     parser.add_argument("--development-suite", type=Path, default=DEVELOPMENT_SUITE)
-    parser.add_argument("--holdout-suite", type=Path, required=True)
-    parser.add_argument("--holdout-oracle", type=Path, required=True)
+    parser.add_argument(
+        "--holdout-suite",
+        type=Path,
+        required=require_holdout,
+    )
+    parser.add_argument(
+        "--holdout-oracle",
+        type=Path,
+        required=require_holdout,
+    )
     parser.add_argument("--campaign-seconds", type=int, default=1800)
     parser.add_argument("--process-seconds", type=int, default=180)
     parser.add_argument("--max-processes", type=int, default=64)
@@ -1317,7 +1398,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     campaign_parser.add_argument("--prompt-seed", type=int, default=0)
     campaign_parser.add_argument("--prompt-num-threads", type=int, default=1)
-    add_evaluation_arguments(campaign_parser)
+    add_evaluation_arguments(campaign_parser, require_holdout=False)
     campaign_parser.set_defaults(handler=handle_create_campaign)
 
     approve_parser = subparsers.add_parser(

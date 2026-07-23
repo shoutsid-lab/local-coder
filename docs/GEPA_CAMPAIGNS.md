@@ -11,10 +11,12 @@ A `prompt-optimization` campaign reuses the existing bounded lifecycle:
 create-campaign -> approve-brief -> build-candidate
 ```
 
-Campaign creation freezes the normal evaluator suite, external holdout identity,
-evaluator environment, GEPA dataset hashes, selected role, model routes, metric-call
-budget, reflection limits, seed, and rollback condition. The approved brief permits no
-source-file edits.
+Campaign creation freezes the development suite, evaluator environment, GEPA dataset
+hashes, selected role, model routes, metric-call budget, reflection limits, seed, and
+rollback condition. An external evaluator holdout may also be frozen at creation time.
+When it is omitted during this C2.1 build-only slice, the brief records that paired prompt
+evaluation remains blocked until an external holdout is supplied by the later evaluation
+slice. The approved brief permits no source-file edits.
 
 `build-candidate` invokes the existing offline GEPA runner. It writes immutable output
 under `.local-coder/gepa-campaigns/` and records one hash-bound `prompt_candidate`
@@ -26,7 +28,9 @@ later campaign slices.
 
 ## Create a campaign
 
-Use an externally provisioned holdout rotation. The paths below are examples:
+An external evaluator holdout is optional for this build-only slice. Omitting it creates
+a campaign with an explicitly deferred evaluation holdout; source campaigns and actual
+paired evaluation still require an operator-controlled external rotation.
 
 ```bash
 ./local-coder.py create-campaign \
@@ -40,10 +44,19 @@ Use an externally provisioned holdout rotation. The paths below are examples:
   --prompt-reflection-max-tokens 512 \
   --prompt-max-instruction-chars 1600 \
   --prompt-allow-perfect-only \
-  --rollback-condition 'Any development or holdout regression.' \
-  --holdout-suite .local-coder/holdout/current/manifest.json \
-  --holdout-oracle .local-coder/holdout/current/oracle.json
+  --rollback-condition 'Any development or holdout regression.'
 ```
+
+
+To freeze an external holdout immediately, first provision it with `rotate-holdout`,
+then add both printed paths to `create-campaign`:
+
+```bash
+  --holdout-suite .local-coder/holdout/ROTATION/manifest.json \
+  --holdout-oracle .local-coder/holdout/ROTATION/oracle.json
+```
+
+Supplying only one holdout path fails closed.
 
 The command returns a campaign ID and one pending brief. Review the frozen metadata, then
 record approval:

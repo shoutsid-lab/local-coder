@@ -225,4 +225,7 @@ LIVE_E2E_KEEP_WORKTREE=1 make live-e2e
 Create a bounded `prompt-optimization` campaign, approve its frozen brief, then run
 `build-candidate` to register the offline GEPA result as a hash-bound
 `prompt_candidate`. It creates no source worktree and performs no activation or
-promotion. See [`docs/GEPA_CAMPAIGNS.md`](docs/GEPA_CAMPAIGNS.md).
+promotion. The external paired-evaluation holdout may be deferred during this build-only
+slice. Known DSPy `prefix` deprecations are filtered narrowly from pytest output while
+unexpected warnings remain visible. See
+[`docs/GEPA_CAMPAIGNS.md`](docs/GEPA_CAMPAIGNS.md).

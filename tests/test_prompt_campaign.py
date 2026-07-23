@@ -212,6 +212,10 @@ def test_prompt_spec_freezes_dataset_and_builds_typed_brief(tmp_path: Path) -> N
     assert brief["allowed_files"] == ()
     assert brief["evidence_run_ids"] == ("run-1",)
     assert brief["metadata"]["campaign_kind"] == PROMPT_OPTIMIZATION_CAMPAIGN_KIND
+    assert brief["metadata"]["evaluation_holdout"] == {
+        "mode": "unspecified",
+        "identity_hash": None,
+    }
     assert PromptCampaignSpec.from_metadata(brief["metadata"]) == spec
 
 
@@ -393,3 +397,85 @@ def test_build_candidate_dispatches_prompt_campaign_without_orchestrator(
     assert details["candidate_builds"][0]["status"] == "candidate_ready"
     assert details["candidate_builds"][0]["run_id"] is None
     assert json.loads(details["candidate_artifacts"][0]["content"]) == artifact
+
+
+def test_prompt_campaign_parser_allows_deferred_holdout(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path / "dataset")
+    args = CLI.build_parser().parse_args(
+        [
+            "create-campaign",
+            "--kind",
+            "prompt-optimization",
+            "--baseline",
+            ".",
+            "--dataset",
+            str(dataset),
+            "--role",
+            "planner",
+            "--rollback-condition",
+            "Any regression.",
+        ]
+    )
+
+    assert args.holdout_suite is None
+    assert args.holdout_oracle is None
+
+
+def test_prompt_campaign_freezes_deferred_holdout_identity(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path / "dataset")
+    spec = _spec(dataset)
+    args = Namespace(
+        development_suite=ROOT / "evaluation" / "suites" / "atomic-v1.json",
+        holdout_suite=None,
+        holdout_oracle=None,
+    )
+
+    suite_hash, holdout_hash, metadata = CLI._load_campaign_evaluation_identity(
+        args,
+        kind=PROMPT_OPTIMIZATION_CAMPAIGN_KIND,
+        prompt_spec=spec,
+    )
+
+    assert len(suite_hash) == 64
+    assert holdout_hash is None
+    assert metadata == {
+        "mode": "deferred",
+        "identity_hash": None,
+        "required_before": "paired_prompt_evaluation",
+    }
+
+
+def test_source_campaign_still_requires_external_holdout(tmp_path: Path) -> None:
+    args = Namespace(
+        development_suite=ROOT / "evaluation" / "suites" / "atomic-v1.json",
+        holdout_suite=None,
+        holdout_oracle=None,
+    )
+
+    try:
+        CLI._load_campaign_evaluation_identity(args, kind="source")
+    except ValueError as exc:
+        assert "Source campaigns require" in str(exc)
+    else:
+        raise AssertionError("source campaign accepted a deferred holdout")
+
+
+def test_campaign_rejects_partial_holdout_arguments(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path / "dataset")
+    spec = _spec(dataset)
+    args = Namespace(
+        development_suite=ROOT / "evaluation" / "suites" / "atomic-v1.json",
+        holdout_suite=tmp_path / "manifest.json",
+        holdout_oracle=None,
+    )
+
+    try:
+        CLI._load_campaign_evaluation_identity(
+            args,
+            kind=PROMPT_OPTIMIZATION_CAMPAIGN_KIND,
+            prompt_spec=spec,
+        )
+    except ValueError as exc:
+        assert "both --holdout-suite and --holdout-oracle" in str(exc)
+    else:
+        raise AssertionError("partial holdout arguments were accepted")
