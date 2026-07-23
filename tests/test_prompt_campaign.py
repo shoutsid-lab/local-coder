@@ -17,6 +17,8 @@ from evaluation.prompt_campaign import (
     build_prompt_candidate,
     build_prompt_candidate_artifact,
     build_prompt_improvement_brief,
+    prompt_candidate_build_status,
+    require_prompt_candidate_evaluation_eligibility,
 )
 from runtime.migrations import MIGRATIONS
 from runtime.state import StateStore
@@ -28,6 +30,11 @@ CLI_SPEC = importlib.util.spec_from_file_location(
 assert CLI_SPEC and CLI_SPEC.loader
 CLI = importlib.util.module_from_spec(CLI_SPEC)
 CLI_SPEC.loader.exec_module(CLI)
+
+BASELINE_INSTRUCTION = "Baseline planner instruction."
+PROPOSED_INSTRUCTION = "Improved concise planner instruction."
+BASELINE_INSTRUCTION_HASH = stable_hash({"predict.predict": BASELINE_INSTRUCTION})
+PROPOSED_INSTRUCTION_HASH = stable_hash({"predict.predict": PROPOSED_INSTRUCTION})
 
 
 def _sha256(path: Path) -> str:
@@ -108,7 +115,9 @@ def _spec(dataset: Path) -> PromptCampaignSpec:
         dataset,
         role="planner",
         reflection_route="local-plan",
-        max_metric_calls=20,
+        target_metric_calls=20,
+        hard_model_call_limit=32,
+        max_unsafe_proposals=3,
         no_improvement_patience=3,
         reflection_max_tokens=256,
         max_instruction_chars=800,
@@ -119,23 +128,39 @@ def _spec(dataset: Path) -> PromptCampaignSpec:
     )
 
 
-def _fake_gepa_result(output: Path, dataset_hash: str) -> dict[str, object]:
+def _fake_gepa_result(
+    output: Path,
+    dataset_hash: str,
+    *,
+    outcome: str = "improved_candidate",
+    accepted: bool = True,
+) -> dict[str, object]:
     output.mkdir(parents=True)
-    candidate = {"program": "planner"}
+    selected_instruction = PROPOSED_INSTRUCTION if accepted else BASELINE_INSTRUCTION
+    candidate = {
+        "predict.predict": {"signature": {"instructions": selected_instruction}},
+        "metadata": {"dependency_versions": {"dspy": "test"}},
+    }
+    selected_hash = PROPOSED_INSTRUCTION_HASH if accepted else BASELINE_INSTRUCTION_HASH
     report = {
         "dataset_hash": dataset_hash,
         "role": "planner",
         "optimization": {
             "instruction_hashes": {
-                "baseline": "baseline-hash",
-                "proposed": "candidate-hash",
-                "selected": "candidate-hash",
+                "baseline": BASELINE_INSTRUCTION_HASH,
+                "proposed": PROPOSED_INSTRUCTION_HASH,
+                "selected": selected_hash,
             },
-            "optimization_outcome": "improved_candidate",
-            "winning_candidate": "optimized",
-            "candidate_changed": True,
-            "candidate_accepted": True,
+            "optimization_outcome": outcome,
+            "winning_candidate": "optimized" if accepted else "baseline",
+            "proposed_candidate_changed": True,
+            "selected_candidate_changed": accepted,
+            "candidate_changed": accepted,
+            "candidate_accepted": accepted,
         },
+        "budget": {"effective_target_metric_calls": 20},
+        "metric_call_accounting": {"total_observed": 7},
+        "model_call_accounting": {"hard_limit": 32, "total": 5},
         "activation": "not_performed",
         "promotion": "not_performed",
     }
@@ -247,9 +272,12 @@ def test_prompt_candidate_artifact_is_inert_and_hash_bound(tmp_path: Path) -> No
     assert result["report"]["activation"] == "not_performed"
     assert artifact["artifact_kind"] == PROMPT_CANDIDATE_ARTIFACT_KIND
     assert artifact["dataset_hash"] == spec.dataset_hash
-    assert artifact["baseline_instruction_hash"] == "baseline-hash"
-    assert artifact["candidate_instruction_hash"] == "candidate-hash"
+    assert artifact["baseline_instruction_hash"] == BASELINE_INSTRUCTION_HASH
+    assert artifact["candidate_instruction_hash"] == PROPOSED_INSTRUCTION_HASH
     assert artifact["candidate_accepted"] is True
+    assert artifact["build_outcome"] == "candidate_ready"
+    assert artifact["proposed_candidate_changed"] is True
+    assert artifact["selected_candidate_changed"] is True
 
 
 def test_prompt_candidate_rejects_activation(tmp_path: Path) -> None:
@@ -375,6 +403,7 @@ def test_build_candidate_dispatches_prompt_campaign_without_orchestrator(
         "artifact_kind": PROMPT_CANDIDATE_ARTIFACT_KIND,
         "campaign_kind": PROMPT_OPTIMIZATION_CAMPAIGN_KIND,
         "role": "planner",
+        "build_outcome": "candidate_ready",
     }
     result = {"manifest": {"manifest_hash": "manifest"}, "report": {}}
     args = Namespace(
@@ -479,3 +508,307 @@ def test_campaign_rejects_partial_holdout_arguments(tmp_path: Path) -> None:
         assert "both --holdout-suite and --holdout-oracle" in str(exc)
     else:
         raise AssertionError("partial holdout arguments were accepted")
+
+
+def test_prompt_candidate_rejection_describes_selected_baseline(
+    tmp_path: Path,
+) -> None:
+    dataset = _dataset(tmp_path / "dataset")
+    spec = _spec(dataset)
+    output = tmp_path / "candidate"
+    result = _fake_gepa_result(
+        output,
+        spec.dataset_hash,
+        outcome="rejected_unsafe_candidate",
+        accepted=False,
+    )
+
+    artifact = build_prompt_candidate_artifact(spec, output, result)
+
+    assert artifact["proposed_candidate_changed"] is True
+    assert artifact["selected_candidate_changed"] is False
+    assert artifact["candidate_changed"] is False
+    assert artifact["candidate_instruction_hash"] == BASELINE_INSTRUCTION_HASH
+    assert artifact["build_outcome"] == "candidate_rejected"
+    assert prompt_candidate_build_status(artifact) == "candidate_rejected"
+
+
+def test_prompt_candidate_null_result_is_not_evaluation_ready(
+    tmp_path: Path,
+) -> None:
+    dataset = _dataset(tmp_path / "dataset")
+    spec = _spec(dataset)
+    output = tmp_path / "candidate"
+    result = _fake_gepa_result(
+        output,
+        spec.dataset_hash,
+        outcome="no_improvement",
+        accepted=False,
+    )
+    artifact = build_prompt_candidate_artifact(spec, output, result)
+    build = {
+        "status": prompt_candidate_build_status(artifact),
+        "artifacts": [{"content": json.dumps(artifact)}],
+    }
+
+    assert artifact["build_outcome"] == "no_improvement"
+    try:
+        require_prompt_candidate_evaluation_eligibility(build)
+    except PromptCampaignError as exc:
+        assert "not evaluation-ready" in str(exc)
+    else:
+        raise AssertionError("null-result candidate entered paired evaluation")
+
+
+def test_only_accepted_changed_prompt_is_evaluation_ready(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path / "dataset")
+    spec = _spec(dataset)
+    output = tmp_path / "candidate"
+    result = _fake_gepa_result(output, spec.dataset_hash)
+    artifact = build_prompt_candidate_artifact(spec, output, result)
+    build = {
+        "status": "candidate_ready",
+        "artifacts": [{"content": json.dumps(artifact)}],
+    }
+
+    require_prompt_candidate_evaluation_eligibility(build)
+
+
+def test_prompt_spec_reads_schema_v1_with_bounded_defaults(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path / "dataset")
+    spec = _spec(dataset)
+    metadata = spec.to_metadata()
+    payload = metadata["prompt_optimization"]
+    payload["schema_version"] = 1
+    payload["max_metric_calls"] = payload.pop("target_metric_calls")
+    payload.pop("hard_model_call_limit")
+    payload.pop("max_unsafe_proposals")
+
+    migrated = PromptCampaignSpec.from_metadata(metadata)
+
+    assert migrated.schema_version == 2
+    assert migrated.hard_model_call_limit == migrated.target_metric_calls
+    assert migrated.max_unsafe_proposals == 3
+
+
+def test_state_accepts_terminal_prompt_build_outcomes(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / "agent.db")
+    for index, status in enumerate(("candidate_rejected", "no_improvement")):
+        campaign_id = store.create_campaign(
+            baseline_commit="base",
+            suite_hash=f"suite-{index}",
+            budget={"max_model_calls": 20},
+            max_candidates=1,
+            holdout_hash=None,
+            environment_hash="environment",
+            kind=PROMPT_OPTIMIZATION_CAMPAIGN_KIND,
+        )
+        brief_id = f"brief-{index}"
+        brief = {
+            "id": brief_id,
+            "evidence_run_ids": [],
+            "baseline_commit": "base",
+            "failure_class": "prompt_optimization",
+            "hypothesis": "Test terminal prompt state.",
+            "allowed_files": [],
+            "forbidden_files": [],
+            "acceptance_metrics": [],
+            "suite_hash": f"suite-{index}",
+            "budget": {"max_model_calls": 20},
+            "rollback_condition": "Any regression.",
+            "metadata": {"campaign_kind": PROMPT_OPTIMIZATION_CAMPAIGN_KIND},
+        }
+        store.add_improvement_brief(campaign_id, brief)
+        store.approve_improvement_brief(
+            brief_id, actor="review-model", rationale="Bounded."
+        )
+        build_id = store.create_candidate_build(
+            campaign_id,
+            brief_id=brief_id,
+            overlay_hash=None,
+            overlay=None,
+            build_kind=PROMPT_OPTIMIZATION_CAMPAIGN_KIND,
+        )
+        store.complete_candidate_build(
+            build_id,
+            run_id=None,
+            status=status,
+            branch=None,
+            worktree=None,
+        )
+        assert store.candidate_build_details(build_id)["status"] == status
+
+
+def test_build_candidate_persists_rejected_prompt_status(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path / "dataset")
+    spec = _spec(dataset)
+    store = StateStore(tmp_path / "agent.db")
+    campaign_id = store.create_campaign(
+        baseline_commit="base",
+        suite_hash="suite",
+        budget={"max_model_calls": 32},
+        max_candidates=1,
+        holdout_hash=None,
+        environment_hash="environment",
+        kind=PROMPT_OPTIMIZATION_CAMPAIGN_KIND,
+    )
+    brief = build_prompt_improvement_brief(
+        spec,
+        baseline_commit="base",
+        suite_hash="suite",
+        budget={"max_model_calls": 32},
+        rollback_condition="Any regression.",
+        forbidden_files=("evaluation/",),
+        evidence_run_ids=spec.source_run_ids,
+    )
+    store.add_improvement_brief(campaign_id, brief)
+    store.approve_improvement_brief(
+        brief["id"], actor="review-model", rationale="Run bounded GEPA."
+    )
+    artifact = {
+        "schema_version": 2,
+        "artifact_kind": PROMPT_CANDIDATE_ARTIFACT_KIND,
+        "campaign_kind": PROMPT_OPTIMIZATION_CAMPAIGN_KIND,
+        "role": "planner",
+        "build_outcome": "candidate_rejected",
+    }
+    args = Namespace(
+        campaign_id=campaign_id,
+        database=store.path,
+        output=tmp_path / "output",
+        max_steps=12,
+        overlay=None,
+    )
+
+    with patch(
+        "evaluation.prompt_campaign.build_prompt_candidate",
+        return_value=({"manifest": {}, "report": {}}, artifact),
+    ):
+        status = CLI.handle_build_candidate(args)
+
+    assert status == 0
+    details = store.campaign_details(campaign_id)
+    assert details is not None
+    assert details["candidate_builds"][0]["status"] == "candidate_rejected"
+
+
+def test_rejected_prompt_build_is_blocked_before_holdout_loading(
+    tmp_path: Path,
+) -> None:
+    store = StateStore(tmp_path / "agent.db")
+    campaign_id = store.create_campaign(
+        baseline_commit="base",
+        suite_hash="suite",
+        budget={"max_model_calls": 32},
+        max_candidates=1,
+        holdout_hash=None,
+        environment_hash="environment",
+        kind=PROMPT_OPTIMIZATION_CAMPAIGN_KIND,
+    )
+    brief = {
+        "id": "brief",
+        "evidence_run_ids": [],
+        "baseline_commit": "base",
+        "failure_class": "prompt_optimization",
+        "hypothesis": "Test rejected evaluation boundary.",
+        "allowed_files": [],
+        "forbidden_files": [],
+        "acceptance_metrics": [],
+        "suite_hash": "suite",
+        "budget": {"max_model_calls": 32},
+        "rollback_condition": "Any regression.",
+        "metadata": {"campaign_kind": PROMPT_OPTIMIZATION_CAMPAIGN_KIND},
+    }
+    store.add_improvement_brief(campaign_id, brief)
+    store.approve_improvement_brief("brief", actor="review-model", rationale="Bounded.")
+    build_id = store.create_candidate_build(
+        campaign_id,
+        brief_id="brief",
+        overlay_hash=None,
+        overlay=None,
+        build_kind=PROMPT_OPTIMIZATION_CAMPAIGN_KIND,
+    )
+    store.complete_candidate_build(
+        build_id,
+        run_id=None,
+        status="candidate_rejected",
+        branch=None,
+        worktree=None,
+    )
+    args = Namespace(
+        campaign_id=campaign_id,
+        build_id=build_id,
+        database=store.path,
+    )
+
+    assert CLI.handle_evaluate(args) == 1
+
+
+def _rewrite_gepa_result(
+    output: Path,
+    result: dict[str, object],
+) -> None:
+    report = result["report"]
+    manifest = result["manifest"]
+    assert isinstance(report, dict)
+    assert isinstance(manifest, dict)
+    (output / "report.json").write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    files = manifest["files"]
+    assert isinstance(files, dict)
+    files["candidate.json"] = _sha256(output / "candidate.json")
+    files["report.json"] = _sha256(output / "report.json")
+    manifest_input = dict(manifest)
+    manifest_input.pop("manifest_hash", None)
+    manifest["manifest_hash"] = stable_hash(manifest_input)
+    (output / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_prompt_candidate_rejects_contradictory_change_flags(
+    tmp_path: Path,
+) -> None:
+    dataset = _dataset(tmp_path / "dataset")
+    spec = _spec(dataset)
+    output = tmp_path / "candidate"
+    result = _fake_gepa_result(output, spec.dataset_hash)
+    report = result["report"]
+    assert isinstance(report, dict)
+    optimization = report["optimization"]
+    assert isinstance(optimization, dict)
+    optimization["candidate_changed"] = False
+    _rewrite_gepa_result(output, result)
+
+    try:
+        build_prompt_candidate_artifact(spec, output, result)
+    except PromptCampaignError as exc:
+        assert "candidate change flag" in str(exc)
+    else:
+        raise AssertionError("contradictory prompt lineage was accepted")
+
+
+def test_prompt_candidate_rejects_saved_instruction_mismatch(
+    tmp_path: Path,
+) -> None:
+    dataset = _dataset(tmp_path / "dataset")
+    spec = _spec(dataset)
+    output = tmp_path / "candidate"
+    result = _fake_gepa_result(output, spec.dataset_hash)
+    candidate = json.loads((output / "candidate.json").read_text(encoding="utf-8"))
+    candidate["predict.predict"]["signature"]["instructions"] = "Tampered."
+    (output / "candidate.json").write_text(
+        json.dumps(candidate, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _rewrite_gepa_result(output, result)
+
+    try:
+        build_prompt_candidate_artifact(spec, output, result)
+    except PromptCampaignError as exc:
+        assert "selected instruction hash" in str(exc)
+    else:
+        raise AssertionError("candidate file with inconsistent lineage was accepted")

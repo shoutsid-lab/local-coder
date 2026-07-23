@@ -17,8 +17,8 @@ SUPPORTED_CAMPAIGN_KINDS = {
     SOURCE_CAMPAIGN_KIND,
     PROMPT_OPTIMIZATION_CAMPAIGN_KIND,
 }
-PROMPT_CAMPAIGN_SCHEMA_VERSION = 1
-PROMPT_CANDIDATE_SCHEMA_VERSION = 1
+PROMPT_CAMPAIGN_SCHEMA_VERSION = 2
+PROMPT_CANDIDATE_SCHEMA_VERSION = 2
 
 
 class PromptCampaignError(ValueError):
@@ -31,6 +31,31 @@ def _sha256_file(path: Path) -> str:
 
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+
+
+def _saved_candidate_instruction_hash(path: Path) -> str:
+    """Hash predictor instructions stored in one DSPy candidate JSON file."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PromptCampaignError("GEPA candidate JSON is unreadable.") from exc
+    if not isinstance(payload, dict):
+        raise PromptCampaignError("GEPA candidate JSON must be an object.")
+    instructions: dict[str, str] = {}
+    for name, component in payload.items():
+        if name == "metadata" or not isinstance(component, dict):
+            continue
+        signature = component.get("signature")
+        if not isinstance(signature, dict):
+            continue
+        instruction = signature.get("instructions")
+        if isinstance(instruction, str):
+            instructions[str(name)] = instruction
+    if not instructions:
+        raise PromptCampaignError(
+            "GEPA candidate JSON contains no predictor instruction lineage."
+        )
+    return stable_hash(instructions)
 
 
 def _validate_dataset_path(path: Path) -> Path:
@@ -62,7 +87,9 @@ class PromptCampaignSpec:
     dataset_manifest_hash: str
     source_run_ids: tuple[str, ...]
     reflection_route: str
-    max_metric_calls: int
+    target_metric_calls: int
+    hard_model_call_limit: int
+    max_unsafe_proposals: int
     no_improvement_patience: int
     reflection_max_tokens: int
     max_instruction_chars: int
@@ -79,7 +106,9 @@ class PromptCampaignSpec:
         *,
         role: str,
         reflection_route: str,
-        max_metric_calls: int,
+        target_metric_calls: int,
+        hard_model_call_limit: int,
+        max_unsafe_proposals: int,
         no_improvement_patience: int,
         reflection_max_tokens: int,
         max_instruction_chars: int,
@@ -108,7 +137,9 @@ class PromptCampaignSpec:
                 f"Unsupported prompt reflection route: {reflection_route}"
             )
         positive_values = {
-            "max_metric_calls": max_metric_calls,
+            "target_metric_calls": target_metric_calls,
+            "hard_model_call_limit": hard_model_call_limit,
+            "max_unsafe_proposals": max_unsafe_proposals,
             "no_improvement_patience": no_improvement_patience,
             "reflection_max_tokens": reflection_max_tokens,
             "max_instruction_chars": max_instruction_chars,
@@ -126,7 +157,9 @@ class PromptCampaignSpec:
             dataset_manifest_hash=str(manifest["manifest_hash"]),
             source_run_ids=tuple(sorted(manifest.get("source_run_ids", []))),
             reflection_route=reflection_route,
-            max_metric_calls=max_metric_calls,
+            target_metric_calls=target_metric_calls,
+            hard_model_call_limit=hard_model_call_limit,
+            max_unsafe_proposals=max_unsafe_proposals,
             no_improvement_patience=no_improvement_patience,
             reflection_max_tokens=reflection_max_tokens,
             max_instruction_chars=max_instruction_chars,
@@ -147,6 +180,13 @@ class PromptCampaignSpec:
         if not isinstance(payload, dict):
             raise PromptCampaignError("Prompt campaign specification is missing.")
         normalized = dict(payload)
+        source_version = int(normalized.get("schema_version", 1))
+        if source_version == 1:
+            target = int(normalized.pop("max_metric_calls", 60))
+            normalized["target_metric_calls"] = target
+            normalized["hard_model_call_limit"] = target
+            normalized["max_unsafe_proposals"] = 3
+            normalized["schema_version"] = PROMPT_CAMPAIGN_SCHEMA_VERSION
         source_run_ids = normalized.get("source_run_ids")
         if not isinstance(source_run_ids, (list, tuple)) or not all(
             isinstance(run_id, str) and run_id for run_id in source_run_ids
@@ -169,7 +209,9 @@ class PromptCampaignSpec:
             Path(spec.dataset),
             role=spec.role,
             reflection_route=spec.reflection_route,
-            max_metric_calls=spec.max_metric_calls,
+            target_metric_calls=spec.target_metric_calls,
+            hard_model_call_limit=spec.hard_model_call_limit,
+            max_unsafe_proposals=spec.max_unsafe_proposals,
             no_improvement_patience=spec.no_improvement_patience,
             reflection_max_tokens=spec.reflection_max_tokens,
             max_instruction_chars=spec.max_instruction_chars,
@@ -252,6 +294,15 @@ def build_prompt_improvement_brief(
     return {"id": stable_hash(body)[:12], **body}
 
 
+def _prompt_build_outcome(optimization: dict[str, Any]) -> str:
+    if optimization.get("candidate_accepted") is True:
+        return "candidate_ready"
+    outcome = str(optimization.get("optimization_outcome") or "")
+    if outcome.startswith("rejected_") or outcome == "hard_model_call_limit":
+        return "candidate_rejected"
+    return "no_improvement"
+
+
 def build_prompt_candidate_artifact(
     spec: PromptCampaignSpec,
     output: Path,
@@ -300,6 +351,48 @@ def build_prompt_candidate_artifact(
     instruction_hashes = optimization.get("instruction_hashes")
     if not isinstance(instruction_hashes, dict):
         raise PromptCampaignError("GEPA report has no instruction lineage hashes.")
+    baseline_hash = instruction_hashes.get("baseline")
+    proposed_hash = instruction_hashes.get("proposed")
+    selected_hash = instruction_hashes.get("selected")
+    hashes = (baseline_hash, proposed_hash, selected_hash)
+    if any(not isinstance(value, str) or not value for value in hashes):
+        raise PromptCampaignError("Prompt candidate instruction hashes are incomplete.")
+    proposed_changed = proposed_hash != baseline_hash
+    selected_changed = selected_hash != baseline_hash
+    reported_proposed_changed = optimization.get("proposed_candidate_changed")
+    reported_selected_changed = optimization.get("selected_candidate_changed")
+    reported_candidate_changed = optimization.get("candidate_changed")
+    if reported_proposed_changed is not proposed_changed:
+        raise PromptCampaignError(
+            "GEPA proposed-candidate change flag contradicts instruction hashes."
+        )
+    if reported_selected_changed is not selected_changed:
+        raise PromptCampaignError(
+            "GEPA selected-candidate change flag contradicts instruction hashes."
+        )
+    if reported_candidate_changed is not selected_changed:
+        raise PromptCampaignError(
+            "GEPA candidate change flag must describe the selected instruction."
+        )
+    accepted_value = optimization.get("candidate_accepted")
+    if not isinstance(accepted_value, bool):
+        raise PromptCampaignError("GEPA candidate acceptance flag is malformed.")
+    accepted = accepted_value
+    winning = optimization.get("winning_candidate")
+    saved_instruction_hash = _saved_candidate_instruction_hash(candidate_path)
+    if saved_instruction_hash != selected_hash:
+        raise PromptCampaignError(
+            "Saved GEPA candidate does not match the selected instruction hash."
+        )
+    if accepted and (not selected_changed or winning != "optimized"):
+        raise PromptCampaignError(
+            "Accepted prompt candidate does not select an optimized instruction."
+        )
+    if not accepted and (selected_changed or winning != "baseline"):
+        raise PromptCampaignError(
+            "Rejected prompt candidate must select the baseline instruction."
+        )
+    build_outcome = _prompt_build_outcome(optimization)
     artifact = {
         "schema_version": PROMPT_CANDIDATE_SCHEMA_VERSION,
         "artifact_kind": PROMPT_CANDIDATE_ARTIFACT_KIND,
@@ -308,16 +401,22 @@ def build_prompt_candidate_artifact(
         "dataset": spec.dataset,
         "dataset_hash": spec.dataset_hash,
         "dataset_manifest_hash": spec.dataset_manifest_hash,
-        "baseline_instruction_hash": instruction_hashes.get("baseline"),
-        "candidate_instruction_hash": instruction_hashes.get("selected"),
-        "proposed_instruction_hash": instruction_hashes.get("proposed"),
+        "baseline_instruction_hash": baseline_hash,
+        "candidate_instruction_hash": selected_hash,
+        "proposed_instruction_hash": proposed_hash,
         "gepa_manifest_hash": manifest.get("manifest_hash"),
         "gepa_candidate_hash": expected_hashes["candidate.json"],
         "gepa_report_hash": expected_hashes["report.json"],
         "optimization_outcome": optimization.get("optimization_outcome"),
-        "winning_candidate": optimization.get("winning_candidate"),
-        "candidate_changed": optimization.get("candidate_changed"),
-        "candidate_accepted": optimization.get("candidate_accepted"),
+        "build_outcome": build_outcome,
+        "winning_candidate": winning,
+        "proposed_candidate_changed": proposed_changed,
+        "selected_candidate_changed": selected_changed,
+        "candidate_changed": selected_changed,
+        "candidate_accepted": accepted,
+        "budget": report.get("budget"),
+        "metric_call_accounting": report.get("metric_call_accounting"),
+        "model_call_accounting": report.get("model_call_accounting"),
         "activation": report["activation"],
         "promotion": report["promotion"],
         "output": str(output),
@@ -325,8 +424,10 @@ def build_prompt_candidate_artifact(
     required_text = (
         "baseline_instruction_hash",
         "candidate_instruction_hash",
+        "proposed_instruction_hash",
         "gepa_manifest_hash",
         "optimization_outcome",
+        "build_outcome",
         "winning_candidate",
     )
     if any(
@@ -335,6 +436,41 @@ def build_prompt_candidate_artifact(
     ):
         raise PromptCampaignError("Prompt candidate lineage is incomplete.")
     return artifact
+
+
+def prompt_candidate_build_status(artifact: dict[str, Any]) -> str:
+    """Return the persisted candidate-build state for one prompt artifact."""
+    status = artifact.get("build_outcome")
+    allowed = {"candidate_ready", "candidate_rejected", "no_improvement"}
+    if status not in allowed:
+        raise PromptCampaignError(f"Unsupported prompt build outcome: {status}")
+    return str(status)
+
+
+def require_prompt_candidate_evaluation_eligibility(
+    build: dict[str, Any],
+) -> None:
+    """Fail closed unless a campaign build contains an accepted prompt candidate."""
+    status = build.get("status")
+    if status != "candidate_ready":
+        raise PromptCampaignError(
+            f"Prompt candidate build is not evaluation-ready: {status}."
+        )
+    artifacts = build.get("artifacts")
+    if not isinstance(artifacts, list) or len(artifacts) != 1:
+        raise PromptCampaignError(
+            "Prompt candidate build requires exactly one candidate artifact."
+        )
+    try:
+        artifact = json.loads(artifacts[0]["content"])
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise PromptCampaignError("Prompt candidate artifact is malformed.") from exc
+    if artifact.get("artifact_kind") != PROMPT_CANDIDATE_ARTIFACT_KIND:
+        raise PromptCampaignError("Campaign build has no prompt candidate artifact.")
+    if artifact.get("candidate_accepted") is not True:
+        raise PromptCampaignError("Prompt candidate was not accepted for evaluation.")
+    if artifact.get("selected_candidate_changed") is not True:
+        raise PromptCampaignError("Prompt candidate does not differ from baseline.")
 
 
 def build_prompt_candidate(
@@ -356,7 +492,9 @@ def build_prompt_candidate(
             output,
             role=spec.role,
             reflection_route=spec.reflection_route,
-            max_metric_calls=spec.max_metric_calls,
+            target_metric_calls=spec.target_metric_calls,
+            hard_model_call_limit=spec.hard_model_call_limit,
+            max_unsafe_proposals=spec.max_unsafe_proposals,
             no_improvement_patience=spec.no_improvement_patience,
             reflection_max_tokens=spec.reflection_max_tokens,
             max_instruction_chars=spec.max_instruction_chars,

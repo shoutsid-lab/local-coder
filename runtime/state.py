@@ -695,6 +695,8 @@ class StateStore:
             "failed",
             "no_changes",
             "candidate_ready",
+            "candidate_rejected",
+            "no_improvement",
         }:
             raise ValueError(f"Unsupported candidate-build status: {status}")
         with self.connect() as connection:

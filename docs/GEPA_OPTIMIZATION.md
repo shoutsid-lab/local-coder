@@ -57,17 +57,21 @@ With llama.cpp and LiteLLM already running:
   --dataset .local-coder/gepa-datasets/latest \
   --role planner \
   --reflection-route local-plan \
-  --max-metric-calls 60 \
+  --target-metric-calls 60 \
+  --hard-model-call-limit 80 \
+  --max-unsafe-proposals 3 \
   --no-improvement-patience 6 \
   --reflection-max-tokens 512 \
   --seed 0 \
   --output .local-coder/gepa-runs/planner-001
 ```
 
-When neither `--auto` nor `--max-metric-calls` is supplied, the bounded default is 60
-metric calls. `--auto light|medium|heavy` remains available as an explicit operator
-choice, but its DSPy-compatible budget is converted to a concrete metric-call ceiling
-so the same early-stop guard remains active.
+When neither `--auto` nor `--target-metric-calls` is supplied, the default GEPA target is
+60 metric calls. DSPy and GEPA describe this value as approximate, so the report records
+both the requested target and any observed overrun. `--hard-model-call-limit` is the
+strict campaign-wide ceiling for student and reflection LM calls. It is enforced by a
+shared LM wrapper, including DSPy runtime copies. Provider-internal retries remain
+outside that count and are identified as such in the report.
 
 The output additionally contains `candidate.json`. The report records the frozen
 baseline replay score, GEPA validation scores, metric-call counts, route identities,
@@ -137,7 +141,7 @@ experiment with `--allow-perfect-only`:
   --dataset .local-coder/gepa-datasets/planner-seed-v1 \
   --role planner \
   --reflection-route local-plan \
-  --max-metric-calls 60 \
+  --target-metric-calls 60 \
   --allow-perfect-only \
   --seed 0 \
   --output .local-coder/gepa-runs/planner-seed-v1-bounded
@@ -152,14 +156,20 @@ The runner protects small local models and tiny corpora from unbounded reflectio
 
 - a frozen development baseline of `1.0` skips GEPA entirely unless the operator
   supplies `--force-search-perfect-baseline`;
-- a concrete metric-call ceiling is always active;
+- an approximate metric-call target and a separate hard LM-call limit are recorded;
 - repeated non-improving iterations trigger early stopping;
+- a compact typed proposer receives bounded feedback summaries instead of task, evidence,
+  and generated-output replay blocks;
+- blank, unsafe, or unchanged reflection proposals are blocked from becoming new
+  candidates, and repeated unsafe proposals stop the search;
 - reflection completions default to 512 tokens rather than the normal role limit;
 - replay/example scaffolding, oversized instructions, and mechanically repeated lines
   cause the optimized candidate to be rejected; and
 - perfect-only training sets require `--allow-perfect-only`.
 
-The report makes null results explicit with `winning_candidate`, `candidate_changed`,
+The report distinguishes `proposed_candidate_changed` from
+`selected_candidate_changed`. The compatibility field `candidate_changed` describes the
+selected program only. Null results remain explicit through `winning_candidate`,
 `candidate_accepted`, `improvement`, `search_performed`, `perfect_baseline`, and
 `optimization_outcome`. When GEPA does not strictly improve the development score,
 `candidate.json` contains the original program.

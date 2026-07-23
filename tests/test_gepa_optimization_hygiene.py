@@ -12,7 +12,11 @@ import pytest
 from evaluation.outcomes import stable_hash
 from runtime.dspy_programs.gepa_runner import (
     BoundedNoImprovementStopper,
+    BudgetedLM,
+    CompactInstructionProposer,
     GepaRunnerError,
+    ModelCallBudget,
+    ModelCallBudgetExceeded,
     assess_candidate_instructions,
     assess_dataset_readiness,
     run_gepa_optimization,
@@ -315,7 +319,7 @@ def test_bounded_search_accepts_only_strict_safe_improvement(tmp_path: Path) -> 
             dataset,
             output,
             role="planner",
-            max_metric_calls=40,
+            target_metric_calls=40,
             reflection_max_tokens=321,
             dspy_module=FakeDSPy(RecordingGEPA),
             lm_factory=lambda route, **kwargs: (
@@ -374,7 +378,7 @@ def test_unsafe_improvement_is_rejected(tmp_path: Path) -> None:
             dataset,
             output,
             role="planner",
-            max_metric_calls=40,
+            target_metric_calls=40,
             dspy_module=FakeDSPy(RecordingGEPA),
             lm_factory=lambda route, **_kwargs: f"lm:{route}",
         )
@@ -384,6 +388,9 @@ def test_unsafe_improvement_is_rejected(tmp_path: Path) -> None:
     assert optimization["candidate_accepted"] is False
     assert optimization["optimization_outcome"] == "rejected_unsafe_candidate"
     assert optimization["winning_candidate"] == "baseline"
+    assert optimization["proposed_candidate_changed"] is True
+    assert optimization["selected_candidate_changed"] is False
+    assert optimization["candidate_changed"] is False
     assert (output / "candidate.json").read_text(encoding="utf-8") == (
         '{"baseline":true}\n'
     )
@@ -421,7 +428,7 @@ def test_auto_light_is_converted_to_concrete_budget(tmp_path: Path) -> None:
         )
 
     assert RecordingGEPA.calls[0]["kwargs"]["max_metric_calls"] == 384
-    assert result["report"]["budget"]["effective_max_metric_calls"] == 384
+    assert result["report"]["budget"]["effective_target_metric_calls"] == 384
 
 
 def test_candidate_instruction_sanitation_and_stopper() -> None:
@@ -441,7 +448,7 @@ def test_candidate_instruction_sanitation_and_stopper() -> None:
     assert assessment["safe"] is False
     assert len(assessment["reasons"]) == 2
 
-    stopper = BoundedNoImprovementStopper(max_metric_calls=100, patience=2)
+    stopper = BoundedNoImprovementStopper(target_metric_calls=100, patience=2)
     state = SimpleNamespace(
         total_num_evals=1,
         i=1,
@@ -453,3 +460,212 @@ def test_candidate_instruction_sanitation_and_stopper() -> None:
     state.i = 3
     assert stopper(state) is True
     assert stopper.reason == "no_improvement"
+
+
+def test_compact_proposer_uses_feedback_only_and_rejects_replay_dump() -> None:
+    proposer = CompactInstructionProposer(
+        FakeDSPy(RaisingGEPA),
+        role="planner",
+        max_instruction_chars=120,
+        max_unsafe_proposals=2,
+    )
+    calls: list[dict[str, object]] = []
+
+    def safe_predictor(**kwargs: object) -> object:
+        calls.append(kwargs)
+        return SimpleNamespace(
+            improved_instruction=(
+                "Produce one atomic plan grounded in evidence and preserve "
+                "unrelated behavior."
+            )
+        )
+
+    proposer._predictor = safe_predictor
+    candidate = {"predict.predict": "Baseline planner instruction."}
+    reflective = {
+        "predict.predict": [
+            {
+                "Inputs": {"task": "SECRET TASK TEXT"},
+                "Generated Outputs": {"instruction": "SECRET OUTPUT"},
+                "Feedback": "Mismatched fields: acceptance_criteria.",
+            }
+        ]
+    }
+
+    proposed = proposer(candidate, reflective, ["predict.predict"])
+
+    assert proposed["predict.predict"].startswith("Produce one atomic plan")
+    assert calls[0]["feedback_summary"] == (
+        "Example 1: Mismatched fields: acceptance_criteria."
+    )
+    assert "SECRET" not in str(calls[0])
+    assert proposer.summary()["accepted_by_proposer"] == 1
+
+    proposer._predictor = lambda **_kwargs: SimpleNamespace(improved_instruction="")
+    assert proposer(candidate, reflective, ["predict.predict"]) == candidate
+    assert proposer.summary()["last_rejection_reasons"] == [
+        "predict.predict instruction is blank"
+    ]
+
+    proposer._predictor = lambda **_kwargs: SimpleNamespace(
+        improved_instruction="## Inputs\n### task\nReplay one example."
+    )
+    assert proposer(candidate, reflective, ["predict.predict"]) == candidate
+    summary = proposer.summary()
+    assert summary["rejected_by_proposer"] == 2
+    assert summary["stop_requested"] is True
+
+
+def test_budgeted_lm_copies_share_a_hard_call_limit() -> None:
+    class FakeLM:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def copy(self, **_kwargs: object) -> "FakeLM":
+            return self
+
+        def __call__(self, *_args: object, **_kwargs: object) -> str:
+            self.calls += 1
+            return "ok"
+
+    raw = FakeLM()
+    budget = ModelCallBudget(2)
+    student = BudgetedLM(raw, budget, "student")
+    copied = student.copy(temperature=0)
+
+    assert student() == "ok"
+    assert copied() == "ok"
+    with pytest.raises(ModelCallBudgetExceeded, match="2/2"):
+        copied()
+    assert raw.calls == 2
+    assert budget.summary()["total"] == 2
+
+
+def test_hard_model_budget_reduces_the_approximate_gepa_target(
+    tmp_path: Path,
+) -> None:
+    records = _records(imperfect_train=True)
+    dataset = tmp_path / "dataset"
+    _write_dataset(dataset, records)
+    exact = _exact_outputs(records)
+    student = FakeProgram(
+        exact,
+        instructions="Baseline planner instruction.",
+        saved_payload='{"baseline":true}\n',
+    )
+    RecordingGEPA.calls = []
+    RecordingGEPA.optimized = FakeOptimized(
+        exact,
+        instructions="Baseline planner instruction.",
+        scores=[1.0],
+    )
+
+    with patch(
+        "runtime.dspy_programs.gepa_runner._role_program",
+        return_value=student,
+    ):
+        result = run_gepa_optimization(
+            dataset,
+            tmp_path / "run",
+            role="planner",
+            target_metric_calls=40,
+            hard_model_call_limit=20,
+            force_search_perfect_baseline=True,
+            dspy_module=FakeDSPy(RecordingGEPA),
+            lm_factory=lambda route, **_kwargs: f"lm:{route}",
+        )
+
+    assert RecordingGEPA.calls[0]["kwargs"]["max_metric_calls"] == 8
+    budget = result["report"]["budget"]
+    assert budget["requested_target_metric_calls"] == 40
+    assert budget["effective_target_metric_calls"] == 8
+    assert budget["hard_model_call_limit"] == 20
+    accounting = result["report"]["metric_call_accounting"]
+    assert accounting["target_metric_calls"] == 8
+    assert accounting["target_overrun"] == 9
+
+
+def test_swallowed_hard_budget_failure_rejects_apparent_improvement(
+    tmp_path: Path,
+) -> None:
+    records = _records(imperfect_train=True)
+    dataset = tmp_path / "dataset"
+    output = tmp_path / "run"
+    _write_dataset(dataset, records)
+    exact = _exact_outputs(records)
+    baseline_outputs = {task: dict(value) for task, value in exact.items()}
+    baseline_outputs["Planner task 3"] = {
+        **baseline_outputs["Planner task 3"],
+        "acceptance_criteria": ["Wrong development criterion."],
+    }
+
+    class BudgetUsingProgram(FakeProgram):
+        def __call__(self, **inputs: object) -> FakePrediction:
+            assert callable(self.lm)
+            self.lm()
+            return super().__call__(**inputs)
+
+    class FakeLM:
+        def copy(self, **_kwargs: object) -> "FakeLM":
+            return self
+
+        def __call__(self, *_args: object, **_kwargs: object) -> str:
+            return "ok"
+
+    class SwallowingGEPA:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def compile(
+            self,
+            student: BudgetUsingProgram,
+            *,
+            trainset: list[FakeExample],
+            valset: list[FakeExample],
+        ) -> FakeOptimized:
+            del trainset
+            inputs = {
+                name: getattr(valset[0], name)
+                for name in ("task", "delegated_task", "repository_evidence")
+            }
+            for _ in range(20):
+                try:
+                    student(**inputs)
+                except ModelCallBudgetExceeded:
+                    # DSPy's evaluator catches normal exceptions per example.
+                    pass
+            return FakeOptimized(
+                exact,
+                instructions="Improved concise planner instruction.",
+                scores=[0.75, 1.0],
+            )
+
+    student = BudgetUsingProgram(
+        baseline_outputs,
+        instructions="Baseline planner instruction.",
+        saved_payload='{"baseline":true}\n',
+    )
+    with patch(
+        "runtime.dspy_programs.gepa_runner._role_program",
+        return_value=student,
+    ):
+        result = run_gepa_optimization(
+            dataset,
+            output,
+            role="planner",
+            target_metric_calls=40,
+            hard_model_call_limit=14,
+            dspy_module=FakeDSPy(SwallowingGEPA),
+            lm_factory=lambda _route, **_kwargs: FakeLM(),
+        )
+
+    optimization = result["report"]["optimization"]
+    accounting = result["report"]["model_call_accounting"]
+    assert accounting["total"] == 14
+    assert accounting["blocked_calls"] > 0
+    assert optimization["candidate_accepted"] is False
+    assert optimization["winning_candidate"] == "baseline"
+    assert optimization["optimization_outcome"] == "hard_model_call_limit"
+    assert (output / "candidate.json").read_text(encoding="utf-8") == (
+        '{"baseline":true}\n'
+    )

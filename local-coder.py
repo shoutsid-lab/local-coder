@@ -332,7 +332,9 @@ def handle_optimize_gepa(args: argparse.Namespace) -> int:
             dry_run=args.dry_run,
             reflection_route=args.reflection_route,
             auto=args.auto,
-            max_metric_calls=args.max_metric_calls,
+            target_metric_calls=args.target_metric_calls,
+            hard_model_call_limit=args.hard_model_call_limit,
+            max_unsafe_proposals=args.max_unsafe_proposals,
             no_improvement_patience=args.no_improvement_patience,
             reflection_max_tokens=args.reflection_max_tokens,
             max_instruction_chars=args.max_instruction_chars,
@@ -478,12 +480,37 @@ def handle_evaluate(args: argparse.Namespace) -> int:
     from runtime.state import StateStore
 
     try:
+        state = StateStore(args.database.resolve())
+        if args.campaign_id is not None:
+            if args.build_id is None:
+                raise ValueError("Campaign evaluation requires --build-id.")
+            preflight_campaign = state.campaign_details(args.campaign_id)
+            preflight_build = state.candidate_build_details(args.build_id)
+            if (
+                preflight_campaign is None
+                or preflight_build is None
+                or preflight_build["campaign_id"] != args.campaign_id
+            ):
+                raise ValueError("Candidate build does not belong to the campaign.")
+            if preflight_campaign.get("kind") == "prompt-optimization":
+                from evaluation.prompt_campaign import (
+                    PromptCampaignError,
+                    require_prompt_candidate_evaluation_eligibility,
+                )
+
+                try:
+                    require_prompt_candidate_evaluation_eligibility(preflight_build)
+                except PromptCampaignError as exc:
+                    raise ValueError(str(exc)) from exc
+                raise ValueError(
+                    "Prompt candidate paired evaluation is not implemented until "
+                    "C2.2."
+                )
         development, holdout, oracle, oracle_hash = _load_evaluation_inputs(
             args,
             require_external_holdout=args.campaign_id is not None,
         )
         budget = _evaluation_budget(args)
-        state = StateStore(args.database.resolve())
         trajectory = None
         if args.campaign_id is not None:
             if args.build_id is None:
@@ -679,7 +706,9 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
                 args.dataset,
                 role=args.role,
                 reflection_route=args.reflection_route,
-                max_metric_calls=args.prompt_max_metric_calls,
+                target_metric_calls=args.prompt_target_metric_calls,
+                hard_model_call_limit=budget["max_model_calls"],
+                max_unsafe_proposals=args.prompt_max_unsafe_proposals,
                 no_improvement_patience=args.prompt_no_improvement_patience,
                 reflection_max_tokens=args.prompt_reflection_max_tokens,
                 max_instruction_chars=args.prompt_max_instruction_chars,
@@ -795,6 +824,7 @@ def _handle_prompt_candidate_build(
         PromptCampaignError,
         PromptCampaignSpec,
         build_prompt_candidate,
+        prompt_candidate_build_status,
         prompt_candidate_content,
     )
 
@@ -836,10 +866,11 @@ def _handle_prompt_candidate_build(
             content_hash=stable_hash(artifact),
             content=content,
         )
+        build_status = prompt_candidate_build_status(artifact)
         store.complete_candidate_build(
             build_id,
             run_id=None,
-            status="candidate_ready",
+            status=build_status,
             branch=None,
             worktree=None,
         )
@@ -858,7 +889,7 @@ def _handle_prompt_candidate_build(
         json.dumps(
             {
                 "build_id": build_id,
-                "status": "candidate_ready",
+                "status": build_status,
                 "artifact": artifact,
                 "gepa": result,
             },
@@ -1270,9 +1301,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Use DSPy-compatible preset budgeting instead of the bounded default.",
     )
     budget_group.add_argument(
+        "--target-metric-calls",
         "--max-metric-calls",
+        dest="target_metric_calls",
         type=int,
-        help="Bound GEPA metric calls; defaults to 60 when --auto is omitted.",
+        help=(
+            "Approximate GEPA metric-call target; --max-metric-calls remains "
+            "as a compatibility alias. Defaults to 60 when --auto is omitted."
+        ),
+    )
+    gepa_optimize_parser.add_argument(
+        "--hard-model-call-limit",
+        type=int,
+        help="Hard student-plus-reflection LM call limit for the whole run.",
+    )
+    gepa_optimize_parser.add_argument(
+        "--max-unsafe-proposals",
+        type=int,
+        default=3,
+        help="Stop after this many consecutive rejected reflection proposals.",
     )
     gepa_optimize_parser.add_argument(
         "--no-improvement-patience",
@@ -1369,9 +1416,21 @@ def build_parser() -> argparse.ArgumentParser:
         default="local-plan",
     )
     campaign_parser.add_argument(
+        "--prompt-target-metric-calls",
         "--prompt-max-metric-calls",
+        dest="prompt_target_metric_calls",
         type=int,
         default=60,
+        help=(
+            "Approximate GEPA metric-call target, not a hard ceiling; the "
+            "max-metric spelling remains as a compatibility alias."
+        ),
+    )
+    campaign_parser.add_argument(
+        "--prompt-max-unsafe-proposals",
+        type=int,
+        default=3,
+        help="Stop after this many consecutive rejected reflection proposals.",
     )
     campaign_parser.add_argument(
         "--prompt-no-improvement-patience",

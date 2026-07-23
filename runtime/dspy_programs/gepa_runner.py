@@ -20,8 +20,9 @@ from runtime.dspy_lm import DSPY_ROUTES, build_dspy_lm
 
 from .gepa_dataset import GepaDatasetError, load_gepa_dataset
 
-GEPA_RUN_SCHEMA_VERSION = 2
+GEPA_RUN_SCHEMA_VERSION = 3
 DEFAULT_MAX_METRIC_CALLS = 60
+DEFAULT_MAX_UNSAFE_PROPOSALS = 3
 DEFAULT_NO_IMPROVEMENT_PATIENCE = 6
 DEFAULT_REFLECTION_MAX_TOKENS = 512
 DEFAULT_MAX_INSTRUCTION_CHARS = 1600
@@ -33,11 +34,14 @@ REFLECTION_GUARD = (
     "role-level instruction over replaying the example verbatim."
 )
 FORBIDDEN_CANDIDATE_MARKERS = (
-    "## Inputs",
+    "# new inputs",
+    "## inputs",
     "### task",
-    "## Generated Outputs",
-    "## Additional Information",
-    "GEPA corpus case:",
+    "### repository_evidence",
+    "## generated outputs",
+    "## feedback",
+    "## additional information",
+    "gepa corpus case:",
 )
 ROLE_INPUT_FIELDS = {
     "explorer": ("task", "delegated_task", "repository_evidence"),
@@ -89,21 +93,108 @@ class GepaRunnerError(ValueError):
     """Raised when an offline optimization run cannot proceed safely."""
 
 
-class BoundedNoImprovementStopper:
-    """Stop GEPA on the metric budget or repeated non-improving iterations."""
+class ModelCallBudgetExceeded(RuntimeError):
+    """Raised before a campaign-visible model call would exceed its hard limit."""
 
-    def __init__(self, max_metric_calls: int, patience: int | None) -> None:
-        self.max_metric_calls = max_metric_calls
+
+class ModelCallBudget:
+    """Count and enforce student and reflection model calls across one run."""
+
+    def __init__(self, limit: int | None) -> None:
+        self.limit = limit
+        self.counts: Counter[str] = Counter()
+        self.blocked_calls = 0
+
+    @property
+    def total(self) -> int:
+        return sum(self.counts.values())
+
+    @property
+    def at_limit(self) -> bool:
+        return self.limit is not None and self.total >= self.limit
+
+    def consume(self, category: str) -> None:
+        if self.at_limit:
+            self.blocked_calls += 1
+            raise ModelCallBudgetExceeded(
+                f"Hard model-call limit reached before {category} call: "
+                f"{self.total}/{self.limit}."
+            )
+        self.counts[category] += 1
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "hard_limit": self.limit,
+            "student": self.counts["student"],
+            "reflection": self.counts["reflection"],
+            "total": self.total,
+            "at_limit": self.at_limit,
+            "blocked_calls": self.blocked_calls,
+            "provider_retries_included": False,
+        }
+
+
+class BudgetedLM:
+    """Transparent LM proxy that shares one strict call budget across copies."""
+
+    def __init__(self, lm: Any, budget: ModelCallBudget, category: str) -> None:
+        self._lm = lm
+        self._budget = budget
+        self._category = category
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._lm, name)
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> "BudgetedLM":
+        del memo
+        return self
+
+    def copy(self, **kwargs: Any) -> "BudgetedLM":
+        """Preserve the shared hard budget across DSPy LM runtime copies."""
+        method = getattr(self._lm, "copy", None)
+        copied = method(**kwargs) if callable(method) else self._lm
+        return BudgetedLM(copied, self._budget, self._category)
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        self._budget.consume(self._category)
+        return self._lm(*args, **kwargs)
+
+    async def acall(self, *args: Any, **kwargs: Any) -> Any:
+        self._budget.consume(self._category)
+        method = getattr(self._lm, "acall")
+        return await method(*args, **kwargs)
+
+
+class BoundedNoImprovementStopper:
+    """Stop on target calls, hard LM limits, or repeated weak proposals."""
+
+    def __init__(
+        self,
+        target_metric_calls: int,
+        patience: int | None,
+        *,
+        proposal_guard: Any | None = None,
+        model_budget: ModelCallBudget | None = None,
+    ) -> None:
+        self.target_metric_calls = target_metric_calls
         self.patience = patience
+        self.proposal_guard = proposal_guard
+        self.model_budget = model_budget
         self.best_score = float("-inf")
         self.iterations_without_improvement = 0
         self.last_iteration: int | None = None
         self.reason: str | None = None
 
     def __call__(self, state: Any) -> bool:
+        if self.model_budget is not None and self.model_budget.at_limit:
+            self.reason = "hard_model_call_limit"
+            return True
+        if bool(getattr(self.proposal_guard, "stop_requested", False)):
+            self.reason = "unsafe_proposal_limit"
+            return True
         total = int(getattr(state, "total_num_evals", 0) or 0)
-        if total >= self.max_metric_calls:
-            self.reason = "metric_budget"
+        if total >= self.target_metric_calls:
+            self.reason = "target_metric_calls"
             return True
         if self.patience is None:
             return False
@@ -127,6 +218,7 @@ class BoundedNoImprovementStopper:
         return {
             "enabled": self.patience is not None,
             "patience": self.patience,
+            "target_metric_calls": self.target_metric_calls,
             "reason": self.reason,
             "iterations_without_improvement": self.iterations_without_improvement,
             "best_observed_score": (
@@ -427,6 +519,8 @@ def assess_candidate_instructions(
     if not candidate:
         reasons.append("candidate predictor instructions were unavailable")
     for name, text in candidate.items():
+        if not text.strip():
+            reasons.append(f"{name} instruction is blank")
         if len(text) > max_instruction_chars:
             reasons.append(
                 f"{name} instruction has {len(text)} characters; "
@@ -439,7 +533,12 @@ def assess_candidate_instructions(
         )
         if repeated:
             reasons.append(f"{name} instruction repeats substantive lines")
-        markers = [marker for marker in FORBIDDEN_CANDIDATE_MARKERS if marker in text]
+        normalized_text = text.casefold()
+        markers = [
+            marker
+            for marker in FORBIDDEN_CANDIDATE_MARKERS
+            if marker in normalized_text
+        ]
         if markers:
             reasons.append(
                 f"{name} instruction embeds replay/example scaffolding: "
@@ -453,6 +552,150 @@ def assess_candidate_instructions(
         "candidate_hash": stable_hash(dict(candidate)),
         "max_instruction_chars": max_instruction_chars,
     }
+
+
+def _compact_feedback(value: Any, *, limit: int = 360) -> str:
+    text = str(value or "").replace(REFLECTION_GUARD, "")
+    lines = [" ".join(line.split()) for line in text.splitlines() if line.strip()]
+    compact = " ".join(lines)
+    return compact[:limit].rstrip()
+
+
+def _strip_instruction_wrapper(value: Any) -> str:
+    text = str(value or "").strip()
+    if text.startswith("```") and text.endswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    prefixes = ("# New Instruction", "## New Instruction", "New instruction:")
+    for prefix in prefixes:
+        if text.startswith(prefix):
+            text = text[len(prefix) :].lstrip(" :\n")
+    return text
+
+
+class CompactInstructionProposer:
+    """Generate bounded role-level instructions from compact audit feedback."""
+
+    def __init__(
+        self,
+        dspy_module: Any,
+        *,
+        role: str,
+        max_instruction_chars: int,
+        max_unsafe_proposals: int,
+    ) -> None:
+        self.role = role
+        self.max_instruction_chars = max_instruction_chars
+        self.max_unsafe_proposals = max_unsafe_proposals
+        self.attempted = 0
+        self.accepted_by_proposer = 0
+        self.rejected_by_proposer = 0
+        self.consecutive_unsafe = 0
+        self.stop_requested = False
+        self.last_rejection_reasons: list[str] = []
+        self._predictor = self._build_predictor(dspy_module)
+
+    @staticmethod
+    def _build_predictor(dspy_module: Any) -> Any | None:
+        required = ("Signature", "InputField", "OutputField", "Predict")
+        if not all(hasattr(dspy_module, name) for name in required):
+            return None
+
+        class CompactProposalSignature(dspy_module.Signature):
+            """Rewrite one reusable instruction from bounded mismatch feedback.
+
+            Return only the role-level instruction. Do not repeat task examples,
+            repository evidence, generated outputs, headings, or feedback blocks.
+            Do not invent facts. Stay within the supplied character limit.
+            """
+
+            current_instruction: str = dspy_module.InputField(
+                desc="The current reusable role-level instruction."
+            )
+            feedback_summary: str = dspy_module.InputField(
+                desc="Compact mismatch and reviewer feedback only."
+            )
+            input_fields: str = dspy_module.InputField(
+                desc="Comma-separated typed input field names."
+            )
+            output_fields: str = dspy_module.InputField(
+                desc="Comma-separated typed output field names."
+            )
+            max_characters: int = dspy_module.InputField(
+                desc="Hard maximum length for the new instruction."
+            )
+            improved_instruction: str = dspy_module.OutputField(
+                desc="Only the concise reusable instruction text."
+            )
+
+        return dspy_module.Predict(CompactProposalSignature)
+
+    def __call__(
+        self,
+        candidate: dict[str, str],
+        reflective_dataset: dict[str, list[Mapping[str, Any]]],
+        components_to_update: list[str],
+    ) -> dict[str, str]:
+        updated: dict[str, str] = {}
+        for component in components_to_update:
+            current = str(candidate.get(component, ""))
+            examples = reflective_dataset.get(component, [])[:3]
+            feedback = [
+                f"Example {index}: {_compact_feedback(example.get('Feedback'))}"
+                for index, example in enumerate(examples, start=1)
+            ]
+            feedback_summary = "\n".join(feedback) or "No bounded feedback."
+            if self._predictor is None:
+                proposed = current
+            else:
+                result = self._predictor(
+                    current_instruction=current,
+                    feedback_summary=feedback_summary,
+                    input_fields=", ".join(ROLE_INPUT_FIELDS[self.role]),
+                    output_fields=", ".join(ROLE_OUTPUT_FIELDS[self.role]),
+                    max_characters=self.max_instruction_chars,
+                )
+                proposed = _strip_instruction_wrapper(
+                    _prediction_value(result, "improved_instruction")
+                )
+            self.attempted += 1
+            assessment = assess_candidate_instructions(
+                {component: current},
+                {component: proposed},
+                max_instruction_chars=self.max_instruction_chars,
+            )
+            if assessment["changed"] and assessment["safe"]:
+                self.accepted_by_proposer += 1
+                self.consecutive_unsafe = 0
+                self.last_rejection_reasons = []
+                updated[component] = proposed
+                continue
+            self.rejected_by_proposer += 1
+            self.consecutive_unsafe += 1
+            reasons = list(assessment["reasons"])
+            if not assessment["changed"]:
+                reasons.append("proposal did not change the current instruction")
+            self.last_rejection_reasons = reasons
+            if self.consecutive_unsafe >= self.max_unsafe_proposals:
+                self.stop_requested = True
+            updated[component] = current
+        return updated
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "mode": "compact_typed_proposer",
+            "attempted": self.attempted,
+            "accepted_by_proposer": self.accepted_by_proposer,
+            "rejected_by_proposer": self.rejected_by_proposer,
+            "consecutive_unsafe": self.consecutive_unsafe,
+            "max_unsafe_proposals": self.max_unsafe_proposals,
+            "stop_requested": self.stop_requested,
+            "last_rejection_reasons": self.last_rejection_reasons,
+        }
 
 
 def _prepare_output(output: Path) -> None:
@@ -508,10 +751,13 @@ def run_gepa_optimization(
     dry_run: bool = False,
     reflection_route: str = "local-plan",
     auto: str | None = None,
+    target_metric_calls: int | None = None,
     max_metric_calls: int | None = None,
     no_improvement_patience: int | None = DEFAULT_NO_IMPROVEMENT_PATIENCE,
     reflection_max_tokens: int = DEFAULT_REFLECTION_MAX_TOKENS,
     max_instruction_chars: int = DEFAULT_MAX_INSTRUCTION_CHARS,
+    max_unsafe_proposals: int = DEFAULT_MAX_UNSAFE_PROPOSALS,
+    hard_model_call_limit: int | None = None,
     allow_perfect_only: bool = False,
     force_search_perfect_baseline: bool = False,
     seed: int = 0,
@@ -527,16 +773,30 @@ def run_gepa_optimization(
         )
     if auto is not None and auto not in AUTO_CANDIDATES:
         raise GepaRunnerError("GEPA auto budget must be light, medium, or heavy.")
-    if auto is not None and max_metric_calls is not None:
-        raise GepaRunnerError("Choose either GEPA auto or max_metric_calls, not both.")
-    if max_metric_calls is not None and max_metric_calls <= 0:
-        raise GepaRunnerError("GEPA max_metric_calls must be positive.")
+    explicit_targets = [
+        value for value in (target_metric_calls, max_metric_calls) if value is not None
+    ]
+    if len(explicit_targets) > 1:
+        raise GepaRunnerError(
+            "Choose either target_metric_calls or the max_metric_calls alias, not both."
+        )
+    requested_target_metric_calls = explicit_targets[0] if explicit_targets else None
+    if auto is not None and requested_target_metric_calls is not None:
+        raise GepaRunnerError(
+            "Choose either GEPA auto or an explicit target metric-call budget."
+        )
+    if requested_target_metric_calls is not None and requested_target_metric_calls <= 0:
+        raise GepaRunnerError("GEPA target metric calls must be positive.")
     if no_improvement_patience is not None and no_improvement_patience <= 0:
         raise GepaRunnerError("GEPA no-improvement patience must be positive.")
     if reflection_max_tokens <= 0:
         raise GepaRunnerError("GEPA reflection_max_tokens must be positive.")
     if max_instruction_chars <= 0:
         raise GepaRunnerError("GEPA max_instruction_chars must be positive.")
+    if max_unsafe_proposals <= 0:
+        raise GepaRunnerError("GEPA max_unsafe_proposals must be positive.")
+    if hard_model_call_limit is not None and hard_model_call_limit <= 0:
+        raise GepaRunnerError("GEPA hard_model_call_limit must be positive.")
     if num_threads <= 0:
         raise GepaRunnerError("GEPA num_threads must be positive.")
     dataset = dataset.resolve()
@@ -548,9 +808,8 @@ def run_gepa_optimization(
     except GepaDatasetError as exc:
         raise GepaRunnerError(str(exc)) from exc
     readiness = assess_dataset_readiness(records, role=role)
-    requested_max_metric_calls = max_metric_calls
-    if auto is None and max_metric_calls is None:
-        requested_max_metric_calls = DEFAULT_MAX_METRIC_CALLS
+    if auto is None and requested_target_metric_calls is None:
+        requested_target_metric_calls = DEFAULT_MAX_METRIC_CALLS
     report: dict[str, Any] = {
         "schema_version": GEPA_RUN_SCHEMA_VERSION,
         "dataset": str(dataset),
@@ -561,16 +820,20 @@ def run_gepa_optimization(
         "reflection_route": reflection_route,
         "budget": {
             "auto": auto,
-            "requested_max_metric_calls": requested_max_metric_calls,
-            "effective_max_metric_calls": None,
+            "requested_target_metric_calls": requested_target_metric_calls,
+            "effective_target_metric_calls": None,
+            "hard_model_call_limit": hard_model_call_limit,
+            "reserved_model_calls": None,
             "no_improvement_patience": no_improvement_patience,
         },
         "reflection": {
             "max_tokens": reflection_max_tokens,
             "guard": REFLECTION_GUARD,
+            "proposer": None,
         },
         "candidate_policy": {
             "max_instruction_chars": max_instruction_chars,
+            "max_unsafe_proposals": max_unsafe_proposals,
             "allow_perfect_only": allow_perfect_only,
             "force_search_perfect_baseline": force_search_perfect_baseline,
         },
@@ -581,6 +844,8 @@ def run_gepa_optimization(
         "baseline": None,
         "optimization": None,
         "holdout": None,
+        "metric_call_accounting": None,
+        "model_call_accounting": None,
         "activation": "not_performed",
         "promotion": "not_performed",
     }
@@ -618,54 +883,116 @@ def run_gepa_optimization(
     )
     metric = build_gepa_metric(role, dspy_module=dspy_module)
     student = _role_program(role)
-    student_lm = _build_lm(lm_factory, ROLE_ROUTES[role])
+    predictor_count = _program_predictor_count(student)
+    model_budget = ModelCallBudget(hard_model_call_limit)
+    student_lm_raw = _build_lm(lm_factory, ROLE_ROUTES[role])
+    student_lm = BudgetedLM(student_lm_raw, model_budget, "student")
     set_lm = getattr(student, "set_lm", None)
     if callable(set_lm):
         set_lm(student_lm)
-    effective_max_metric_calls = requested_max_metric_calls
+    target_metric_calls = requested_target_metric_calls
     if auto is not None:
-        effective_max_metric_calls = _auto_metric_budget(
+        target_metric_calls = _auto_metric_budget(
             auto=auto,
-            predictor_count=_program_predictor_count(student),
+            predictor_count=predictor_count,
             valset_size=len(devset),
         )
-    assert effective_max_metric_calls is not None
-    report["budget"]["effective_max_metric_calls"] = effective_max_metric_calls
+    assert target_metric_calls is not None
+    reflection_reserve = max(
+        max_unsafe_proposals,
+        no_improvement_patience or 0,
+    )
+    batch_reserve = len(trainset) + len(devset)
+    reserved_model_calls = (
+        len(devset) * predictor_count
+        + len(holdoutset) * predictor_count * 2
+        + reflection_reserve
+        + batch_reserve * predictor_count
+    )
+    if hard_model_call_limit is not None:
+        available_model_calls = hard_model_call_limit - reserved_model_calls
+        if available_model_calls <= 0:
+            raise GepaRunnerError(
+                "Hard model-call limit is too small for baseline, reflection, "
+                "paired holdout, and one GEPA batch reserve."
+            )
+        available_metric_calls = max(1, available_model_calls // predictor_count)
+        target_metric_calls = min(target_metric_calls, available_metric_calls)
+    report["budget"]["effective_target_metric_calls"] = target_metric_calls
+    report["budget"]["reserved_model_calls"] = reserved_model_calls
+    proposer = CompactInstructionProposer(
+        dspy_module,
+        role=role,
+        max_instruction_chars=max_instruction_chars,
+        max_unsafe_proposals=max_unsafe_proposals,
+    )
     stopper = BoundedNoImprovementStopper(
-        effective_max_metric_calls,
+        target_metric_calls,
         no_improvement_patience,
+        proposal_guard=proposer,
+        model_budget=model_budget,
     )
     baseline_instructions = _program_instructions(student)
     adapter = dspy_module.JSONAdapter()
-    with dspy_module.context(adapter=adapter, track_usage=True):
-        baseline = _evaluate_program(
-            student,
-            devset,
-            metric,
-            input_fields=ROLE_INPUT_FIELDS[role],
-        )
+    try:
+        with dspy_module.context(adapter=adapter, track_usage=True):
+            baseline = _evaluate_program(
+                student,
+                devset,
+                metric,
+                input_fields=ROLE_INPUT_FIELDS[role],
+            )
+    except ModelCallBudgetExceeded as exc:
+        raise GepaRunnerError(str(exc)) from exc
     perfect_baseline = baseline["aggregate_score"] >= 1.0
     search_performed = not perfect_baseline or force_search_perfect_baseline
+    hard_limit_reached = False
     if search_performed:
-        reflection_lm = _build_lm(
+        reflection_lm_raw = _build_lm(
             lm_factory,
             reflection_route,
             max_tokens=reflection_max_tokens,
         )
-        with tempfile.TemporaryDirectory(prefix="local-coder-gepa-log-") as log_dir:
-            with dspy_module.context(adapter=adapter, track_usage=True):
-                optimizer = dspy_module.GEPA(
-                    metric=metric,
-                    reflection_lm=reflection_lm,
-                    max_metric_calls=effective_max_metric_calls,
-                    num_threads=num_threads,
-                    track_stats=True,
-                    log_dir=log_dir,
-                    seed=seed,
-                    gepa_kwargs={"stop_callbacks": stopper},
-                )
-                optimized = optimizer.compile(student, trainset=trainset, valset=devset)
-        details = _detailed_result_summary(optimized)
+        reflection_lm = BudgetedLM(
+            reflection_lm_raw,
+            model_budget,
+            "reflection",
+        )
+        try:
+            with tempfile.TemporaryDirectory(prefix="local-coder-gepa-log-") as log_dir:
+                with dspy_module.context(adapter=adapter, track_usage=True):
+                    optimizer = dspy_module.GEPA(
+                        metric=metric,
+                        reflection_lm=reflection_lm,
+                        instruction_proposer=proposer,
+                        max_metric_calls=target_metric_calls,
+                        num_threads=num_threads,
+                        track_stats=True,
+                        log_dir=log_dir,
+                        seed=seed,
+                        gepa_kwargs={"stop_callbacks": stopper},
+                    )
+                    optimized = optimizer.compile(
+                        student,
+                        trainset=trainset,
+                        valset=devset,
+                    )
+            details = _detailed_result_summary(optimized)
+        except ModelCallBudgetExceeded:
+            hard_limit_reached = True
+            stopper.reason = "hard_model_call_limit"
+            optimized = student
+            details = {
+                "val_aggregate_scores": [baseline["aggregate_score"]],
+                "best_index": 0,
+                "best_score": baseline["aggregate_score"],
+                "total_metric_calls": max(
+                    0,
+                    model_budget.counts["student"] - len(devset),
+                ),
+                "num_full_val_evals": 0,
+                "seed": seed,
+            }
     else:
         stopper.reason = "perfect_baseline"
         optimized = student
@@ -677,6 +1004,9 @@ def run_gepa_optimization(
             "num_full_val_evals": 0,
             "seed": seed,
         }
+    if model_budget.blocked_calls:
+        hard_limit_reached = True
+        stopper.reason = "hard_model_call_limit"
     proposed_instructions = _program_instructions(optimized)
     safety = assess_candidate_instructions(
         baseline_instructions,
@@ -689,70 +1019,122 @@ def run_gepa_optimization(
         if best_score is not None
         else 0.0
     )
-    accept_candidate = bool(safety["changed"] and safety["safe"] and improvement > 0)
+    accept_candidate = bool(
+        not hard_limit_reached
+        and safety["changed"]
+        and safety["safe"]
+        and improvement > 0
+    )
     selected = optimized if accept_candidate else student
+    selected_instructions = _program_instructions(selected)
+    selected_changed = selected_instructions != baseline_instructions
+    proposer_summary = proposer.summary()
     if not search_performed:
         outcome = "baseline_perfect_no_search"
-    elif improvement <= 0:
-        outcome = "no_improvement"
-    elif not safety["safe"]:
+    elif hard_limit_reached:
+        outcome = "hard_model_call_limit"
+    elif improvement > 0 and not safety["safe"]:
         outcome = "rejected_unsafe_candidate"
+    elif proposer_summary["rejected_by_proposer"] and improvement <= 0:
+        outcome = "rejected_reflection_candidates"
     elif accept_candidate:
         outcome = "improved_candidate"
     else:
         outcome = "no_improvement"
+    rejection_reasons = list(safety["reasons"])
+    if outcome == "rejected_reflection_candidates":
+        rejection_reasons.extend(proposer_summary["last_rejection_reasons"])
+    if hard_limit_reached:
+        rejection_reasons.append(
+            "hard model-call limit blocked one or more required calls"
+        )
     details.update(
         {
             "baseline_score": baseline["aggregate_score"],
             "improvement": improvement,
             "winning_candidate": "optimized" if accept_candidate else "baseline",
-            "candidate_changed": safety["changed"],
+            "proposed_candidate_changed": safety["changed"],
+            "selected_candidate_changed": selected_changed,
+            "candidate_changed": selected_changed,
             "candidate_safe": safety["safe"],
             "candidate_accepted": accept_candidate,
-            "candidate_rejection_reasons": safety["reasons"],
+            "candidate_rejection_reasons": sorted(set(rejection_reasons)),
             "optimization_outcome": outcome,
             "search_performed": search_performed,
             "perfect_baseline": perfect_baseline,
             "instruction_hashes": {
                 "baseline": safety["baseline_hash"],
                 "proposed": safety["candidate_hash"],
-                "selected": stable_hash(_program_instructions(selected)),
+                "selected": stable_hash(selected_instructions),
             },
             "early_stopping": stopper.summary(),
         }
     )
     holdout: dict[str, Any]
     if holdoutset:
-        with dspy_module.context(adapter=adapter, track_usage=True):
-            baseline_holdout = _evaluate_program(
-                student,
-                holdoutset,
-                metric,
-                input_fields=ROLE_INPUT_FIELDS[role],
-            )
-            if selected is student:
-                selected_holdout = baseline_holdout
-                metric_calls = len(holdoutset)
-            else:
-                selected_holdout = _evaluate_program(
-                    selected,
+        try:
+            with dspy_module.context(adapter=adapter, track_usage=True):
+                baseline_holdout = _evaluate_program(
+                    student,
                     holdoutset,
                     metric,
                     input_fields=ROLE_INPUT_FIELDS[role],
                 )
-                metric_calls = len(holdoutset) * 2
-        holdout = {
-            "evaluated_after_optimization": True,
-            "exposed_during_optimization": False,
-            "count": len(holdoutset),
-            "baseline": baseline_holdout,
-            "selected_candidate": selected_holdout,
-            "delta": (
-                selected_holdout["aggregate_score"]
-                - baseline_holdout["aggregate_score"]
-            ),
-            "metric_calls": metric_calls,
-        }
+                if selected is student:
+                    selected_holdout = baseline_holdout
+                    metric_calls = len(holdoutset)
+                else:
+                    selected_holdout = _evaluate_program(
+                        selected,
+                        holdoutset,
+                        metric,
+                        input_fields=ROLE_INPUT_FIELDS[role],
+                    )
+                    metric_calls = len(holdoutset) * 2
+            holdout = {
+                "evaluated_after_optimization": True,
+                "exposed_during_optimization": False,
+                "count": len(holdoutset),
+                "baseline": baseline_holdout,
+                "selected_candidate": selected_holdout,
+                "delta": (
+                    selected_holdout["aggregate_score"]
+                    - baseline_holdout["aggregate_score"]
+                ),
+                "metric_calls": metric_calls,
+            }
+        except ModelCallBudgetExceeded:
+            hard_limit_reached = True
+            accept_candidate = False
+            selected = student
+            selected_instructions = baseline_instructions
+            selected_changed = False
+            outcome = "hard_model_call_limit"
+            stopper.reason = outcome
+            reasons = set(details.get("candidate_rejection_reasons", []))
+            reasons.add("hard model-call limit blocked holdout evaluation")
+            details.update(
+                {
+                    "winning_candidate": "baseline",
+                    "selected_candidate_changed": False,
+                    "candidate_changed": False,
+                    "candidate_accepted": False,
+                    "candidate_rejection_reasons": sorted(reasons),
+                    "optimization_outcome": outcome,
+                    "instruction_hashes": {
+                        **details["instruction_hashes"],
+                        "selected": stable_hash(baseline_instructions),
+                    },
+                    "early_stopping": stopper.summary(),
+                }
+            )
+            holdout = {
+                "evaluated_after_optimization": False,
+                "exposed_during_optimization": False,
+                "count": len(holdoutset),
+                "reason": "hard model-call limit reached before holdout completed",
+                "metric_calls": 0,
+            }
     else:
         holdout = {
             "evaluated_after_optimization": False,
@@ -764,13 +1146,25 @@ def run_gepa_optimization(
     report["baseline"] = baseline
     report["optimization"] = details
     report["holdout"] = holdout
+    report["reflection"]["proposer"] = proposer.summary()
+    gepa_metric_calls = int(details.get("total_metric_calls") or 0)
+    observed_metric_calls = (
+        len(devset) + gepa_metric_calls + int(holdout["metric_calls"])
+    )
     report["metric_call_accounting"] = {
         "baseline_dev": len(devset),
-        "gepa_reported": details.get("total_metric_calls"),
+        "gepa_reported_metric_calls": gepa_metric_calls,
         "post_optimization_holdout": holdout["metric_calls"],
+        "total_observed": observed_metric_calls,
+        "target_metric_calls": target_metric_calls,
+        "target_overrun": max(0, gepa_metric_calls - target_metric_calls),
     }
+    report["model_call_accounting"] = model_budget.summary()
 
     def write_candidate(path: Path) -> None:
+        selected_set_lm = getattr(selected, "set_lm", None)
+        if callable(selected_set_lm):
+            selected_set_lm(student_lm_raw)
         selected.save(str(path))
 
     manifest = _write_run_directory(
