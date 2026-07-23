@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from .model_response import ROUTE_OK, normalize_model_response
+
 API_URL = "http://127.0.0.1:4000/v1/chat/completions"
 MAX_FILE_BYTES = 32_000
 MAX_TOTAL_BYTES = 64_000
@@ -318,32 +320,35 @@ Approved file contents:
         raise EditorError(f"Editor API returned HTTP {exc.code}: {body}") from exc
     except urllib.error.URLError as exc:
         raise EditorError(f"Could not reach LiteLLM: {exc}") from exc
-    try:
-        content = result["choices"][0]["message"]["content"]
-        if not isinstance(content, str):
-            raise TypeError("Editor content is not text.")
-    except (KeyError, IndexError, TypeError) as exc:
-        raise EditorError("The editor returned an invalid response envelope.") from exc
-    try:
-        edits = parse_edit_content(content)
-    except EditorError as exc:
+    normalized = normalize_model_response(result, accept_tool_calls=False)
+    content = normalized.content
+    if normalized.outcome != ROUTE_OK:
         status = "error"
-        parse_error: EditorError | None = exc
+        parse_error: EditorError | None = EditorError(
+            "The editor returned no usable final content: "
+            + normalized.diagnostic(route=model)
+        )
     else:
-        status = "success"
-        parse_error = None
+        try:
+            edits = parse_edit_content(content)
+        except EditorError as exc:
+            status = "error"
+            parse_error = exc
+        else:
+            status = "success"
+            parse_error = None
     if metrics_callback is not None:
-        usage = result.get("usage", {})
         metadata: dict[str, Any] = {
             "status": status,
             "source": "native-editor",
         }
-        if parse_error is not None:
+        metadata.update(normalized.bounded_metadata())
+        if parse_error is not None and content:
             metadata["response_excerpt"] = content[:2000]
         metrics_callback(
             route=model,
-            prompt_tokens=usage.get("prompt_tokens"),
-            completion_tokens=usage.get("completion_tokens"),
+            prompt_tokens=normalized.prompt_tokens,
+            completion_tokens=normalized.completion_tokens,
             duration_ms=(time.perf_counter() - started) * 1000,
             metadata=metadata,
         )

@@ -73,3 +73,12 @@ builds a benchmark from real repository tasks and failures. Future roadmap inves
 to follow measured task outcomes rather than control-plane completeness. Existing
 candidate-neutral authorization remains as integrity protection and future-capability
 insurance, not as a claim that the current 3B model is an active adversary.
+
+## Reasoning response contract
+
+Track F0 added one provider-neutral response normalizer for live probes, structured output,
+the native editor, and smolagents audit wrapping. The observed `content=""`,
+`reasoning_content!=null`, `finish_reason="length"` response is now classified as
+`reasoning_only_truncated` with an actionable diagnostic. Full reasoning traces remain
+outside normal audit state; presence, size, token counts, identity, and SHA-256 metadata
+are retained when relevant. Ordinary non-reasoning response metadata remains unchanged.

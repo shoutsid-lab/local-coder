@@ -50,8 +50,10 @@ It first fixes reasoning/final-content contracts, then qualifies an optional
 `local-reason` route for planner and reviewer use. The existing 3B implementer and repairer
 remain the default fast coding path.
 
-The first useful milestone is F0–F3: response normalization, route probes, bounded profiles,
-and evidence-based Qwythos qualification. MTP and automatic supervision remain optional.
+F0 is complete: raw final content, reasoning metadata, tool calls, finish reasons, and
+token usage now share one fail-closed response contract. The next item is F1, followed by
+bounded profiles and evidence-based Qwythos qualification. MTP and automatic supervision
+remain optional.
 
 ## Active priority 2: Track G — real-task capability evidence
 
@@ -158,6 +160,7 @@ Every completed item must leave these gates green where applicable:
 make verify
 make agent-smoke
 make skills-lint
+make route-probe-check
 make gepa-runner-check
 make prompt-campaign-check
 make prompt-deployment-check

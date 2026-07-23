@@ -10,6 +10,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from .model_response import normalize_model_response, normalize_provider_error
 from .state import StateStore
 
 
@@ -88,14 +89,17 @@ class AuditedModel:
             self._usage_budget.reserve_call()
         try:
             response = self._model.generate(*args, **kwargs)
-            usage = getattr(response, "token_usage", None)
-            prompt_tokens = getattr(usage, "input_tokens", None)
-            completion_tokens = getattr(usage, "output_tokens", None)
+            normalized = normalize_model_response(response)
+            prompt_tokens = normalized.prompt_tokens
+            completion_tokens = normalized.completion_tokens
             metadata["status"] = "success"
+            metadata.update(normalized.bounded_metadata())
         except Exception as exc:
             prompt_tokens = None
             completion_tokens = None
+            normalized = normalize_provider_error(exc, model=self._route)
             metadata.update(status="error", error_type=type(exc).__name__)
+            metadata.update(normalized.bounded_metadata())
             raise
         finally:
             self._state.add_model_metrics(

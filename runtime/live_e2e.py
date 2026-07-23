@@ -12,6 +12,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .model_response import ROUTE_OK, normalize_model_response, normalize_provider_error
 from .state import StateStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,24 +84,32 @@ def edit_schema() -> dict[str, Any]:
     }
 
 
-def route_probe(route: str) -> None:
-    response = post_json(
-        "http://127.0.0.1:4000/v1/chat/completions",
-        {
-            "model": route,
-            "messages": [{"role": "user", "content": "Reply with exactly ROUTE_OK."}],
-            "temperature": 0,
-            "max_tokens": 16,
-        },
+def route_probe(route: str) -> dict[str, Any]:
+    try:
+        response = post_json(
+            "http://127.0.0.1:4000/v1/chat/completions",
+            {
+                "model": route,
+                "messages": [
+                    {"role": "user", "content": "Reply with exactly ROUTE_OK."}
+                ],
+                "temperature": 0,
+                "max_tokens": 16,
+            },
+        )
+    except Exception as exc:
+        normalized = normalize_provider_error(exc, model=route, provider="litellm")
+        raise RuntimeError(normalized.diagnostic(route=route)) from exc
+    normalized = normalize_model_response(
+        response,
+        expected_content="ROUTE_OK",
+        accept_tool_calls=False,
     )
-    content = response["choices"][0]["message"]["content"].strip()
-    usage = response.get("usage", {})
-    if not content:
-        raise RuntimeError(f"{route} returned empty content")
-    if not isinstance(usage.get("prompt_tokens"), int) or not isinstance(
-        usage.get("completion_tokens"), int
-    ):
+    if normalized.outcome != ROUTE_OK:
+        raise RuntimeError(normalized.diagnostic(route=route))
+    if normalized.prompt_tokens is None or normalized.completion_tokens is None:
         raise RuntimeError(f"{route} did not return token usage")
+    return normalized.bounded_metadata(include_success=True)
 
 
 def structured_output_probe(url: str, model: str, attempts: int) -> None:
@@ -131,7 +140,13 @@ def structured_output_probe(url: str, model: str, attempts: int) -> None:
     }
     for attempt in range(1, attempts + 1):
         response = post_json(url, payload)
-        content = json.loads(response["choices"][0]["message"]["content"])
+        normalized = normalize_model_response(response, accept_tool_calls=False)
+        if normalized.outcome != ROUTE_OK:
+            raise RuntimeError(
+                "Structured-output probe failed on attempt "
+                f"{attempt}: {normalized.diagnostic(route=model)}"
+            )
+        content = json.loads(normalized.content)
         if list(content) != ["edits"] or len(content["edits"]) != 1:
             raise RuntimeError(f"Structured-output probe failed on attempt {attempt}")
         edit = content["edits"][0]

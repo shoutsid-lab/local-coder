@@ -128,6 +128,10 @@ route evaluated on real repository tasks. Prompt optimization is retained, but i
 assumed to overcome base-model reasoning limits and is not the current investment
 priority.
 
+All raw model-response boundaries use `runtime/model_response.py` to keep final content,
+reasoning metadata, tool calls, finish reasons, and token usage separate. Reasoning text
+is never substituted for a missing final answer or retained in normal audit records.
+
 ## Git Policy
 
 * Start tasks from a clean working tree.

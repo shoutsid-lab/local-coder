@@ -2,7 +2,7 @@ PYTHON := .venv/bin/python
 PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runtime/*.py runtime/dspy_programs/*.py tests/*.py
 
 .PHONY: health format format-check lint agent-check agent-install agent-smoke handoff-check test verify \
-	metrics review review-cached skills skills-lint gepa-dataset-check gepa-runner-check gepa-experiment-check prompt-campaign-check prompt-deployment-check runs live-e2e live-e2e-report
+	metrics review review-cached skills skills-lint gepa-dataset-check gepa-runner-check gepa-experiment-check prompt-campaign-check prompt-deployment-check route-probe-check runs live-e2e live-e2e-report
 
 health:
 	@curl -fsS http://127.0.0.1:8080/health | jq
@@ -77,6 +77,9 @@ prompt-campaign-check:
 
 prompt-deployment-check:
 	$(PYTHON) -m pytest -q --tb=short tests/test_prompt_activation.py
+
+route-probe-check:
+	$(PYTHON) -m pytest -q --tb=short tests/test_model_response.py
 
 runs:
 	$(PYTHON) local-coder.py runs

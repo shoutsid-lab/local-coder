@@ -58,7 +58,7 @@ Constraint mapping:
 work without weakening exact-output contracts, resource bounds, auditability, or the
 existing fast coding path.
 
-### F0. Freeze the reasoning response contract
+### F0. Freeze the reasoning response contract — complete
 
 Add one normalized response contract used by route probes and model adapters. It must
 preserve these fields independently:
@@ -90,8 +90,17 @@ Rules:
   bounded metadata and hashes.
 - Add a regression fixture matching the observed empty-content response.
 
-**Exit criteria:** every adapter and probe can distinguish a reasoning-only truncation from
-an ordinary empty response, and existing non-reasoning routes retain identical behavior.
+**Delivered:** `runtime/model_response.py` now normalizes OpenAI-compatible and
+smolagents response shapes. The live route probe, structured-output probe, native editor,
+and audited model wrapper use the shared contract. Audit records retain bounded presence,
+count, token, identity, and SHA-256 metadata without storing reasoning text.
+
+**Verification:** `make route-probe-check` covers the observed reasoning-only truncation,
+provider-specific reasoning fields, exact-content mismatch, tool calls, empty completions,
+provider errors, native-editor rejection, and audit-safe metadata.
+
+**Exit criteria met:** adapters and probes distinguish a reasoning-only truncation from an
+ordinary empty response, and ordinary non-reasoning metadata remains unchanged.
 
 ### F1. Make route probes reasoning-aware
 
