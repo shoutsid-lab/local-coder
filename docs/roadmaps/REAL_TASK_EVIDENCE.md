@@ -1,7 +1,7 @@
 # ROADMAP: Real-Task Capability Evidence
 
 **Target repository:** `shoutsid-lab/local-coder`
-**Status:** Active — G0/G1 frozen; G2 next
+**Status:** Active — G0/G1 frozen; G2 runner ready
 **Track:** G
 
 ## 0. Why this document exists
@@ -126,11 +126,20 @@ without an explicit, frozen tradeoff decision.
 - Pattern groups are unique across development and holdout, machine-specific paths are
   rejected, and trusted holdout tampering fails closed.
 
-### G2. Current-route baseline
+### G2. Current-route baseline — runner ready
 
-- Run the current planner/reviewer combination through the corpus.
-- Establish completion, schema, latency, token, and repair baselines.
-- Record failure clusters without changing prompts during the run.
+- `evaluation/real_task_development.py` runs the current planner/reviewer combination
+  through all eight candidate-visible development cases using the production DSPy
+  programs and `JSONAdapter`.
+- `profiles/track-g-development-v1.json` binds the suite hash, one attempt per case, the
+  role-oracle scorer, both model identities, and exact route profiles.
+- Every case records adapter success, schema adherence, role-specific oracle dimensions,
+  bounded failure codes, latency, and available prompt/completion tokens.
+- Reports retain no generated planner/reviewer text and expose no holdout path.
+- Active prompt lineage is sampled before and after collection; any change fails the run.
+- The remaining G2 action is to collect and retain the clean-tree Qwen baseline without
+  changing prompts. Downstream edit/repair counts remain a later end-to-end measurement;
+  this phase establishes the planner/reviewer role baseline first.
 
 ### G3. Track F comparison
 

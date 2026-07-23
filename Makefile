@@ -8,7 +8,8 @@ PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runt
 	route-contract-diagnostic-check route-contract-diagnostic-collect \
 	route-contract-diagnostic-compare route-adapter-diagnostic-check \
 	route-adapter-diagnostic-collect route-adapter-diagnostic-compare \
-	real-task-corpus-check real-task-corpus-summary route-qualification-policy-hash \
+	real-task-corpus-check real-task-corpus-summary real-task-development-check \
+	real-task-development-collect route-qualification-policy-hash \
 	route-qualification-collect route-qualification route-probe runs live-e2e \
 	live-e2e-report
 
@@ -36,6 +37,7 @@ agent-check:
 	$(PYTHON) -m json.tool profiles/qwythos-f3-adapter-contract-v1.json >/dev/null
 	$(PYTHON) -m json.tool evaluation/real_task_cases/development-v1.json >/dev/null
 	$(PYTHON) -m json.tool evaluation/real_task_cases/holdout-v1.index.json >/dev/null
+	$(PYTHON) -m json.tool profiles/track-g-development-v1.json >/dev/null
 
 agent-install:
 	$(PYTHON) -m pip install -r requirements-agent.txt
@@ -144,6 +146,16 @@ real-task-corpus-check:
 
 real-task-corpus-summary:
 	$(PYTHON) -m evaluation.real_task_corpus
+
+real-task-development-check:
+	$(PYTHON) -m pytest -q --tb=short tests/test_real_task_development.py
+
+real-task-development-collect:
+	@test -n "$(SUBJECT)" -a -n "$(ENVIRONMENT)" || (echo "Usage: make real-task-development-collect SUBJECT=baseline|candidate ENVIRONMENT=machine-id [OUTPUT=path]"; exit 1)
+	$(PYTHON) -m evaluation.real_task_development \
+		--subject "$(SUBJECT)" \
+		--environment-id "$(ENVIRONMENT)" \
+		$(if $(OUTPUT),--output "$(OUTPUT)",)
 
 route-qualification-policy-hash:
 	$(PYTHON) -m runtime.route_qualification --print-policy-hash

@@ -22,3 +22,8 @@ separate measurements. It is diagnostic evidence, not a final qualification poli
 shared `PlannerProgram` and `ReviewerProgram` entry points with `dspy.JSONAdapter`. Both
 models receive identical fixtures; only their logical routes and bound runtime profiles
 differ. It is focused diagnostic evidence and does not issue a qualification decision.
+
+`track-g-development-v1.json` freezes the realistic development-set collection contract.
+It binds the eight-case suite hash, one attempt per case, the role-oracle scorer, both
+model identities, and their exact planner/reviewer route profiles. G2 uses only the
+`baseline` subject; the candidate entry exists so G3 can reuse identical cases and scoring.

@@ -83,3 +83,32 @@ independent decision.
 
 The supplied holdout archive should be extracted at the repository root. Its payload path
 is already ignored by Git.
+
+## Development evidence collection
+
+`evaluation/real_task_development.py` runs every development case through the production
+`PlannerProgram` or `ReviewerProgram` with `dspy.JSONAdapter`. It does not accept a
+holdout path. The frozen protocol in `profiles/track-g-development-v1.json` binds the
+development suite hash, scoring version, Qwen baseline routes, Qwythos candidate route,
+and exact runtime profiles.
+
+Validate the runner without model services:
+
+```bash
+make real-task-development-check
+```
+
+After committing the tooling and starting the Qwen `local-coder` server plus LiteLLM,
+collect the G2 baseline:
+
+```bash
+make real-task-development-collect \
+  SUBJECT=baseline \
+  ENVIRONMENT=amelia-gtx1660-v1
+```
+
+Reports are written beneath `.local-coder/real-task-evidence/`. They retain case IDs,
+case hashes, bounded scoring dimensions, failure codes, latency, and available token
+counts. Generated planner/reviewer fields, final answers, prompts, and reasoning text are
+not persisted. Collection requires a clean committed tree and fails if active prompt
+lineage changes during the run.

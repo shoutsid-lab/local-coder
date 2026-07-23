@@ -15,6 +15,7 @@ REVIEW.json
 .local-coder/runs/
 .local-coder/holdout/
 .local-coder/real-task-holdout/
+.local-coder/real-task-evidence/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

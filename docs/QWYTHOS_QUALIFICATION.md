@@ -4,9 +4,11 @@
 combined schema adherence with fixture-specific task expectations, so it is retained as
 historical resource evidence. The corrected raw-route v2 diagnostic has now been collected
 for both models, but it bypasses the DSPy role adapters and therefore measures native
-output behavior rather than operational planner/reviewer reliability. A shared-adapter
-comparison protocol is implemented next. Track G quality cases, startup timing,
-model-switch timing, and the final qualification policy remain pending.
+output behavior rather than operational planner/reviewer reliability. The shared-adapter
+comparison passed for both models. Track G now has a frozen realistic development/holdout
+corpus and a per-case development runner; the Qwen baseline, Qwythos
+comparison, startup timing, model-switch timing, and final qualification policy remain
+pending.
 
 This document describes the bounded F3 evidence surface for
 `Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_K_M.gguf`. It does not claim that the model is
@@ -260,8 +262,10 @@ compatibility, not superior task quality.
 Track G G0/G1 now freezes the varied real-task corpus described in
 [`REAL_TASK_CORPUS.md`](REAL_TASK_CORPUS.md). The next qualification work is:
 
-1. collect the current Qwen planner/reviewer development baseline without prompt changes;
-2. run Qwythos through the same development cases and inspect per-case regressions;
+1. use `make real-task-development-collect SUBJECT=baseline` to collect the current Qwen
+   planner/reviewer development baseline without prompt changes;
+2. use the same runner with `SUBJECT=candidate` for Qwythos and inspect per-case
+   regressions;
 3. open the independently provisioned holdout only for the final comparison;
 4. measure cold startup and serial model-switch time; and
 5. bind adapter, resource, lifecycle, and real-task evidence into one new versioned

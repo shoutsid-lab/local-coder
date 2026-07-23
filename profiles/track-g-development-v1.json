@@ -1,0 +1,94 @@
+{
+  "attempts_per_case": 1,
+  "protocol_id": "track-g-development-v1",
+  "schema_version": 1,
+  "scoring_version": "role-oracle-v1",
+  "suite_id": "real-task-development-v1",
+  "suite_sha256": "1a64c0f9d4b95037fdcbc42963e3e44ecfc0731a7eef8c7382bc1c12c6877311",
+  "subjects": {
+    "baseline": {
+      "llama_alias": "local-coder",
+      "model_file": "qwen2.5-coder-3b-instruct-q4_k_m.gguf",
+      "route_profiles": {
+        "planner": {
+          "alias": "local-plan",
+          "final_answer_tokens": 3072,
+          "max_tokens": 3072,
+          "model_alias": "local-coder",
+          "preserve_reasoning": false,
+          "reasoning_mode": "off",
+          "reasoning_tokens": 0,
+          "repetition_penalty": null,
+          "requires_model_switch": false,
+          "retries": 0,
+          "temperature": 0.0,
+          "timeout_seconds": 180,
+          "top_k": null,
+          "top_p": 1.0
+        },
+        "reviewer": {
+          "alias": "local-review",
+          "final_answer_tokens": 2048,
+          "max_tokens": 2048,
+          "model_alias": "local-coder",
+          "preserve_reasoning": false,
+          "reasoning_mode": "off",
+          "reasoning_tokens": 0,
+          "repetition_penalty": null,
+          "requires_model_switch": false,
+          "retries": 0,
+          "temperature": 0.0,
+          "timeout_seconds": 180,
+          "top_k": null,
+          "top_p": 1.0
+        }
+      },
+      "routes": {
+        "planner": "local-plan",
+        "reviewer": "local-review"
+      }
+    },
+    "candidate": {
+      "llama_alias": "local-reason",
+      "model_file": "Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_K_M.gguf",
+      "route_profiles": {
+        "planner": {
+          "alias": "local-reason",
+          "final_answer_tokens": 1024,
+          "max_tokens": 2048,
+          "model_alias": "local-reason",
+          "preserve_reasoning": false,
+          "reasoning_mode": "on",
+          "reasoning_tokens": 1024,
+          "repetition_penalty": 1.05,
+          "requires_model_switch": true,
+          "retries": 0,
+          "temperature": 0.6,
+          "timeout_seconds": 300,
+          "top_k": 20,
+          "top_p": 0.95
+        },
+        "reviewer": {
+          "alias": "local-reason",
+          "final_answer_tokens": 1024,
+          "max_tokens": 2048,
+          "model_alias": "local-reason",
+          "preserve_reasoning": false,
+          "reasoning_mode": "on",
+          "reasoning_tokens": 1024,
+          "repetition_penalty": 1.05,
+          "requires_model_switch": true,
+          "retries": 0,
+          "temperature": 0.6,
+          "timeout_seconds": 300,
+          "top_k": 20,
+          "top_p": 0.95
+        }
+      },
+      "routes": {
+        "planner": "local-reason",
+        "reviewer": "local-reason"
+      }
+    }
+  }
+}

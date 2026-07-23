@@ -73,8 +73,12 @@ Track G runs alongside Track F. The detailed plan lives in
 G0 and G1 freeze a versioned 12-case corpus from actual repository tasks, failures, and
 successful fixes: eight complete development cases plus a four-case holdout represented in
 Git only by metadata and canonical hashes. The trusted holdout payload remains in ignored,
-candidate-inaccessible storage. The next work item is G2: collect the current Qwen
-planner/reviewer baseline on the development cases without changing prompts.
+candidate-inaccessible storage. The G2 development runner is now ready. It invokes the
+production planner/reviewer adapters once for each of the eight distinct development
+cases, scores every frozen oracle
+dimension, and stores only bounded per-case classifications and cost metrics. The next work
+item is to collect the current Qwen baseline from a clean committed tree without changing
+prompts.
 
 Synthetic sentinel edits remain smoke fixtures and are not primary capability evidence.
 Track F route changes do not become defaults without Track G development and independent

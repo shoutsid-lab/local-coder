@@ -29,7 +29,8 @@
   raw-route and shared-adapter diagnostics, resource evidence, and remaining
   planner/reviewer qualification work.
 - [Real-task corpus](REAL_TASK_CORPUS.md) — Track G case format, committed development
-  cases, sealed holdout index, validation, and trusted holdout handling.
+  cases, sealed holdout index, validation, trusted holdout handling, and development
+  evidence collection.
 - [GEPA dataset](GEPA_DATASET.md) — audited offline dataset export.
 - [GEPA optimization](GEPA_OPTIMIZATION.md) — direct bounded optimization runner and
   evidence limits.
