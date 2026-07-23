@@ -55,11 +55,12 @@ verified final-answer completion, reasoning presence, 8K context handling, throu
 and current-machine memory use. It also exposed that the v1 focused collector conflated
 schema validity with fixture-specific task correctness.
 
-The immediate F3 work is now the corrected v2 focused comparison: run the existing Qwen
-baseline and Qwythos candidate on identical fixtures, classify JSON/schema/semantic
-behavior separately, then use Track G development and holdout evidence to freeze a second
-qualification policy. No route assignment changes before that evidence exists. MTP and
-automatic supervision remain optional.
+The raw-route v2 comparison has been collected and is retained as native-output
+diagnostic evidence. It bypasses DSPy's operational role adapters, so the immediate F3
+work is the shared-adapter comparison: run Qwen and Qwythos through the same
+`PlannerProgram` and `ReviewerProgram` entry points, then use Track G development and
+holdout evidence to freeze a second qualification policy. No route assignment changes
+before that evidence exists. MTP and automatic supervision remain optional.
 
 ## Active priority 2: Track G — real-task capability evidence
 

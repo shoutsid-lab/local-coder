@@ -184,20 +184,33 @@ tokens, retained final answers on every request, and collected current-machine t
 VRAM, and process-RSS evidence. Startup and serial switch timings remain pending. Its
 combined schema/semantic field is not used to claim comparative schema reliability.
 
-#### F3.3 Correct focused diagnostics and compare the operational baseline — tooling complete
+#### F3.3 Correct raw-route diagnostics — live comparison complete
 
 `profiles/qwythos-f3-focused-contract-v2.json` freezes identical exact, planner, and
-reviewer fixtures for the existing Qwen baseline and the Qwythos candidate while retaining
-each route's intended operational generation profile.
-`runtime/route_contract_diagnostic.py` collects hash-bound reports with JSON validity,
-schema validity, fixture semantics, and bounded failure classifications represented as
-separate fields. It stores no prompt, final-answer, or reasoning text.
+reviewer prompts for the existing Qwen baseline and the Qwythos candidate while retaining
+each route's intended generation profile. `runtime/route_contract_diagnostic.py` records
+JSON validity, schema validity, fixture semantics, and bounded failure classifications as
+separate fields without retaining prompt, final-answer, or reasoning text.
 
-The comparison command refuses protocol, fixture, environment, or implementation-commit
-mismatches and reports candidate-minus-baseline rates without issuing a qualification
-claim. The next operator action is to collect the baseline and candidate reports under the
-same commit, compare them, and use the result with Track G evidence to define a corrected
-second qualification policy.
+Both subjects were collected under the same implementation commit and environment. The
+result showed stronger native bare-JSON adherence from Qwythos and substantially lower
+latency from Qwen. Because the collector sends raw chat prompts and bypasses the DSPy role
+programs used operationally, these reports remain native-output diagnostics and do not
+establish planner or reviewer superiority.
+
+#### F3.4 Compare both models through the shared DSPy adapters — tooling complete
+
+`profiles/qwythos-f3-adapter-contract-v1.json` freezes identical PlannerProgram and
+ReviewerProgram fixtures for both subjects. `runtime/route_adapter_diagnostic.py` invokes
+the production `run_planner_program` and `run_reviewer_program` entry points, so both
+models use the same typed signatures, active role prompts, and `dspy.JSONAdapter`. Only
+the logical model route and its bound runtime generation profile differ.
+
+Reports retain bounded adapter-success, typed-schema, task-semantic, token, and latency
+classifications. They bind model identity, route profile, implementation commit, and
+environment, reject internally inconsistent evidence, and make no qualification claim.
+The next operator action is to collect baseline and candidate adapter reports under one
+clean commit and compare them before spending Track G inference budget.
 
 Qualification uses the frozen real-task corpus and comparison matrix defined by
 [`REAL_TASK_EVIDENCE.md`](REAL_TASK_EVIDENCE.md), plus focused response-contract fixtures.

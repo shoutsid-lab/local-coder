@@ -17,3 +17,8 @@ schema reliability between models without the correction below.
 It runs the existing Qwen planner/reviewer profiles and the Qwythos reasoning profiles on
 identical fixtures while keeping JSON validity, schema adherence, and task semantics as
 separate measurements. It is diagnostic evidence, not a final qualification policy.
+
+`qwythos-f3-adapter-contract-v1.json` freezes the operational comparison through the
+shared `PlannerProgram` and `ReviewerProgram` entry points with `dspy.JSONAdapter`. Both
+models receive identical fixtures; only their logical routes and bound runtime profiles
+differ. It is focused diagnostic evidence and does not issue a qualification decision.

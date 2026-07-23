@@ -6,7 +6,9 @@ PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runt
 	gepa-experiment-check prompt-campaign-check prompt-deployment-check route-probe-check \
 	route-profile-check route-qualification-check route-qualification-collect-check \
 	route-contract-diagnostic-check route-contract-diagnostic-collect \
-	route-contract-diagnostic-compare route-qualification-policy-hash \
+	route-contract-diagnostic-compare route-adapter-diagnostic-check \
+	route-adapter-diagnostic-collect route-adapter-diagnostic-compare \
+	route-qualification-policy-hash \
 	route-qualification-collect route-qualification route-probe runs live-e2e \
 	live-e2e-report
 
@@ -31,6 +33,7 @@ agent-check:
 	$(PYTHON) -m json.tool evaluation/suites/atomic-v1.json >/dev/null
 	$(PYTHON) -m json.tool profiles/qwythos-f3-qualification-v1.json >/dev/null
 	$(PYTHON) -m json.tool profiles/qwythos-f3-focused-contract-v2.json >/dev/null
+	$(PYTHON) -m json.tool profiles/qwythos-f3-adapter-contract-v1.json >/dev/null
 
 agent-install:
 	$(PYTHON) -m pip install -r requirements-agent.txt
@@ -111,6 +114,23 @@ route-contract-diagnostic-collect:
 route-contract-diagnostic-compare:
 	@test -n "$(BASELINE)" -a -n "$(CANDIDATE)" || (echo "Usage: make route-contract-diagnostic-compare BASELINE=baseline.json CANDIDATE=candidate.json [OUTPUT=path]"; exit 1)
 	$(PYTHON) -m runtime.route_contract_diagnostic compare \
+		--baseline "$(BASELINE)" \
+		--candidate "$(CANDIDATE)" \
+		$(if $(OUTPUT),--output "$(OUTPUT)",)
+
+route-adapter-diagnostic-check:
+	$(PYTHON) -m pytest -q --tb=short tests/test_route_adapter_diagnostic.py
+
+route-adapter-diagnostic-collect:
+	@test -n "$(SUBJECT)" -a -n "$(ENVIRONMENT)" || (echo "Usage: make route-adapter-diagnostic-collect SUBJECT=baseline|candidate ENVIRONMENT=machine-id [OUTPUT=path]"; exit 1)
+	$(PYTHON) -m runtime.route_adapter_diagnostic collect \
+		--subject "$(SUBJECT)" \
+		--environment-id "$(ENVIRONMENT)" \
+		$(if $(OUTPUT),--output "$(OUTPUT)",)
+
+route-adapter-diagnostic-compare:
+	@test -n "$(BASELINE)" -a -n "$(CANDIDATE)" || (echo "Usage: make route-adapter-diagnostic-compare BASELINE=baseline.json CANDIDATE=candidate.json [OUTPUT=path]"; exit 1)
+	$(PYTHON) -m runtime.route_adapter_diagnostic compare \
 		--baseline "$(BASELINE)" \
 		--candidate "$(CANDIDATE)" \
 		$(if $(OUTPUT),--output "$(OUTPUT)",)

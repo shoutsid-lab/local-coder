@@ -26,7 +26,7 @@
 - [Agent Skills](AGENT_SKILLS.md) — portable role-skill discovery and activation.
 - [DSPy integration](DSPY_INTEGRATION.md) — typed role programs behind stable adapters.
 - [Qwythos F3 qualification](QWYTHOS_QUALIFICATION.md) — retained v1 evidence,
-  corrected baseline/candidate contract diagnostics, resource evidence, and remaining
+  raw-route and shared-adapter diagnostics, resource evidence, and remaining
   planner/reviewer qualification work.
 - [GEPA dataset](GEPA_DATASET.md) — audited offline dataset export.
 - [GEPA optimization](GEPA_OPTIMIZATION.md) — direct bounded optimization runner and

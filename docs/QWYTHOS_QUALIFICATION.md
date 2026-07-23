@@ -2,10 +2,11 @@
 
 **Status:** The first Qwythos focused/resource run completed. Its v1 contract field
 combined schema adherence with fixture-specific task expectations, so it is retained as
-historical resource evidence rather than used to decide whether Qwythos or Qwen has better
-structured-output reliability. A corrected v2 baseline/candidate diagnostic protocol is
-implemented. Track G quality cases, startup timing, model-switch timing, and the final
-qualification policy remain pending.
+historical resource evidence. The corrected raw-route v2 diagnostic has now been collected
+for both models, but it bypasses the DSPy role adapters and therefore measures native
+output behavior rather than operational planner/reviewer reliability. A shared-adapter
+comparison protocol is implemented next. Track G quality cases, startup timing,
+model-switch timing, and the final qualification policy remain pending.
 
 This document describes the bounded F3 evidence surface for
 `Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_K_M.gguf`. It does not claim that the model is
@@ -197,16 +198,68 @@ The result reports baseline metrics, candidate metrics, and candidate-minus-base
 for each suite. Its `qualification_claim` is always `null`. Synthetic focused fixtures can
 diagnose contract behavior but cannot establish real planner or reviewer quality.
 
+## Shared-adapter comparison
+
+The raw v2 runs established native route behavior only. Qwythos returned bare JSON more
+often than Qwen, while Qwen was substantially faster. That result is not an operational
+planner/reviewer comparison because the current local-coder routes rely on DSPy's typed
+role programs and `JSONAdapter` to produce their final contracts.
+
+[`../profiles/qwythos-f3-adapter-contract-v1.json`](../profiles/qwythos-f3-adapter-contract-v1.json)
+freezes the next comparison. Both subjects receive the same fixtures and invoke the same
+entry points:
+
+```text
+run_planner_program -> PlannerProgram -> dspy.JSONAdapter
+run_reviewer_program -> ReviewerProgram -> dspy.JSONAdapter
+```
+
+Only the logical model route changes. The baseline uses `local-plan` and `local-review`;
+the candidate uses `local-reason` for both roles. Each report binds the active model,
+llama.cpp alias, implementation commit, environment identifier, and exact runtime route
+profiles. It stores only bounded adapter-success, schema, semantic, token, and latency
+classifications. No fixture prompt, generated field text, final answer, or reasoning text
+is retained.
+
+After committing the tooling, collect whichever model is currently resident:
+
+```bash
+make route-adapter-diagnostic-collect \
+  SUBJECT=candidate \
+  ENVIRONMENT=amelia-gtx1660-v1
+```
+
+Switch models and collect the other subject under the same clean implementation commit:
+
+```bash
+make route-adapter-diagnostic-collect \
+  SUBJECT=baseline \
+  ENVIRONMENT=amelia-gtx1660-v1
+```
+
+Compare the reports:
+
+```bash
+make route-adapter-diagnostic-compare \
+  BASELINE=.local-coder/qualifications/baseline-f3-adapter-v1-<timestamp>.json \
+  CANDIDATE=.local-coder/qualifications/candidate-f3-adapter-v1-<timestamp>.json
+```
+
+The comparison rejects different protocols, fixtures, environments, commits, model
+identities, route profiles, summaries, or attempt classifications. Its
+`qualification_claim` remains `null`; the focused fixture still cannot replace Track G
+real-task evidence.
+
 ## Remaining qualification work
 
-After the corrected focused comparison:
+After the shared-adapter comparison:
 
-1. inspect the bounded failure classes rather than raw model text;
+1. inspect the bounded adapter, schema, and semantic failure classes;
 2. decide whether prompt/profile changes are justified before freezing a second
    qualification policy;
 3. run Track G development and independent holdout cases for both planner and reviewer;
 4. measure cold startup and serial model-switch time; and
-5. bind focused, resource, lifecycle, and real-task evidence into one new versioned
+5. bind adapter, resource, lifecycle, and real-task evidence into one new versioned
    decision contract.
 
 The final policy must separate structural contract gates from scored task quality. It must
