@@ -1,17 +1,25 @@
 # Documentation
 
-- [Architecture](ARCHITECTURE.md) — current component and trust boundaries.
-- [Pipeline](PIPELINE.md) — deterministic editing, verification, and approval flow.
-- [Conventions](CONVENTIONS.md) — repository coding and evaluation conventions.
-- [Validation history](VALIDATION_HISTORY.md) — concise evidence behind current controls.
-- [Completed handoff](HANDOFF.md) — recursive-improvement control-plane completion record.
-- [Recursive improvement](RECURSIVE_IMPROVEMENT.md) — evidence-gated campaign and paired
-  evaluation operations.
-- [Trusted task plans](TASK_PLANS.md) — hash-approved, one-step-at-a-time decomposition.
-- [DSPy integration](DSPY_INTEGRATION.md) — LiteLLM-backed role programs behind
-  existing adapters.
-- [Upstream baseline](UPSTREAM.json) — original GitHub baseline and verified blob IDs.
+## Core architecture
 
-The active implementation direction and next work are in the root
+- [Architecture](ARCHITECTURE.md) — component and trust boundaries.
+- [Pipeline](PIPELINE.md) — editing, verification, review, and approval flow.
+- [Conventions](CONVENTIONS.md) — repository coding and evaluation conventions.
+- [Trusted task plans](TASK_PLANS.md) — hash-approved, one-step-at-a-time decomposition.
+- [Agent Skills](AGENT_SKILLS.md) — portable role-skill discovery and activation.
+- [DSPy integration](DSPY_INTEGRATION.md) — typed role programs behind stable adapters.
+
+## Improvement and prompt operations
+
+- [Completed handoff](HANDOFF.md) — recursive-improvement control-plane completion record.
+- [Closed programme summary](RECURSIVE_IMPROVEMENT.md) — delivered lifecycle and references.
+- [GEPA dataset](GEPA_DATASET.md) — audited offline dataset export.
+- [GEPA optimization](GEPA_OPTIMIZATION.md) — direct bounded optimization runner.
+- [GEPA campaigns](GEPA_CAMPAIGNS.md) — prompt candidate construction and evaluation.
+- [Prompt holdout](PROMPT_HOLDOUT.md) — external holdout schema and isolation.
+- [Prompt deployment](PROMPT_DEPLOYMENT.md) — activation, loading, and rollback.
+- [Validation history](VALIDATION_HISTORY.md) — historical evidence behind retained controls.
+
+Active and deferred engineering work belongs only in the root
 [`ROADMAP.md`](../ROADMAP.md). Repository instructions remain in
 [`AGENTS.md`](../AGENTS.md).

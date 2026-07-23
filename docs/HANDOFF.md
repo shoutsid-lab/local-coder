@@ -79,9 +79,12 @@ The trusted control plane is implemented under `evaluation/`:
 - promotion scorecards apply ordered safety, correctness, regression, control,
   improvement, and efficiency gates followed by an authorization decision.
 
-The system recommends promotion but does not commit, merge, push, promote, create an
-evaluation worktree, or clean one up. See
-[`RECURSIVE_IMPROVEMENT.md`](RECURSIVE_IMPROVEMENT.md) for the operator flow.
+Source-candidate evaluation recommends promotion but does not commit, merge, push,
+create an evaluation worktree, or clean one up. Prompt deployment is a separate trusted
+action available only after an eligible scorecard, explicit promotion decision, clean
+campaign close, and successful read-only audit. See
+[`RECURSIVE_IMPROVEMENT.md`](RECURSIVE_IMPROVEMENT.md) for the closed programme summary
+and [`PROMPT_DEPLOYMENT.md`](PROMPT_DEPLOYMENT.md) for the deployment boundary.
 
 ## Target loop
 
@@ -115,7 +118,9 @@ hashes.
   `local-review`.
 - Keep the native atomic editor as the only agent source-editing boundary.
 - Keep Git worktrees as the isolation boundary and SQLite as the audit store.
-- Never add automatic commit, merge, push, promotion, or destructive cleanup.
+- Never add automatic source commit, merge, push, or destructive worktree cleanup.
+- Prompt activation must remain promotion-bound, separately authorized, auditable, and
+  reversible.
 - Never let a candidate edit trusted evaluator code, contracts, holdout manifests,
   oracles, or promotion policy.
 - Never accept candidate-owned `make verify` as the sole oracle.
@@ -223,8 +228,8 @@ unlimited active worktrees or allow an unbounded daemon loop.
 
 ## Completion status
 
-The recursive-improvement control plane is complete at the bounded, explicitly authorized
-scope defined in this handoff.
+The recursive-improvement control plane and prompt deployment lifecycle are complete at
+the bounded, explicitly authorized scope defined in this handoff.
 Evaluation lineage now binds one campaign evaluation to one unique candidate-build ID.
 Its control gate fails closed on rejected edits, tool errors, excessive retries,
 `needs_attention`, stale review, failed final verification, or missing/over-budget model

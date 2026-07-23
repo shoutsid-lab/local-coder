@@ -77,7 +77,6 @@ The following files are not editable during implementation repairs:
 * `docs/PIPELINE.md`
 * `docs/RECURSIVE_IMPROVEMENT.md`
 * `docs/CONVENTIONS.md`
-* `docs/UPSTREAM.json`
 * `docs/VALIDATION_HISTORY.md`
 * `pytest.ini`
 * `requirements-agent.txt`

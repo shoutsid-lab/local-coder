@@ -27,7 +27,6 @@ def test_trusted_repository_controls_are_not_agent_editable() -> None:
         "docs/CONVENTIONS.md",
         "docs/PIPELINE.md",
         "docs/RECURSIVE_IMPROVEMENT.md",
-        "docs/UPSTREAM.json",
         "docs/VALIDATION_HISTORY.md",
         "litellm-config.yaml",
         "local-coder.py",

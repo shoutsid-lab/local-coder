@@ -6,8 +6,7 @@ keeping the full chronological narrative in the completed [`HANDOFF.md`](HANDOFF
 ## Baseline
 
 The agent-runtime work began from GitHub `shoutsid-lab/local-coder` commit
-`8f12ea1f78fd692017797591cf1ee1948b8d7b1d`. Exact historical blob IDs are recorded in
-[`UPSTREAM.json`](UPSTREAM.json).
+`8f12ea1f78fd692017797591cf1ee1948b8d7b1d`. That baseline remains part of Git history; no separate baseline manifest is maintained.
 
 ## Controls established by live trajectories
 
@@ -40,6 +39,20 @@ remain promotion-compatible through structural gate validation.
 The active planning entry point is now [`../ROADMAP.md`](../ROADMAP.md), while
 [`HANDOFF.md`](HANDOFF.md) remains the completed recursive-improvement baseline. This
 separates current work from historical delivery evidence without changing the trust model.
+
+## Prompt optimization and deployment evidence
+
+The completed DSPy/GEPA programme added typed role programs, audited dataset export,
+bounded prompt optimization, explicit candidate outcomes, paired external holdout
+evaluation, and promotion-bound prompt deployment. The live planner campaign produced a
+changed candidate that improved aggregate development and holdout scores but regressed
+three individual external holdout cases. The ordered regression gate correctly rejected
+the candidate.
+
+The unattended prompt lifecycle then derived the rejection from the frozen scorecard,
+closed and audited the campaign, and confirmed that no active prompt state was written.
+The final Track D verification reported 231 passing tests in the project environment,
+including focused prompt-campaign, evaluation, activation, and rollback coverage.
 
 ## Proven boundary
 

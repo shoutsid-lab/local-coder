@@ -22,7 +22,6 @@ lint:
 
 agent-check:
 	$(PYTHON) -m py_compile $(PYTHON_FILES)
-	$(PYTHON) -m json.tool docs/UPSTREAM.json >/dev/null
 	$(PYTHON) -m json.tool evaluation/suites/atomic-v1.json >/dev/null
 
 agent-install:
