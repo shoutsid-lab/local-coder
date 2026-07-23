@@ -535,22 +535,6 @@ def _case(value: Any, name: str) -> RealTaskCase:
         raise RealTaskCorpusError(
             f"{name}.planner oracle editable files must equal expected_scope"
         )
-    normalized = {
-        "id": case_id,
-        "role": role,
-        "case_class": case_class,
-        "tags": list(tags),
-        "difficulty": difficulty,
-        "pattern_group": pattern_group,
-        "baseline": dict(baseline),
-        "task": task,
-        "inputs": dict(inputs),
-        "expected_scope": list(expected_scope),
-        "verification_commands": list(verification_commands),
-        "provenance": dict(provenance),
-        "successful_outcome": dict(successful_outcome),
-        "oracle": dict(oracle),
-    }
     return RealTaskCase(
         case_id=case_id,
         role=role,
