@@ -219,3 +219,10 @@ LIVE_E2E_KEEP_WORKTREE=1 make live-e2e
   --allow-perfect-only \
   --output .local-coder/gepa-runs/planner-seed-v1-bounded
 ```
+
+## Inert GEPA campaign candidate
+
+Create a bounded `prompt-optimization` campaign, approve its frozen brief, then run
+`build-candidate` to register the offline GEPA result as a hash-bound
+`prompt_candidate`. It creates no source worktree and performs no activation or
+promotion. See [`docs/GEPA_CAMPAIGNS.md`](docs/GEPA_CAMPAIGNS.md).

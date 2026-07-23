@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 class MigrationError(RuntimeError):
@@ -186,6 +186,24 @@ MIGRATIONS = (
             """ALTER TABLE evaluation_campaigns ADD COLUMN environment_hash TEXT""",
         ),
     ),
+    Migration(
+        9,
+        (
+            """ALTER TABLE evaluation_campaigns ADD COLUMN kind TEXT NOT NULL
+                DEFAULT 'source'""",
+            """ALTER TABLE improvement_briefs ADD COLUMN metadata TEXT""",
+            """ALTER TABLE candidate_builds ADD COLUMN build_kind TEXT NOT NULL
+                DEFAULT 'source'""",
+            """CREATE TABLE candidate_artifacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                build_id TEXT NOT NULL REFERENCES candidate_builds(id)
+                    ON DELETE CASCADE,
+                kind TEXT NOT NULL, path TEXT, content_hash TEXT NOT NULL,
+                content TEXT NOT NULL, created_at TEXT NOT NULL,
+                UNIQUE(build_id, kind)
+            )""",
+        ),
+    ),
 )
 
 
@@ -258,6 +276,7 @@ EXPECTED_COLUMNS = {
         "updated_at",
         "holdout_hash",
         "environment_hash",
+        "kind",
     ),
     "evaluation_runs": (
         "id",
@@ -301,6 +320,7 @@ EXPECTED_COLUMNS = {
         "rollback_condition",
         "status",
         "created_at",
+        "metadata",
     ),
     "promotion_decisions": (
         "id",
@@ -340,6 +360,16 @@ EXPECTED_COLUMNS = {
         "worktree",
         "created_at",
         "completed_at",
+        "build_kind",
+    ),
+    "candidate_artifacts": (
+        "id",
+        "build_id",
+        "kind",
+        "path",
+        "content_hash",
+        "content",
+        "created_at",
     ),
 }
 
@@ -372,6 +402,7 @@ TABLE_VERSION = {
     "run_context": 4,
     "evaluation_artifacts": 5,
     "candidate_builds": 6,
+    "candidate_artifacts": 9,
 }
 
 
@@ -442,8 +473,15 @@ def _validate(connection: sqlite3.Connection, version: int) -> None:
             expected_columns = EXPECTED_COLUMNS[table]
             if table == "evaluation_runs" and version < 7:
                 expected_columns = expected_columns[:-1]
-            if table == "evaluation_campaigns" and version < 8:
-                expected_columns = expected_columns[:-2]
+            if table == "evaluation_campaigns":
+                if version < 8:
+                    expected_columns = expected_columns[:-3]
+                elif version < 9:
+                    expected_columns = expected_columns[:-1]
+            if table == "improvement_briefs" and version < 9:
+                expected_columns = expected_columns[:-1]
+            if table == "candidate_builds" and version < 9:
+                expected_columns = expected_columns[:-1]
             if actual_columns != expected_columns:
                 raise MigrationError(
                     f"Schema v{version} has incompatible columns for "

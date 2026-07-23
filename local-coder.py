@@ -566,11 +566,17 @@ def handle_rotate_holdout(args: argparse.Namespace) -> int:
 
 
 def handle_create_campaign(args: argparse.Namespace) -> int:
-    """Mine one failure class and create one pending campaign brief."""
+    """Create one source or prompt-optimization campaign and pending brief."""
     from dataclasses import asdict
 
     from evaluation.miner import campaign_candidate_limit, mine_improvement_brief
     from evaluation.outcomes import normalize_run, stable_hash
+    from evaluation.prompt_campaign import (
+        PROMPT_OPTIMIZATION_CAMPAIGN_KIND,
+        PromptCampaignError,
+        PromptCampaignSpec,
+        build_prompt_improvement_brief,
+    )
     from evaluation.supervisor import (
         EvaluationError,
         committed_generation,
@@ -581,12 +587,6 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
 
     try:
         store = StateStore(args.database.resolve())
-        records = []
-        for run_id in args.run_id:
-            details = store.run_details(run_id)
-            if details is None:
-                raise ValueError(f"Unknown run ID: {run_id}")
-            records.append(normalize_run(details))
         development, holdout, _, oracle_hash = _load_evaluation_inputs(
             args,
             require_external_holdout=True,
@@ -609,25 +609,69 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
             "tests/test_architecture_contract.py",
             "tests/test_evaluation_contract.py",
         }
-        metrics = tuple(
-            {
-                "case_id": case_id,
-                "measure": "paired_pass_count",
-                "direction": "increase",
-            }
-            for case_id in args.target_case
-        )
         baseline_commit = committed_generation(args.baseline)
-        brief = mine_improvement_brief(
-            records,
-            baseline_commit=baseline_commit,
-            allowed_files=args.allowed_file,
-            forbidden_files=forbidden,
-            acceptance_metrics=metrics,
-            suite_hash=suite_hash,
-            budget=budget,
-            rollback_condition=args.rollback_condition,
-        )
+        if args.kind == PROMPT_OPTIMIZATION_CAMPAIGN_KIND:
+            if args.dataset is None or args.role is None:
+                raise ValueError("Prompt campaigns require --dataset and --role.")
+            if args.run_id or args.allowed_file or args.target_case:
+                raise ValueError(
+                    "Prompt campaigns do not accept source-candidate run, path, or "
+                    "target-case arguments."
+                )
+            spec = PromptCampaignSpec.from_dataset(
+                args.dataset,
+                role=args.role,
+                reflection_route=args.reflection_route,
+                max_metric_calls=args.prompt_max_metric_calls,
+                no_improvement_patience=args.prompt_no_improvement_patience,
+                reflection_max_tokens=args.prompt_reflection_max_tokens,
+                max_instruction_chars=args.prompt_max_instruction_chars,
+                allow_perfect_only=args.prompt_allow_perfect_only,
+                force_search_perfect_baseline=(
+                    args.prompt_force_search_perfect_baseline
+                ),
+                seed=args.prompt_seed,
+                num_threads=args.prompt_num_threads,
+            )
+            brief = build_prompt_improvement_brief(
+                spec,
+                baseline_commit=baseline_commit,
+                suite_hash=suite_hash,
+                budget=budget,
+                rollback_condition=args.rollback_condition,
+                forbidden_files=forbidden,
+                evidence_run_ids=spec.source_run_ids,
+            )
+        else:
+            if not args.run_id or not args.allowed_file or not args.target_case:
+                raise ValueError(
+                    "Source campaigns require --run-id, --allowed-file, and "
+                    "--target-case."
+                )
+            records = []
+            for run_id in args.run_id:
+                details = store.run_details(run_id)
+                if details is None:
+                    raise ValueError(f"Unknown run ID: {run_id}")
+                records.append(normalize_run(details))
+            metrics = tuple(
+                {
+                    "case_id": case_id,
+                    "measure": "paired_pass_count",
+                    "direction": "increase",
+                }
+                for case_id in args.target_case
+            )
+            brief = mine_improvement_brief(
+                records,
+                baseline_commit=baseline_commit,
+                allowed_files=args.allowed_file,
+                forbidden_files=forbidden,
+                acceptance_metrics=metrics,
+                suite_hash=suite_hash,
+                budget=budget,
+                rollback_condition=args.rollback_condition,
+            ).to_dict()
         campaign_id = store.create_campaign(
             baseline_commit=baseline_commit,
             suite_hash=suite_hash,
@@ -635,14 +679,15 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
             max_candidates=campaign_candidate_limit(store),
             holdout_hash=holdout_hash,
             environment_hash=evaluator_environment_hash,
+            kind=args.kind,
         )
-        store.add_improvement_brief(campaign_id, brief.to_dict())
-    except (EvaluationError, ValueError) as exc:
+        store.add_improvement_brief(campaign_id, brief)
+    except (EvaluationError, PromptCampaignError, ValueError) as exc:
         print(f"Campaign creation failed closed: {exc}", file=sys.stderr)
         return 1
     print(
         json.dumps(
-            {"campaign_id": campaign_id, "brief": brief.to_dict()},
+            {"campaign_id": campaign_id, "kind": args.kind, "brief": brief},
             indent=2,
             sort_keys=True,
         )
@@ -667,13 +712,102 @@ def handle_approve_brief(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_prompt_candidate_build(
+    args: argparse.Namespace,
+    *,
+    store,
+    campaign: dict[str, object],
+    brief: dict[str, object],
+) -> int:
+    """Build and store one inert prompt candidate through bounded GEPA."""
+    from evaluation.outcomes import stable_hash
+    from evaluation.prompt_campaign import (
+        PROMPT_CANDIDATE_ARTIFACT_KIND,
+        PromptCampaignError,
+        PromptCampaignSpec,
+        build_prompt_candidate,
+        prompt_candidate_content,
+    )
+
+    if args.overlay:
+        print(
+            "Prompt candidate build failed: overlays belong to source campaigns.",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        metadata_text = brief.get("metadata")
+        if not isinstance(metadata_text, str):
+            raise PromptCampaignError("Approved prompt brief has no metadata.")
+        spec = PromptCampaignSpec.from_metadata(json.loads(metadata_text))
+        build_id = store.create_candidate_build(
+            str(campaign["id"]),
+            brief_id=str(brief["id"]),
+            overlay_hash=None,
+            overlay=None,
+            build_kind="prompt-optimization",
+        )
+        output = (
+            args.output.resolve()
+            if args.output is not None
+            else (
+                ROOT
+                / ".local-coder"
+                / "gepa-campaigns"
+                / str(campaign["id"])
+                / build_id
+            ).resolve()
+        )
+        result, artifact = build_prompt_candidate(spec, output)
+        content = prompt_candidate_content(artifact)
+        store.add_candidate_artifact(
+            build_id,
+            kind=PROMPT_CANDIDATE_ARTIFACT_KIND,
+            path=str(output),
+            content_hash=stable_hash(artifact),
+            content=content,
+        )
+        store.complete_candidate_build(
+            build_id,
+            run_id=None,
+            status="candidate_ready",
+            branch=None,
+            worktree=None,
+        )
+    except Exception as exc:
+        if "build_id" in locals():
+            store.complete_candidate_build(
+                build_id,
+                run_id=None,
+                status="failed",
+                branch=None,
+                worktree=None,
+            )
+        print(f"Prompt candidate build failed closed: {exc}", file=sys.stderr)
+        return 1
+    print(
+        json.dumps(
+            {
+                "build_id": build_id,
+                "status": "candidate_ready",
+                "artifact": artifact,
+                "gepa": result,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def handle_build_candidate(args: argparse.Namespace) -> int:
-    """Build one uncommitted campaign candidate through the existing orchestrator."""
+    """Build one approved source or inert prompt campaign candidate."""
     from evaluation.miner import ExperimentOverlay
+    from evaluation.prompt_campaign import PROMPT_OPTIMIZATION_CAMPAIGN_KIND
     from runtime.orchestrator import AgentOrchestrator, OrchestratorConfig
     from runtime.state import StateStore
 
-    store = StateStore(STATE_PATH)
+    store = StateStore(args.database.resolve())
     campaign = store.campaign_details(args.campaign_id)
     if campaign is None or campaign["status"] != "active":
         print(
@@ -687,6 +821,19 @@ def handle_build_candidate(args: argparse.Namespace) -> int:
         )
         return 1
     brief = briefs[0]
+    if campaign.get("kind") == PROMPT_OPTIMIZATION_CAMPAIGN_KIND:
+        return _handle_prompt_candidate_build(
+            args,
+            store=store,
+            campaign=campaign,
+            brief=brief,
+        )
+    if args.output is not None:
+        print(
+            "Candidate build failed: --output is only valid for prompt campaigns.",
+            file=sys.stderr,
+        )
+        return 1
     try:
         overlay_values = dict(item.split("=", 1) for item in (args.overlay or []))
         overlay = (
@@ -701,6 +848,7 @@ def handle_build_candidate(args: argparse.Namespace) -> int:
             brief_id=brief["id"],
             overlay_hash=overlay.overlay_hash if overlay is not None else None,
             overlay=dict(overlay.values) if overlay is not None else None,
+            build_kind="source",
         )
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         print(f"Candidate build failed closed: {exc}", file=sys.stderr)
@@ -1120,10 +1268,55 @@ def build_parser() -> argparse.ArgumentParser:
     )
     campaign_parser.add_argument("--baseline", type=Path, required=True)
     campaign_parser.add_argument("--database", type=Path, default=STATE_PATH)
-    campaign_parser.add_argument("--run-id", action="append", required=True)
-    campaign_parser.add_argument("--allowed-file", action="append", required=True)
-    campaign_parser.add_argument("--target-case", action="append", required=True)
+    campaign_parser.add_argument(
+        "--kind",
+        choices=("source", "prompt-optimization"),
+        default="source",
+    )
+    campaign_parser.add_argument("--run-id", action="append")
+    campaign_parser.add_argument("--allowed-file", action="append")
+    campaign_parser.add_argument("--target-case", action="append")
     campaign_parser.add_argument("--rollback-condition", required=True)
+    campaign_parser.add_argument("--dataset", type=Path)
+    campaign_parser.add_argument(
+        "--role",
+        choices=("explorer", "planner", "implementer", "repairer", "reviewer"),
+    )
+    campaign_parser.add_argument(
+        "--reflection-route",
+        choices=("local-fast", "local-plan", "local-review"),
+        default="local-plan",
+    )
+    campaign_parser.add_argument(
+        "--prompt-max-metric-calls",
+        type=int,
+        default=60,
+    )
+    campaign_parser.add_argument(
+        "--prompt-no-improvement-patience",
+        type=int,
+        default=6,
+    )
+    campaign_parser.add_argument(
+        "--prompt-reflection-max-tokens",
+        type=int,
+        default=512,
+    )
+    campaign_parser.add_argument(
+        "--prompt-max-instruction-chars",
+        type=int,
+        default=1600,
+    )
+    campaign_parser.add_argument(
+        "--prompt-allow-perfect-only",
+        action="store_true",
+    )
+    campaign_parser.add_argument(
+        "--prompt-force-search-perfect-baseline",
+        action="store_true",
+    )
+    campaign_parser.add_argument("--prompt-seed", type=int, default=0)
+    campaign_parser.add_argument("--prompt-num-threads", type=int, default=1)
     add_evaluation_arguments(campaign_parser)
     campaign_parser.set_defaults(handler=handle_create_campaign)
 
@@ -1142,6 +1335,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Build one approved candidate and leave its worktree uncommitted.",
     )
     build_candidate_parser.add_argument("campaign_id")
+    build_candidate_parser.add_argument("--database", type=Path, default=STATE_PATH)
+    build_candidate_parser.add_argument(
+        "--output",
+        type=Path,
+        help="Immutable GEPA output directory for prompt campaigns.",
+    )
     build_candidate_parser.add_argument("--max-steps", type=int, default=12)
     build_candidate_parser.add_argument(
         "--overlay",

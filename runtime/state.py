@@ -370,8 +370,11 @@ class StateStore:
         max_candidates: int,
         holdout_hash: str | None = None,
         environment_hash: str | None = None,
+        kind: str = "source",
     ) -> str:
         """Create one bounded recursive-improvement campaign."""
+        if kind not in {"source", "prompt-optimization"}:
+            raise ValueError(f"Unsupported campaign kind: {kind}")
         campaign_id = uuid.uuid4().hex[:12]
         timestamp = utc_now()
         with self.connect() as connection:
@@ -380,8 +383,8 @@ class StateStore:
                 INSERT INTO evaluation_campaigns (
                     id, baseline_commit, status, suite_hash, budget,
                     max_candidates, created_at, updated_at,
-                    holdout_hash, environment_hash
-                ) VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
+                    holdout_hash, environment_hash, kind
+                ) VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     campaign_id,
@@ -393,6 +396,7 @@ class StateStore:
                     timestamp,
                     holdout_hash,
                     environment_hash,
+                    kind,
                 ),
             )
         return campaign_id
@@ -431,6 +435,18 @@ class StateStore:
                     """
                     SELECT * FROM candidate_builds
                     WHERE campaign_id = ? ORDER BY created_at
+                    """,
+                    (campaign_id,),
+                )
+            ]
+            result["candidate_artifacts"] = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT artifact.* FROM candidate_artifacts AS artifact
+                    JOIN candidate_builds AS build ON build.id = artifact.build_id
+                    WHERE build.campaign_id = ?
+                    ORDER BY artifact.created_at, artifact.id
                     """,
                     (campaign_id,),
                 )
@@ -532,14 +548,28 @@ class StateStore:
         """Persist the campaign's single predeclared improvement brief."""
         brief_id = str(brief["id"])
         with self.connect() as connection:
+            campaign = connection.execute(
+                "SELECT kind FROM evaluation_campaigns WHERE id = ?", (campaign_id,)
+            ).fetchone()
+            if campaign is None:
+                raise ValueError("Campaign is missing.")
+            metadata = brief.get("metadata")
+            if campaign["kind"] == "prompt-optimization":
+                if (
+                    not isinstance(metadata, dict)
+                    or metadata.get("campaign_kind") != "prompt-optimization"
+                ):
+                    raise ValueError(
+                        "Prompt campaign briefs require matching typed metadata."
+                    )
             connection.execute(
                 """
                 INSERT INTO improvement_briefs (
                     id, campaign_id, evidence_run_ids, baseline_commit,
                     failure_class, hypothesis, allowed_files, forbidden_files,
                     acceptance_metrics, suite_hash, budget, rollback_condition,
-                    status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?)
+                    status, created_at, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, ?)
                 """,
                 (
                     brief_id,
@@ -555,6 +585,7 @@ class StateStore:
                     json_text(brief["budget"]),
                     brief["rollback_condition"],
                     utc_now(),
+                    json_text(brief["metadata"]) if brief.get("metadata") else None,
                 ),
             )
         return brief_id
@@ -594,18 +625,24 @@ class StateStore:
         brief_id: str,
         overlay_hash: str | None,
         overlay: Any,
+        build_kind: str = "source",
     ) -> str:
         """Reserve one bounded candidate-build attempt for an approved brief."""
+        if build_kind not in {"source", "prompt-optimization"}:
+            raise ValueError(f"Unsupported candidate-build kind: {build_kind}")
         build_id = uuid.uuid4().hex[:12]
         with self.connect() as connection:
             campaign = connection.execute(
                 """
-                SELECT status, max_candidates FROM evaluation_campaigns WHERE id = ?
+                SELECT status, max_candidates, kind
+                FROM evaluation_campaigns WHERE id = ?
                 """,
                 (campaign_id,),
             ).fetchone()
             if campaign is None or campaign["status"] != "active":
                 raise ValueError("Campaign is missing or not active.")
+            if campaign["kind"] != build_kind:
+                raise ValueError("Candidate-build kind does not match the campaign.")
             brief = connection.execute(
                 """
                 SELECT status FROM improvement_briefs
@@ -627,8 +664,8 @@ class StateStore:
                 """
                 INSERT INTO candidate_builds (
                     id, campaign_id, brief_id, overlay_hash, overlay,
-                    status, created_at
-                ) VALUES (?, ?, ?, ?, ?, 'running', ?)
+                    status, created_at, build_kind
+                ) VALUES (?, ?, ?, ?, ?, 'running', ?, ?)
                 """,
                 (
                     build_id,
@@ -637,6 +674,7 @@ class StateStore:
                     overlay_hash,
                     json_text(overlay) if overlay is not None else None,
                     utc_now(),
+                    build_kind,
                 ),
             )
         return build_id
@@ -656,6 +694,7 @@ class StateStore:
             "needs_attention",
             "failed",
             "no_changes",
+            "candidate_ready",
         }:
             raise ValueError(f"Unsupported candidate-build status: {status}")
         with self.connect() as connection:
@@ -678,7 +717,46 @@ class StateStore:
             return None
         result = dict(build)
         result["run"] = self.run_details(result["run_id"]) if result["run_id"] else None
+        with self.connect() as connection:
+            result["artifacts"] = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT * FROM candidate_artifacts
+                    WHERE build_id = ? ORDER BY created_at, id
+                    """,
+                    (build_id,),
+                )
+            ]
         return result
+
+    def add_candidate_artifact(
+        self,
+        build_id: str,
+        *,
+        kind: str,
+        path: str | None,
+        content_hash: str,
+        content: str,
+    ) -> int:
+        """Persist one immutable hash-bound candidate-build artifact."""
+        if not kind.strip() or not content_hash.strip() or not content:
+            raise ValueError("Candidate artifact kind, hash, and content are required.")
+        with self.connect() as connection:
+            build = connection.execute(
+                "SELECT status FROM candidate_builds WHERE id = ?", (build_id,)
+            ).fetchone()
+            if build is None or build["status"] != "running":
+                raise ValueError("Candidate artifact requires a running build.")
+            cursor = connection.execute(
+                """
+                INSERT INTO candidate_artifacts (
+                    build_id, kind, path, content_hash, content, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (build_id, kind.strip(), path, content_hash, content, utc_now()),
+            )
+        return int(cursor.lastrowid)
 
     def evaluation_details(self, evaluation_id: str) -> dict[str, Any] | None:
         """Return one evaluation with cases, artifacts, and authorization."""
