@@ -250,14 +250,19 @@ identities, route profiles, summaries, or attempt classifications. Its
 `qualification_claim` remains `null`; the focused fixture still cannot replace Track G
 real-task evidence.
 
+The collected shared-adapter smoke comparison passed all five planner and five reviewer
+attempts for both models. Qwythos therefore satisfies the production adapter contract on
+that fixture, but used substantially more latency and completion tokens. That establishes
+compatibility, not superior task quality.
+
 ## Remaining qualification work
 
-After the shared-adapter comparison:
+Track G G0/G1 now freezes the varied real-task corpus described in
+[`REAL_TASK_CORPUS.md`](REAL_TASK_CORPUS.md). The next qualification work is:
 
-1. inspect the bounded adapter, schema, and semantic failure classes;
-2. decide whether prompt/profile changes are justified before freezing a second
-   qualification policy;
-3. run Track G development and independent holdout cases for both planner and reviewer;
+1. collect the current Qwen planner/reviewer development baseline without prompt changes;
+2. run Qwythos through the same development cases and inspect per-case regressions;
+3. open the independently provisioned holdout only for the final comparison;
 4. measure cold startup and serial model-switch time; and
 5. bind adapter, resource, lifecycle, and real-task evidence into one new versioned
    decision contract.

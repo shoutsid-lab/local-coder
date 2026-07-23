@@ -8,7 +8,7 @@ PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runt
 	route-contract-diagnostic-check route-contract-diagnostic-collect \
 	route-contract-diagnostic-compare route-adapter-diagnostic-check \
 	route-adapter-diagnostic-collect route-adapter-diagnostic-compare \
-	route-qualification-policy-hash \
+	real-task-corpus-check real-task-corpus-summary route-qualification-policy-hash \
 	route-qualification-collect route-qualification route-probe runs live-e2e \
 	live-e2e-report
 
@@ -34,6 +34,8 @@ agent-check:
 	$(PYTHON) -m json.tool profiles/qwythos-f3-qualification-v1.json >/dev/null
 	$(PYTHON) -m json.tool profiles/qwythos-f3-focused-contract-v2.json >/dev/null
 	$(PYTHON) -m json.tool profiles/qwythos-f3-adapter-contract-v1.json >/dev/null
+	$(PYTHON) -m json.tool evaluation/real_task_cases/development-v1.json >/dev/null
+	$(PYTHON) -m json.tool evaluation/real_task_cases/holdout-v1.index.json >/dev/null
 
 agent-install:
 	$(PYTHON) -m pip install -r requirements-agent.txt
@@ -134,6 +136,14 @@ route-adapter-diagnostic-compare:
 		--baseline "$(BASELINE)" \
 		--candidate "$(CANDIDATE)" \
 		$(if $(OUTPUT),--output "$(OUTPUT)",)
+
+real-task-corpus-check:
+	$(PYTHON) -m pytest -q --tb=short tests/test_real_task_corpus.py
+	$(PYTHON) -m evaluation.real_task_corpus \
+		$(if $(HOLDOUT),--holdout-suite "$(HOLDOUT)",)
+
+real-task-corpus-summary:
+	$(PYTHON) -m evaluation.real_task_corpus
 
 route-qualification-policy-hash:
 	$(PYTHON) -m runtime.route_qualification --print-policy-hash

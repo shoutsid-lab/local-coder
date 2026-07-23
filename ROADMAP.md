@@ -55,23 +55,30 @@ verified final-answer completion, reasoning presence, 8K context handling, throu
 and current-machine memory use. It also exposed that the v1 focused collector conflated
 schema validity with fixture-specific task correctness.
 
-The raw-route v2 comparison has been collected and is retained as native-output
-diagnostic evidence. It bypasses DSPy's operational role adapters, so the immediate F3
-work is the shared-adapter comparison: run Qwen and Qwythos through the same
-`PlannerProgram` and `ReviewerProgram` entry points, then use Track G development and
-holdout evidence to freeze a second qualification policy. No route assignment changes
-before that evidence exists. MTP and automatic supervision remain optional.
+The raw-route v2 comparison is retained as native-output diagnostic evidence. The
+shared-adapter comparison then ran Qwen and Qwythos through the same `PlannerProgram`,
+`ReviewerProgram`, and `JSONAdapter`: both routes passed the smoke contract, while Qwythos
+used materially more latency and completion tokens. That establishes compatibility, not
+superior capability.
+
+F3 now waits on the frozen Track G development and holdout evidence before a second
+qualification policy or route decision. No route assignment changes before that evidence
+exists. MTP and automatic supervision remain optional.
 
 ## Active priority 2: Track G — real-task capability evidence
 
 Track G runs alongside Track F. The detailed plan lives in
 [`docs/roadmaps/REAL_TASK_EVIDENCE.md`](docs/roadmaps/REAL_TASK_EVIDENCE.md).
 
-It builds a frozen corpus from actual repository tasks, failures, and successful fixes,
-then compares current and reasoning-capable planner/reviewer combinations. Synthetic
-sentinel edits may remain smoke fixtures but cannot be the primary capability evidence.
+G0 and G1 freeze a versioned 12-case corpus from actual repository tasks, failures, and
+successful fixes: eight complete development cases plus a four-case holdout represented in
+Git only by metadata and canonical hashes. The trusted holdout payload remains in ignored,
+candidate-inaccessible storage. The next work item is G2: collect the current Qwen
+planner/reviewer baseline on the development cases without changing prompts.
 
-Track F route changes do not become defaults without Track G evidence.
+Synthetic sentinel edits remain smoke fixtures and are not primary capability evidence.
+Track F route changes do not become defaults without Track G development and independent
+holdout evidence.
 
 ## Queued programme: Track E — MCP control-plane integration
 

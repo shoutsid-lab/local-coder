@@ -14,6 +14,7 @@ REVIEW.json
 .local-coder/state/*.db-wal
 .local-coder/runs/
 .local-coder/holdout/
+.local-coder/real-task-holdout/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

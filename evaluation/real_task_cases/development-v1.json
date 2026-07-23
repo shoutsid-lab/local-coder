@@ -1,0 +1,522 @@
+{
+  "cases": [
+    {
+      "baseline": {
+        "identity": "2b94b7fb807099a703084904600b4b191f6bb413",
+        "kind": "git_commit",
+        "repository": "shoutsid-lab/local-coder"
+      },
+      "case_class": "exact_one_file_repair",
+      "difficulty": "medium",
+      "expected_scope": [
+        "tests/test_route_adapter_diagnostic.py"
+      ],
+      "id": "dev-planner-unused-subject-assignment",
+      "inputs": {
+        "delegated_task": "Produce one atomic implementation plan for the F841 repair without broad refactoring or production-code changes.",
+        "repository_evidence": [
+          "Flake8 reports tests/test_route_adapter_diagnostic.py:72:5: F841 local variable 'subject' is assigned to but never used.",
+          "The helper already loads protocol = load_protocol() and uses protocol later in collect_report.",
+          "The subject assignment is not read by lm_factory, planner_runner, reviewer_runner, or the assertions.",
+          "All eight focused adapter diagnostic tests pass despite the lint failure.",
+          "Only tests/test_route_adapter_diagnostic.py is in scope; runtime/route_adapter_diagnostic.py must remain unchanged."
+        ],
+        "task": "Remove only the unused local variable assignment reported by Flake8 in tests/test_route_adapter_diagnostic.py while preserving the shared-adapter test behavior."
+      },
+      "oracle": {
+        "depends_on": [],
+        "editable_files": [
+          "tests/test_route_adapter_diagnostic.py"
+        ],
+        "forbidden_files": [
+          "runtime/route_adapter_diagnostic.py"
+        ],
+        "required_acceptance_terms": [
+          "flake8",
+          "8 passed"
+        ],
+        "required_instruction_terms": [
+          "unused",
+          "subject",
+          "assignment"
+        ]
+      },
+      "pattern_group": "unused-local-assignment",
+      "provenance": {
+        "historical_fix": "The successful repair deleted only the unused assignment and preserved all adapter tests.",
+        "observed_failure": "The shared-adapter patch was committed after Flake8 rejected one unused subject assignment in its tests.",
+        "reference": "e697523",
+        "source_type": "git_handoff"
+      },
+      "role": "planner",
+      "successful_outcome": {
+        "changed_files": [
+          "tests/test_route_adapter_diagnostic.py"
+        ],
+        "summary": "Delete the unused subject assignment and leave the remaining test helper and assertions unchanged.",
+        "verification_passed": true
+      },
+      "tags": [
+        "lint",
+        "scope_control",
+        "adapter_boundary"
+      ],
+      "task": "Remove only the unused local variable assignment reported by Flake8 in tests/test_route_adapter_diagnostic.py while preserving the shared-adapter test behavior.",
+      "verification_commands": [
+        "make verify",
+        ".venv/bin/python -m pytest -q --tb=short tests/test_route_adapter_diagnostic.py",
+        "git diff --check"
+      ]
+    },
+    {
+      "baseline": {
+        "identity": "69ae8f28623a8fafd02b31efb6d2a5c261870d98",
+        "kind": "git_commit",
+        "repository": "shoutsid-lab/local-coder"
+      },
+      "case_class": "test_or_lint_failure_repair",
+      "difficulty": "medium",
+      "expected_scope": [
+        "tests/test_route_contract_diagnostic.py"
+      ],
+      "id": "dev-planner-unused-path-import",
+      "inputs": {
+        "delegated_task": "Plan the smallest lint repair and name the focused and full verification commands that prove no behavior changed.",
+        "repository_evidence": [
+          "Flake8 reports tests/test_route_contract_diagnostic.py:5:1: F401 'pathlib.Path' imported but unused.",
+          "The v2 diagnostic tests no longer construct Path values after the protocol loader was simplified.",
+          "The focused route-contract suite passes eleven tests before lint runs.",
+          "No production module imports or function signatures need to change.",
+          "Only tests/test_route_contract_diagnostic.py may be edited."
+        ],
+        "task": "Fix the F401 failure in tests/test_route_contract_diagnostic.py by removing only the now-unused pathlib.Path import and preserving every contract-diagnostic assertion."
+      },
+      "oracle": {
+        "depends_on": [],
+        "editable_files": [
+          "tests/test_route_contract_diagnostic.py"
+        ],
+        "forbidden_files": [
+          "runtime/route_contract_diagnostic.py"
+        ],
+        "required_acceptance_terms": [
+          "F401",
+          "11 passed"
+        ],
+        "required_instruction_terms": [
+          "pathlib",
+          "Path",
+          "import"
+        ]
+      },
+      "pattern_group": "unused-import-after-protocol-change",
+      "provenance": {
+        "historical_fix": "The successful repair removed the single unused import and retained all focused tests.",
+        "observed_failure": "The contract-diagnostic correction introduced an unused Path import that blocked make verify.",
+        "reference": "69ae8f2",
+        "source_type": "git_handoff"
+      },
+      "role": "planner",
+      "successful_outcome": {
+        "changed_files": [
+          "tests/test_route_contract_diagnostic.py"
+        ],
+        "summary": "Remove pathlib.Path from the import list without changing test data, assertions, or runtime code.",
+        "verification_passed": true
+      },
+      "tags": [
+        "lint",
+        "structured_output",
+        "scope_control"
+      ],
+      "task": "Fix the F401 failure in tests/test_route_contract_diagnostic.py by removing only the now-unused pathlib.Path import and preserving every contract-diagnostic assertion.",
+      "verification_commands": [
+        "make verify",
+        ".venv/bin/python -m pytest -q --tb=short tests/test_route_contract_diagnostic.py",
+        "git diff --check"
+      ]
+    },
+    {
+      "baseline": {
+        "identity": "3cf9b50aade1bf9ba986deb246d2db87d3dcb80214e619b814a32744728f41c2",
+        "kind": "evidence_snapshot",
+        "repository": "shoutsid-lab/local-coder"
+      },
+      "case_class": "multi_file_bounded_change",
+      "difficulty": "high",
+      "expected_scope": [
+        "runtime/model_response.py",
+        "tests/test_model_response.py"
+      ],
+      "id": "dev-planner-reasoning-truncation-contract",
+      "inputs": {
+        "delegated_task": "Plan a bounded two-file change that distinguishes reasoning-only truncation from an ordinary empty final answer without storing reasoning text.",
+        "repository_evidence": [
+          "A live provider response returned content=\"\", non-empty reasoning_content, and finish_reason=\"length\".",
+          "The current normalizer treated the response as a generic missing final answer and lost the actionable failure class.",
+          "Normal audit state may retain reasoning presence, size, token counts, identity, and SHA-256 metadata but not the full reasoning trace.",
+          "Live probes, structured-output calls, the native editor, and smolagents wrapping share runtime/model_response.py.",
+          "Focused regression coverage belongs in tests/test_model_response.py.",
+          "Do not alter route profiles, retries, or token budgets in this task."
+        ],
+        "task": "Add one provider-neutral response classification for content-empty reasoning responses that end at the token limit, and freeze it with focused regression tests."
+      },
+      "oracle": {
+        "depends_on": [],
+        "editable_files": [
+          "runtime/model_response.py",
+          "tests/test_model_response.py"
+        ],
+        "forbidden_files": [
+          "runtime/route_profiles.py",
+          "runtime/route_probe.py"
+        ],
+        "required_acceptance_terms": [
+          "reasoning text",
+          "tests/test_model_response.py",
+          "classification"
+        ],
+        "required_instruction_terms": [
+          "reasoning_only_truncated",
+          "finish_reason",
+          "content"
+        ]
+      },
+      "pattern_group": "reasoning-only-provider-normalization",
+      "provenance": {
+        "historical_fix": "Track F0 added the reasoning_only_truncated classification and regression coverage without storing reasoning text.",
+        "observed_failure": "A reasoning-capable model exhausted its completion budget with reasoning present but no usable final content.",
+        "reference": "track-f0",
+        "source_type": "validation_history"
+      },
+      "role": "planner",
+      "successful_outcome": {
+        "changed_files": [
+          "runtime/model_response.py",
+          "tests/test_model_response.py"
+        ],
+        "summary": "Classify reasoning-only length termination explicitly and add tests for metadata retention and ordinary-response compatibility.",
+        "verification_passed": true
+      },
+      "tags": [
+        "reasoning_contract",
+        "structured_output",
+        "multi_file"
+      ],
+      "task": "Add one provider-neutral response classification for content-empty reasoning responses that end at the token limit, and freeze it with focused regression tests.",
+      "verification_commands": [
+        "make verify",
+        ".venv/bin/python -m pytest -q --tb=short tests/test_model_response.py",
+        "git diff --check"
+      ]
+    },
+    {
+      "baseline": {
+        "identity": "031fb5dac244",
+        "kind": "archived_run",
+        "repository": "shoutsid-lab/local-coder"
+      },
+      "case_class": "planning_or_evidence_selection_failure",
+      "difficulty": "high",
+      "expected_scope": [
+        "runtime/orchestrator.py",
+        "tests/test_runtime.py"
+      ],
+      "id": "dev-planner-preserve-verification-on-review-failure",
+      "inputs": {
+        "delegated_task": "Select the minimum runtime and test files needed to separate review availability from deterministic verification state.",
+        "repository_evidence": [
+          "Historical run 031fb5dac244 completed deterministic verification successfully before the final reviewer call failed.",
+          "The failed review path repeated calls and incorrectly made the final summary look unverified.",
+          "collect_final_review already returns a nullable verdict and a bounded Review unavailable message.",
+          "determine_run_status must return needs_attention when review is unavailable even when verification_passed is true.",
+          "The orchestration behavior is covered in runtime/orchestrator.py and tests/test_runtime.py.",
+          "runtime/state.py stores evidence but is not required to express this status transition."
+        ],
+        "task": "Ensure a failed or unavailable semantic review produces needs_attention without erasing an already passing deterministic verification result."
+      },
+      "oracle": {
+        "depends_on": [],
+        "editable_files": [
+          "runtime/orchestrator.py",
+          "tests/test_runtime.py"
+        ],
+        "forbidden_files": [
+          "runtime/state.py",
+          "review-diff.py"
+        ],
+        "required_acceptance_terms": [
+          "verification_passed",
+          "verdict",
+          "tests/test_runtime.py"
+        ],
+        "required_instruction_terms": [
+          "verification",
+          "review",
+          "needs_attention"
+        ]
+      },
+      "pattern_group": "review-error-state-separation",
+      "provenance": {
+        "historical_fix": "The runtime bounded review failure, preserved verification, cleared stale verdict state, and returned needs_attention.",
+        "observed_failure": "Review unavailability triggered repeated calls and incorrectly erased passing verification in the final state.",
+        "reference": "031fb5dac244",
+        "source_type": "archived_run"
+      },
+      "role": "planner",
+      "successful_outcome": {
+        "changed_files": [
+          "runtime/orchestrator.py",
+          "tests/test_runtime.py"
+        ],
+        "summary": "Keep verification_passed intact when review is unavailable and add a regression proving needs_attention with a null review verdict.",
+        "verification_passed": true
+      },
+      "tags": [
+        "review_state",
+        "verification_evidence",
+        "ambiguous_scope"
+      ],
+      "task": "Ensure a failed or unavailable semantic review produces needs_attention without erasing an already passing deterministic verification result.",
+      "verification_commands": [
+        "make verify",
+        ".venv/bin/python -m pytest -q --tb=short tests/test_runtime.py",
+        "git diff --check"
+      ]
+    },
+    {
+      "baseline": {
+        "identity": "2b94b7fb807099a703084904600b4b191f6bb413",
+        "kind": "git_commit",
+        "repository": "shoutsid-lab/local-coder"
+      },
+      "case_class": "exact_one_file_repair",
+      "difficulty": "medium",
+      "expected_scope": [
+        "tests/test_route_adapter_diagnostic.py"
+      ],
+      "id": "dev-reviewer-wrong-line-lint-repair",
+      "inputs": {
+        "changed_files": [
+          "tests/test_route_adapter_diagnostic.py"
+        ],
+        "diff": "diff --git a/tests/test_route_adapter_diagnostic.py b/tests/test_route_adapter_diagnostic.py\nindex 18f6dc1..60237f3 100644\n--- a/tests/test_route_adapter_diagnostic.py\n+++ b/tests/test_route_adapter_diagnostic.py\n@@ -68,8 +68,7 @@ def _identity(subject_name: str) -> dict[str, Any]:\n \n \n def _report(subject_name: str) -> dict[str, Any]:\n-    protocol = load_protocol()\n     subject = load_protocol().subjects[subject_name]\n \n     def lm_factory(route: str) -> SimpleNamespace:\n@@ -80,7 +79,7 @@ def _report(subject_name: str) -> dict[str, Any]:\n         return _reviewer_prediction(lm.route)\n \n     return collect_report(\n-        protocol=protocol,\n+        protocol=protocol,\n         subject_name=subject_name,\n         environment_id=\"test-machine\",\n         implementation_commit=\"a\" * 40,\n",
+        "task": "Remove only the unused subject assignment from tests/test_route_adapter_diagnostic.py and leave the protocol setup intact.",
+        "verification_output": "tests/test_route_adapter_diagnostic.py:71:16: F821 undefined name 'protocol'\nmake: *** [Makefile:29: lint] Error 1",
+        "verification_passed": false
+      },
+      "oracle": {
+        "forbidden_issue_paths": [],
+        "required_issue_paths": [
+          "tests/test_route_adapter_diagnostic.py"
+        ],
+        "required_unrelated_paths": [],
+        "verdict": "fail"
+      },
+      "pattern_group": "plausible-but-wrong-lint-edit",
+      "provenance": {
+        "historical_fix": "The accepted one-line repair deleted subject = protocol.subjects[subject_name] and preserved protocol construction.",
+        "observed_failure": "A superficially small lint edit removed the protocol variable instead of the unused subject assignment and broke the helper.",
+        "reference": "e697523-review",
+        "source_type": "git_handoff_variant"
+      },
+      "role": "reviewer",
+      "successful_outcome": {
+        "changed_files": [
+          "tests/test_route_adapter_diagnostic.py"
+        ],
+        "summary": "Remove the unused subject assignment only, preserving protocol for collect_report and restoring all verification.",
+        "verification_passed": true
+      },
+      "tags": [
+        "lint",
+        "false_positive_trap",
+        "verification_evidence"
+      ],
+      "task": "Remove only the unused subject assignment from tests/test_route_adapter_diagnostic.py and leave the protocol setup intact.",
+      "verification_commands": [
+        "make verify",
+        ".venv/bin/python -m pytest -q --tb=short tests/test_route_adapter_diagnostic.py",
+        "git diff --check"
+      ]
+    },
+    {
+      "baseline": {
+        "identity": "69ae8f28623a8fafd02b31efb6d2a5c261870d98",
+        "kind": "git_commit",
+        "repository": "shoutsid-lab/local-coder"
+      },
+      "case_class": "test_or_lint_failure_repair",
+      "difficulty": "medium",
+      "expected_scope": [
+        "tests/test_route_contract_diagnostic.py"
+      ],
+      "id": "dev-reviewer-clean-unused-import-fix",
+      "inputs": {
+        "changed_files": [
+          "tests/test_route_contract_diagnostic.py"
+        ],
+        "diff": "diff --git a/tests/test_route_contract_diagnostic.py b/tests/test_route_contract_diagnostic.py\nindex c17590a..8e92a01 100644\n--- a/tests/test_route_contract_diagnostic.py\n+++ b/tests/test_route_contract_diagnostic.py\n@@ -2,7 +2,6 @@ from __future__ import annotations\n \n import json\n from copy import deepcopy\n-from pathlib import Path\n from types import SimpleNamespace\n from typing import Any\n \n",
+        "task": "Remove the unused pathlib.Path import from tests/test_route_contract_diagnostic.py without modifying the contract tests.",
+        "verification_output": "307 passed in 10.21s\nFlake8 completed without diagnostics\ngit diff --check completed successfully",
+        "verification_passed": true
+      },
+      "oracle": {
+        "forbidden_issue_paths": [
+          "runtime/route_contract_diagnostic.py"
+        ],
+        "required_issue_paths": [],
+        "required_unrelated_paths": [],
+        "verdict": "pass"
+      },
+      "pattern_group": "clean-import-only-repair",
+      "provenance": {
+        "historical_fix": "The accepted patch removed exactly the Path import and make verify returned to green.",
+        "observed_failure": "The only defect was an unused test import; focused tests already passed and no runtime behavior needed adjustment.",
+        "reference": "69ae8f2-review",
+        "source_type": "git_handoff"
+      },
+      "role": "reviewer",
+      "successful_outcome": {
+        "changed_files": [
+          "tests/test_route_contract_diagnostic.py"
+        ],
+        "summary": "Delete the unused Path import with no other source or test changes.",
+        "verification_passed": true
+      },
+      "tags": [
+        "lint",
+        "false_positive_trap",
+        "structured_output"
+      ],
+      "task": "Remove the unused pathlib.Path import from tests/test_route_contract_diagnostic.py without modifying the contract tests.",
+      "verification_commands": [
+        "make verify",
+        ".venv/bin/python -m pytest -q --tb=short tests/test_route_contract_diagnostic.py",
+        "git diff --check"
+      ]
+    },
+    {
+      "baseline": {
+        "identity": "003b831654ee9c35067230e09eb3569d3d8ae0e9",
+        "kind": "git_commit",
+        "repository": "shoutsid-lab/local-coder"
+      },
+      "case_class": "reviewer_defect_detection",
+      "difficulty": "high",
+      "expected_scope": [
+        "docs/QWYTHOS_QUALIFICATION.md"
+      ],
+      "id": "dev-reviewer-readme-qualification-pollution",
+      "inputs": {
+        "changed_files": [
+          "README.md",
+          "docs/QWYTHOS_QUALIFICATION.md"
+        ],
+        "diff": "diff --git a/README.md b/README.md\nindex 294f447..b478f91 100644\n--- a/README.md\n+++ b/README.md\n@@ -74,6 +74,18 @@ Use the stable local-plan and local-review routes for normal work.\n \n+## Evaluate Qwythos qualification evidence\n+\n+Run `make route-contract-diagnostic-collect SUBJECT=candidate` after starting\n+Qwythos as `local-reason`, then compare the generated report manually.\n+\n+The candidate currently targets the GTX 1660 development machine.\n+\n ## Development\n \n Run `make verify` before committing.\ndiff --git a/docs/QWYTHOS_QUALIFICATION.md b/docs/QWYTHOS_QUALIFICATION.md\nindex 61d7cf1..8f0a22d 100644\n--- a/docs/QWYTHOS_QUALIFICATION.md\n+++ b/docs/QWYTHOS_QUALIFICATION.md\n@@ -88,6 +88,12 @@ Raw route output is diagnostic evidence only.\n+Collect both subjects through the shared DSPy adapters before comparing role behavior.\n+Keep generated reports under the ignored qualifications directory.\n+Do not change active route assignments from this diagnostic alone.\n",
+        "task": "Correct the F3 contract evidence documentation while keeping model-specific qualification commands out of the root README.",
+        "verification_output": "292 passed, 6 skipped\nDocumentation links validated\ngit diff --check completed successfully",
+        "verification_passed": true
+      },
+      "oracle": {
+        "forbidden_issue_paths": [
+          "docs/QWYTHOS_QUALIFICATION.md"
+        ],
+        "required_issue_paths": [],
+        "required_unrelated_paths": [
+          "README.md"
+        ],
+        "verdict": "fail"
+      },
+      "pattern_group": "root-readme-implementation-detail-pollution",
+      "provenance": {
+        "historical_fix": "The workflow was retained only in the dedicated qualification document and the root README section was removed.",
+        "observed_failure": "A model-specific qualification workflow was added to the project-level README and made the primary documentation noisy.",
+        "reference": "readme-pollution-20260723",
+        "source_type": "operator_feedback"
+      },
+      "role": "reviewer",
+      "successful_outcome": {
+        "changed_files": [
+          "docs/QWYTHOS_QUALIFICATION.md"
+        ],
+        "summary": "Keep the shared-adapter workflow in docs/QWYTHOS_QUALIFICATION.md and leave README.md unchanged.",
+        "verification_passed": true
+      },
+      "tags": [
+        "documentation",
+        "scope_control",
+        "false_positive_trap"
+      ],
+      "task": "Correct the F3 contract evidence documentation while keeping model-specific qualification commands out of the root README.",
+      "verification_commands": [
+        "make verify",
+        "git diff --check"
+      ]
+    },
+    {
+      "baseline": {
+        "identity": "43bc88984ee8",
+        "kind": "archived_run",
+        "repository": "shoutsid-lab/local-coder"
+      },
+      "case_class": "reviewer_defect_detection",
+      "difficulty": "high",
+      "expected_scope": [
+        "review-diff.py",
+        "runtime/dspy_programs/reviewer.py"
+      ],
+      "id": "dev-reviewer-write-capable-review-boundary",
+      "inputs": {
+        "changed_files": [
+          "review-diff.py",
+          "runtime/dspy_programs/reviewer.py"
+        ],
+        "diff": "diff --git a/review-diff.py b/review-diff.py\nindex 2e2bda3..f85a21d 100755\n--- a/review-diff.py\n+++ b/review-diff.py\n@@ -14,6 +14,7 @@ from runtime.dspy_programs.reviewer import run_reviewer_program\n+from runtime.editor import apply_edit_payload\n \n def call_reviewer(*, model: str, task: str, changed_files: list[str], diff: str, verification_passed: bool, verification_output: str, reviewer_runner=run_reviewer_program):\n@@ -91,6 +92,9 @@ def call_reviewer(...):\n     prediction = reviewer_runner(...)\n+    if prediction.verdict == \"fail\" and prediction.issues:\n+        apply_edit_payload(prediction.issues[0])\n+\n     return validate_review_prediction(prediction, verification_passed)\ndiff --git a/runtime/dspy_programs/reviewer.py b/runtime/dspy_programs/reviewer.py\nindex b4891d0..c77142d 100644\n--- a/runtime/dspy_programs/reviewer.py\n+++ b/runtime/dspy_programs/reviewer.py\n@@ -14,7 +14,7 @@ class ReviewerSignature(dspy.Signature):\n-    \"\"\"Review one code diff against its task and deterministic evidence.\n+    \"\"\"Review and repair one code diff against its task and deterministic evidence.\n",
+        "task": "Keep the final semantic reviewer strictly read-only while improving its structured verdict handling.",
+        "verification_output": "307 passed in 10.21s\nReviewer focused tests passed\ngit diff --check completed successfully",
+        "verification_passed": true
+      },
+      "oracle": {
+        "forbidden_issue_paths": [],
+        "required_issue_paths": [
+          "review-diff.py",
+          "runtime/dspy_programs/reviewer.py"
+        ],
+        "required_unrelated_paths": [],
+        "verdict": "fail"
+      },
+      "pattern_group": "reviewer-write-authority-regression",
+      "provenance": {
+        "historical_fix": "The reviewer retained no code executor or write operation and returned only bounded structured verdict evidence.",
+        "observed_failure": "The project established the reviewer as a fixed read-only boundary after a clean committed-source regression.",
+        "reference": "43bc88984ee8",
+        "source_type": "validation_history"
+      },
+      "role": "reviewer",
+      "successful_outcome": {
+        "changed_files": [
+          "review-diff.py",
+          "runtime/dspy_programs/reviewer.py"
+        ],
+        "summary": "Improve structured verdict validation without importing the editor or granting the reviewer any source-write authority.",
+        "verification_passed": true
+      },
+      "tags": [
+        "adapter_boundary",
+        "scope_control",
+        "verification_evidence"
+      ],
+      "task": "Keep the final semantic reviewer strictly read-only while improving its structured verdict handling.",
+      "verification_commands": [
+        "make verify",
+        ".venv/bin/python -m pytest -q --tb=short tests/test_runtime.py",
+        "git diff --check"
+      ]
+    }
+  ],
+  "corpus_id": "local-coder-real-tasks-v1",
+  "schema_version": 1,
+  "suite_id": "real-task-development-v1",
+  "visibility": "development"
+}

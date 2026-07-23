@@ -1,0 +1,68 @@
+{
+  "cases": [
+    {
+      "baseline_kind": "evidence_snapshot",
+      "case_class": "exact_one_file_repair",
+      "difficulty": "high",
+      "id": "holdout-planner-makefile-venv-interpreter",
+      "pattern_group": "makefile-interpreter-contract",
+      "provenance_reference": "makefile-venv-contract",
+      "role": "planner",
+      "sealed_case_sha256": "ff3c7db6e2dfdc4cbf3c9ab8aef95ffee6b62fe76b553e023f132dd8fd25e09e",
+      "tags": [
+        "scope_control",
+        "verification_evidence"
+      ]
+    },
+    {
+      "baseline_kind": "evidence_snapshot",
+      "case_class": "multi_file_bounded_change",
+      "difficulty": "high",
+      "id": "holdout-planner-dspy-lm-duplicate-construction",
+      "pattern_group": "duplicate-lm-construction-path",
+      "provenance_reference": "b2.3-dspy-duplicate",
+      "role": "planner",
+      "sealed_case_sha256": "3076e2aa939be01620d87d929f8d9a6985e078836a1f73ea1e8bb21b7683f582",
+      "tags": [
+        "adapter_boundary",
+        "multi_file",
+        "route_policy"
+      ]
+    },
+    {
+      "baseline_kind": "archived_run",
+      "case_class": "planning_or_evidence_selection_failure",
+      "difficulty": "high",
+      "id": "holdout-reviewer-stale-review-artifact",
+      "pattern_group": "stale-review-success-reuse",
+      "provenance_reference": "9affc7dd61b0",
+      "role": "reviewer",
+      "sealed_case_sha256": "f800509f1b28542fd09b890d255ba102866b2feade133797852cafa691905262",
+      "tags": [
+        "review_state",
+        "verification_evidence",
+        "false_positive_trap"
+      ]
+    },
+    {
+      "baseline_kind": "evidence_snapshot",
+      "case_class": "documentation_or_interface_consistency",
+      "difficulty": "high",
+      "id": "holdout-reviewer-handoff-index-consistency",
+      "pattern_group": "moved-document-stale-index-links",
+      "provenance_reference": "roadmap-primary-handoff-move",
+      "role": "reviewer",
+      "sealed_case_sha256": "84268427c391d3ba960c0b5ecc977db706f0b88c80e7587c1285cc41345e50c2",
+      "tags": [
+        "documentation",
+        "false_positive_trap",
+        "scope_control"
+      ]
+    }
+  ],
+  "corpus_id": "local-coder-real-tasks-v1",
+  "schema_version": 1,
+  "sealed_suite_sha256": "bbbd7964479333e14435f4628c94be69cad644d704021fbaaad044597cb6cabc",
+  "suite_id": "real-task-holdout-v1",
+  "visibility": "holdout-index"
+}

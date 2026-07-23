@@ -1,7 +1,7 @@
 # ROADMAP: Real-Task Capability Evidence
 
 **Target repository:** `shoutsid-lab/local-coder`
-**Status:** Active — runs alongside Track F
+**Status:** Active — G0/G1 frozen; G2 next
 **Track:** G
 
 ## 0. Why this document exists
@@ -62,6 +62,19 @@ Freeze an initial set of at least 12 cases across these classes:
 Avoid selecting only tasks already encoded in current role prompts. Keep a final holdout
 subset unavailable during route tuning.
 
+## 2.1 Frozen v1 split
+
+| Split | Planner | Reviewer | Total | Candidate-visible content |
+| --- | ---: | ---: | ---: | --- |
+| Development | 4 | 4 | 8 | Full inputs and trusted development oracle |
+| Holdout | 2 | 2 | 4 | Metadata and hashes only |
+| **Total** | **6** | **6** | **12** | — |
+
+The committed holdout index contains no task, input, successful-outcome, or oracle fields.
+The full payload is installed separately under
+`.local-coder/real-task-holdout/holdout-v1.json` and must not be mounted into candidate
+worktrees or prompts.
+
 ## 3. Comparison matrix
 
 Keep explorer, implementer, repairer, editor, verification, and task inputs fixed. Compare:
@@ -95,19 +108,23 @@ without an explicit, frozen tradeoff decision.
 
 ## 5. Phased delivery
 
-### G0. Case format and collector
+### G0. Case format and collector — complete
 
-- Define a small versioned manifest format.
-- Add a validator and deterministic case loader.
-- Document how to archive a baseline without secrets or generated state.
-- Add no model calls in this phase.
+- `evaluation/real_task_corpus.py` defines the strict versioned format, loader, canonical
+  hashes, coverage checks, split checks, and holdout binding.
+- [`../REAL_TASK_CORPUS.md`](../REAL_TASK_CORPUS.md) documents baseline identities,
+  candidate-visible controls, trusted holdout installation, and validation commands.
+- The phase performs no model calls.
 
-### G1. Historical case collection
+### G1. Historical case collection — complete
 
-- Convert at least 12 real tasks into frozen cases.
-- Preserve task provenance and successful outcomes.
-- Separate development and final holdout cases before route qualification.
-- Review the corpus manually for leakage and duplicate task patterns.
+- `evaluation/real_task_cases/development-v1.json` freezes eight complete real-task cases.
+- `evaluation/real_task_cases/holdout-v1.index.json` freezes metadata and hashes for four
+  independently provisioned holdout cases without exposing their tasks or oracles.
+- The combined corpus has six planner and six reviewer cases and meets every class minimum
+  in section 2.
+- Pattern groups are unique across development and holdout, machine-specific paths are
+  rejected, and trusted holdout tampering fails closed.
 
 ### G2. Current-route baseline
 
