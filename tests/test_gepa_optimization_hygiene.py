@@ -516,6 +516,72 @@ def test_compact_proposer_uses_feedback_only_and_rejects_replay_dump() -> None:
     assert summary["stop_requested"] is True
 
 
+def test_compact_proposer_avoids_reserved_signature_field_names() -> None:
+    class StrictField:
+        def __init__(self, kind: str) -> None:
+            self.kind = kind
+
+    class StrictSignatureMeta(type):
+        def __new__(
+            mcls: type["StrictSignatureMeta"],
+            name: str,
+            bases: tuple[type[object], ...],
+            namespace: dict[str, object],
+        ) -> "StrictSignatureMeta":
+            annotations = namespace.get("__annotations__", {})
+            assert isinstance(annotations, dict)
+            reserved = {"input_fields", "output_fields"}
+            collisions = reserved.intersection(annotations)
+            if bases and collisions:
+                raise TypeError(f"reserved DSPy signature fields: {sorted(collisions)}")
+            return super().__new__(mcls, name, bases, namespace)
+
+    class StrictSignature(metaclass=StrictSignatureMeta):
+        input_fields: dict[str, object] = {}
+        output_fields: dict[str, object] = {}
+
+    class StrictPredict:
+        def __init__(self, signature: type[object]) -> None:
+            self.signature = signature
+            self.calls: list[dict[str, object]] = []
+
+        def __call__(self, **kwargs: object) -> object:
+            self.calls.append(kwargs)
+            return SimpleNamespace(
+                improved_instruction="Produce one atomic evidence-grounded plan."
+            )
+
+    dspy_module = SimpleNamespace(
+        Signature=StrictSignature,
+        InputField=lambda **_kwargs: StrictField("input"),
+        OutputField=lambda **_kwargs: StrictField("output"),
+        Predict=StrictPredict,
+    )
+    proposer = CompactInstructionProposer(
+        dspy_module,
+        role="planner",
+        max_instruction_chars=120,
+        max_unsafe_proposals=2,
+    )
+
+    proposed = proposer(
+        {"predict.predict": "Baseline planner instruction."},
+        {"predict.predict": [{"Feedback": "Improve evidence grounding."}]},
+        ["predict.predict"],
+    )
+
+    assert proposed["predict.predict"].startswith("Produce one atomic")
+    assert proposer._predictor.calls[0]["typed_input_names"] == (
+        "task, delegated_task, repository_evidence"
+    )
+    assert proposer._predictor.calls[0]["typed_output_names"] == (
+        "instruction, editable_files, acceptance_criteria, depends_on"
+    )
+    annotations = proposer._predictor.signature.__annotations__
+    assert "input_fields" not in annotations
+    assert "output_fields" not in annotations
+
+
 def test_budgeted_lm_copies_share_a_hard_call_limit() -> None:
     class FakeLM:
         def __init__(self) -> None:

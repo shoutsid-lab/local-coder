@@ -619,10 +619,10 @@ class CompactInstructionProposer:
             feedback_summary: str = dspy_module.InputField(
                 desc="Compact mismatch and reviewer feedback only."
             )
-            input_fields: str = dspy_module.InputField(
+            typed_input_names: str = dspy_module.InputField(
                 desc="Comma-separated typed input field names."
             )
-            output_fields: str = dspy_module.InputField(
+            typed_output_names: str = dspy_module.InputField(
                 desc="Comma-separated typed output field names."
             )
             max_characters: int = dspy_module.InputField(
@@ -655,8 +655,8 @@ class CompactInstructionProposer:
                 result = self._predictor(
                     current_instruction=current,
                     feedback_summary=feedback_summary,
-                    input_fields=", ".join(ROLE_INPUT_FIELDS[self.role]),
-                    output_fields=", ".join(ROLE_OUTPUT_FIELDS[self.role]),
+                    typed_input_names=", ".join(ROLE_INPUT_FIELDS[self.role]),
+                    typed_output_names=", ".join(ROLE_OUTPUT_FIELDS[self.role]),
                     max_characters=self.max_instruction_chars,
                 )
                 proposed = _strip_instruction_wrapper(
