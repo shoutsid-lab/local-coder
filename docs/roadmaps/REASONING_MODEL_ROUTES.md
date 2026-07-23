@@ -118,9 +118,20 @@ measure.
 - Stdout remains machine-readable; diagnostics remain on stderr or in explicit reports.
 - The e2e report distinguishes configuration failure from budget starvation.
 
-**Exit criteria:** the observed `content=""`, `reasoning_content!=null`,
-`finish_reason="length"` response produces `reasoning_only_truncated` with an actionable
-message rather than a generic empty-content error.
+**Delivered:** exact probes now send `enable_thinking=false` and a zero thinking budget
+through LiteLLM `extra_body`, with a 64-token final-answer ceiling. A separate reasoning
+probe enables thinking with a 128-token reasoning budget inside a 256-token completion
+ceiling, requires both observable `reasoning_content` and the exact final `REASON_OK`, and
+returns only bounded metadata. `LIVE_E2E_REASONING_ROUTE` adds that probe to live E2E
+without changing the three default routes.
+
+**Verification:** `make route-probe-check` covers exact-probe controls, ignored controls,
+bounded reasoning success, missing reasoning, and reasoning-only truncation. Operators can
+run `make route-probe ROUTE=<alias> MODE=exact` or `MODE=reasoning` independently.
+
+**Exit criteria met:** exact probes no longer starve reasoning models with a 16-token
+allowance, while the separate capability probe fails closed unless a bounded reasoning
+phase is followed by usable final content.
 
 ### F2. Add route-specific reasoning profiles and budgets
 
@@ -278,8 +289,8 @@ boundaries are fixed by this roadmap.
 
 - **Phase 0 — Response contract (F0):** normalize reasoning and final content separately
   and retain the observed failure as a deterministic regression test.
-- **Phase 1 — Probe and route policy (F1–F2):** pass exact probes, reasoning probes, and
-  route-specific budget tests without changing current routes.
+- **Phase 1 — Probe and route policy (F1–F2):** F1 exact and reasoning probes are
+  complete; F2 adds route-specific budget tests without changing current routes.
 - **Phase 2 — Model qualification (F3):** decide planner and reviewer suitability from
   frozen replay, independent holdout, and resource evidence.
 - **Phase 3 — On-demand lifecycle (F4):** switch fast and reasoning profiles serially

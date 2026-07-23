@@ -199,3 +199,27 @@ boundaries are:
 6. A scorecard can only recommend promotion; an authorized actor separately records the
    decision and performs any Git action outside the evaluator. The actor may be a trusted
    service or more capable model, but not the candidate under evaluation.
+
+## Reasoning-aware route probes
+
+Exact route health checks are not reasoning benchmarks. They send llama.cpp template
+controls through LiteLLM with thinking disabled, a zero thinking budget, and a bounded
+64-token final allowance. Run one independently with:
+
+```bash
+make route-probe ROUTE=local-fast MODE=exact
+```
+
+A separate capability probe enables bounded reasoning and succeeds only when the provider
+returns observable `reasoning_content` followed by the exact final answer. It never copies
+reasoning into final content or stores the full trace:
+
+```bash
+make route-probe ROUTE=local-reason MODE=reasoning
+```
+
+The live E2E continues probing `local-fast`, `local-plan`, and `local-review` in exact mode.
+Set `LIVE_E2E_REASONING_ROUTE=<alias>` to add the optional reasoning probe without changing
+the default route set. A reasoning-only response stopped by `finish_reason=length` fails as
+`reasoning_only_truncated`; if that occurs during an exact probe, verify the model template
+honors the per-request controls before increasing its token ceiling.

@@ -8,7 +8,14 @@ from unittest.mock import patch
 import pytest
 
 from runtime.editor import EditorError, request_edits
-from runtime.live_e2e import route_probe
+from runtime.live_e2e import (
+    EXACT_PROBE_MAX_TOKENS,
+    EXACT_PROBE_THINKING_BUDGET,
+    REASONING_PROBE_MAX_TOKENS,
+    REASONING_PROBE_THINKING_BUDGET,
+    reasoning_capability_probe,
+    route_probe,
+)
 from runtime.model_response import (
     EMPTY_COMPLETION,
     MALFORMED_FINAL,
@@ -210,6 +217,10 @@ def test_route_probe_returns_bounded_success_metadata(
         "tool_call_count": 0,
         "finish_reason": "stop",
         "model": "local-fast",
+        "probe_kind": "exact",
+        "probe_max_tokens": EXACT_PROBE_MAX_TOKENS,
+        "probe_reasoning_enabled": False,
+        "probe_thinking_budget_tokens": EXACT_PROBE_THINKING_BUDGET,
     }
 
 
@@ -265,3 +276,112 @@ def test_audited_model_records_reasoning_metadata_without_trace(tmp_path: Path) 
     assert metadata["reasoning_present"] is True
     assert metadata["reasoning_chars"] == len("private reasoning")
     assert "private reasoning" not in metric["metadata"]
+
+
+def test_exact_route_probe_disables_reasoning_in_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_post(_url: str, payload: dict[str, object]) -> dict[str, object]:
+        captured.update(payload)
+        return {
+            "model": "local-plan",
+            "choices": [{"finish_reason": "stop", "message": {"content": "ROUTE_OK"}}],
+            "usage": {"prompt_tokens": 4, "completion_tokens": 2},
+        }
+
+    monkeypatch.setattr("runtime.live_e2e.post_json", fake_post)
+
+    route_probe("local-plan")
+
+    assert captured["max_tokens"] == EXACT_PROBE_MAX_TOKENS
+    assert captured["extra_body"] == {
+        "chat_template_kwargs": {"enable_thinking": False},
+        "thinking_budget_tokens": EXACT_PROBE_THINKING_BUDGET,
+    }
+
+
+def test_exact_route_probe_reports_ignored_reasoning_controls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "runtime.live_e2e.post_json",
+        lambda *_args, **_kwargs: OBSERVED_REASONING_ONLY_RESPONSE,
+    )
+
+    with pytest.raises(RuntimeError) as error:
+        route_probe("local-plan")
+
+    message = str(error.value)
+    assert "exact_probe_reasoning_disabled=true" in message
+    assert "verify template control support before raising the bound" in message
+
+
+def test_reasoning_capability_probe_uses_bounded_thinking_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_post(_url: str, payload: dict[str, object]) -> dict[str, object]:
+        captured.update(payload)
+        return {
+            "model": "local-reason",
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {
+                        "content": "REASON_OK",
+                        "reasoning_content": "One plus one combines two units.",
+                    },
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 12,
+                "completion_tokens": 18,
+                "completion_tokens_details": {"reasoning_tokens": 11},
+            },
+        }
+
+    monkeypatch.setattr("runtime.live_e2e.post_json", fake_post)
+
+    metadata = reasoning_capability_probe("local-reason")
+
+    assert captured["max_tokens"] == REASONING_PROBE_MAX_TOKENS
+    assert captured["extra_body"] == {
+        "chat_template_kwargs": {"enable_thinking": True},
+        "thinking_budget_tokens": REASONING_PROBE_THINKING_BUDGET,
+    }
+    assert metadata["probe_kind"] == "reasoning"
+    assert metadata["reasoning_present"] is True
+    assert metadata["reasoning_chars"] == 32
+    assert metadata["reasoning_tokens"] == 11
+    assert "reasoning_content" not in metadata
+
+
+def test_reasoning_capability_probe_requires_observable_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "runtime.live_e2e.post_json",
+        lambda *_args, **_kwargs: {
+            "model": "local-reason",
+            "choices": [{"finish_reason": "stop", "message": {"content": "REASON_OK"}}],
+            "usage": {"prompt_tokens": 4, "completion_tokens": 2},
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="without observable reasoning_content"):
+        reasoning_capability_probe("local-reason")
+
+
+def test_reasoning_capability_probe_rejects_reasoning_only_truncation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "runtime.live_e2e.post_json",
+        lambda *_args, **_kwargs: OBSERVED_REASONING_ONLY_RESPONSE,
+    )
+
+    with pytest.raises(RuntimeError, match="reasoning_only_truncated"):
+        reasoning_capability_probe("local-reason")

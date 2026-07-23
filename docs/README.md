@@ -5,7 +5,7 @@
 - [Repository README](../README.md) — setup, commands, and current capabilities.
 - [Active roadmap](../ROADMAP.md) — current priorities, evidence gates, and deferred work.
 - [Architecture](ARCHITECTURE.md) — component and trust boundaries.
-- [Pipeline](PIPELINE.md) — editing, verification, review, and approval flow.
+- [Pipeline](PIPELINE.md) — editing, verification, review, approval, and route-probe behavior.
 - [Conventions](CONVENTIONS.md) — coding, evidence, documentation, and roadmap rules.
 
 ## Active capability programmes

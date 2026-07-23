@@ -82,3 +82,13 @@ the native editor, and smolagents audit wrapping. The observed `content=""`,
 `reasoning_only_truncated` with an actionable diagnostic. Full reasoning traces remain
 outside normal audit state; presence, size, token counts, identity, and SHA-256 metadata
 are retained when relevant. Ordinary non-reasoning response metadata remains unchanged.
+
+## Reasoning-aware probe policy
+
+Track F1 separated exact route health checks from reasoning-capability checks. Exact probes
+now disable thinking through LiteLLM passthrough controls and use a bounded 64-token final
+allowance. The optional reasoning probe enables a 128-token thinking budget within a
+256-token completion ceiling and requires both observable reasoning metadata and the exact
+final answer. Focused tests preserve the observed reasoning-only truncation failure, detect
+ignored exact-probe controls, and confirm that full reasoning text is never emitted in the
+probe report.

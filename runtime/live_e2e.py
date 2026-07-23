@@ -32,6 +32,32 @@ EXPECTED_SKILLS = [
     "test-and-repair",
 ]
 
+EXACT_PROBE_MAX_TOKENS = 64
+EXACT_PROBE_THINKING_BUDGET = 0
+REASONING_PROBE_MAX_TOKENS = 256
+REASONING_PROBE_THINKING_BUDGET = 128
+
+
+def _probe_payload(
+    route: str,
+    *,
+    prompt: str,
+    max_tokens: int,
+    enable_thinking: bool,
+    thinking_budget_tokens: int,
+) -> dict[str, Any]:
+    """Build one bounded LiteLLM request with llama.cpp template controls."""
+    return {
+        "model": route,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0,
+        "max_tokens": max_tokens,
+        "extra_body": {
+            "chat_template_kwargs": {"enable_thinking": enable_thinking},
+            "thinking_budget_tokens": thinking_budget_tokens,
+        },
+    }
+
 
 def command(
     args: list[str], *, capture: bool = True
@@ -85,17 +111,18 @@ def edit_schema() -> dict[str, Any]:
 
 
 def route_probe(route: str) -> dict[str, Any]:
+    """Verify one exact route with model reasoning explicitly disabled."""
+    payload = _probe_payload(
+        route,
+        prompt="Reply with exactly ROUTE_OK.",
+        max_tokens=EXACT_PROBE_MAX_TOKENS,
+        enable_thinking=False,
+        thinking_budget_tokens=EXACT_PROBE_THINKING_BUDGET,
+    )
     try:
         response = post_json(
             "http://127.0.0.1:4000/v1/chat/completions",
-            {
-                "model": route,
-                "messages": [
-                    {"role": "user", "content": "Reply with exactly ROUTE_OK."}
-                ],
-                "temperature": 0,
-                "max_tokens": 16,
-            },
+            payload,
         )
     except Exception as exc:
         normalized = normalize_provider_error(exc, model=route, provider="litellm")
@@ -106,10 +133,71 @@ def route_probe(route: str) -> dict[str, Any]:
         accept_tool_calls=False,
     )
     if normalized.outcome != ROUTE_OK:
-        raise RuntimeError(normalized.diagnostic(route=route))
+        detail = normalized.diagnostic(route=route)
+        if normalized.outcome == "reasoning_only_truncated":
+            detail += (
+                "; exact_probe_reasoning_disabled=true"
+                "; action=verify template control support before raising the bound"
+            )
+        raise RuntimeError(detail)
     if normalized.prompt_tokens is None or normalized.completion_tokens is None:
         raise RuntimeError(f"{route} did not return token usage")
-    return normalized.bounded_metadata(include_success=True)
+    metadata = normalized.bounded_metadata(include_success=True)
+    metadata.update(
+        {
+            "probe_kind": "exact",
+            "probe_max_tokens": EXACT_PROBE_MAX_TOKENS,
+            "probe_reasoning_enabled": False,
+            "probe_thinking_budget_tokens": EXACT_PROBE_THINKING_BUDGET,
+        }
+    )
+    return metadata
+
+
+def reasoning_capability_probe(route: str) -> dict[str, Any]:
+    """Verify bounded reasoning while still requiring an exact final answer."""
+    payload = _probe_payload(
+        route,
+        prompt=(
+            "Think briefly about why one plus one equals two, then reply with "
+            "exactly REASON_OK."
+        ),
+        max_tokens=REASONING_PROBE_MAX_TOKENS,
+        enable_thinking=True,
+        thinking_budget_tokens=REASONING_PROBE_THINKING_BUDGET,
+    )
+    try:
+        response = post_json(
+            "http://127.0.0.1:4000/v1/chat/completions",
+            payload,
+        )
+    except Exception as exc:
+        normalized = normalize_provider_error(exc, model=route, provider="litellm")
+        raise RuntimeError(normalized.diagnostic(route=route)) from exc
+    normalized = normalize_model_response(
+        response,
+        expected_content="REASON_OK",
+        accept_tool_calls=False,
+    )
+    if normalized.outcome != ROUTE_OK:
+        raise RuntimeError(normalized.diagnostic(route=route))
+    if not normalized.reasoning_present:
+        raise RuntimeError(
+            f"{route} reasoning probe returned the final answer without "
+            "observable reasoning_content"
+        )
+    if normalized.prompt_tokens is None or normalized.completion_tokens is None:
+        raise RuntimeError(f"{route} did not return token usage")
+    metadata = normalized.bounded_metadata(include_success=True)
+    metadata.update(
+        {
+            "probe_kind": "reasoning",
+            "probe_max_tokens": REASONING_PROBE_MAX_TOKENS,
+            "probe_reasoning_enabled": True,
+            "probe_thinking_budget_tokens": REASONING_PROBE_THINKING_BUDGET,
+        }
+    )
+    return metadata
 
 
 def structured_output_probe(url: str, model: str, attempts: int) -> None:
@@ -468,8 +556,14 @@ def main() -> int:
     )
     check_skills()
     check_skills_lint_fails_closed()
-    for route in ("local-fast", "local-plan", "local-review"):
-        route_probe(route)
+    exact_route_probes = {
+        route: route_probe(route)
+        for route in ("local-fast", "local-plan", "local-review")
+    }
+    reasoning_route = os.environ.get("LIVE_E2E_REASONING_ROUTE", "").strip()
+    reasoning_probe = (
+        reasoning_capability_probe(reasoning_route) if reasoning_route else None
+    )
     structured_output_probe(
         "http://127.0.0.1:8080/v1/chat/completions",
         "local-coder",
@@ -583,6 +677,8 @@ def main() -> int:
             for result in details["verification"]
         ],
         "model_routes": routes,
+        "exact_route_probes": exact_route_probes,
+        "reasoning_route_probe": reasoning_probe,
         "explorer_backends": explorer_backends,
         "planner_backends": planner_backends,
         "implementer_backends": implementer_backends,
