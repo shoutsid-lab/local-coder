@@ -35,6 +35,22 @@ def test_dspy_lm_factory_uses_existing_litellm_alias() -> None:
     assert DSPY_ROUTES == {"local-fast", "local-plan", "local-review"}
 
 
+def test_dspy_lm_factory_applies_explicit_timeout() -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def lm(model: str, **kwargs: object) -> SimpleNamespace:
+        calls.append((model, kwargs))
+        return SimpleNamespace(model=model)
+
+    build_dspy_lm(
+        "local-plan",
+        timeout=180,
+        dspy_module=SimpleNamespace(LM=lm),
+    )
+
+    assert calls[0][1]["timeout"] == 180
+
+
 def test_dspy_lm_factory_rejects_untrusted_route() -> None:
     with pytest.raises(ValueError, match="Unsupported DSPy route"):
         build_dspy_lm("cloud-review", dspy_module=SimpleNamespace(LM=lambda: None))

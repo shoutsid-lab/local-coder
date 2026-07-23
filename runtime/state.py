@@ -371,6 +371,7 @@ class StateStore:
         holdout_hash: str | None = None,
         environment_hash: str | None = None,
         kind: str = "source",
+        prompt_evaluator_hash: str | None = None,
     ) -> str:
         """Create one bounded recursive-improvement campaign."""
         if kind not in {"source", "prompt-optimization"}:
@@ -383,8 +384,8 @@ class StateStore:
                 INSERT INTO evaluation_campaigns (
                     id, baseline_commit, status, suite_hash, budget,
                     max_candidates, created_at, updated_at,
-                    holdout_hash, environment_hash, kind
-                ) VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)
+                    holdout_hash, environment_hash, kind, prompt_evaluator_hash
+                ) VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     campaign_id,
@@ -397,6 +398,7 @@ class StateStore:
                     holdout_hash,
                     environment_hash,
                     kind,
+                    prompt_evaluator_hash,
                 ),
             )
         return campaign_id
@@ -800,6 +802,88 @@ class StateStore:
             result["decision"] = dict(decision) if decision is not None else None
         return result
 
+    def bind_prompt_campaign_evaluator(
+        self,
+        campaign_id: str,
+        evaluator_hash: str,
+    ) -> None:
+        """Freeze one prompt evaluator identity before paired execution."""
+        if not evaluator_hash.strip():
+            raise ValueError("Prompt evaluator identity is required.")
+        with self.connect() as connection:
+            campaign = connection.execute(
+                """
+                SELECT status, kind, prompt_evaluator_hash
+                FROM evaluation_campaigns WHERE id = ?
+                """,
+                (campaign_id,),
+            ).fetchone()
+            if campaign is None or campaign["status"] != "active":
+                raise ValueError("Campaign is missing or not active.")
+            if campaign["kind"] != "prompt-optimization":
+                raise ValueError("Only prompt campaigns may bind an evaluator.")
+            current = campaign["prompt_evaluator_hash"]
+            if current is not None and current != evaluator_hash:
+                raise ValueError("Prompt evaluator identity is already frozen.")
+            if current == evaluator_hash:
+                return
+            evaluation_count = connection.execute(
+                "SELECT COUNT(*) FROM evaluation_runs WHERE campaign_id = ?",
+                (campaign_id,),
+            ).fetchone()[0]
+            if evaluation_count:
+                raise ValueError(
+                    "Prompt evaluator cannot change after evaluation starts."
+                )
+            connection.execute(
+                """
+                UPDATE evaluation_campaigns
+                SET prompt_evaluator_hash = ?, updated_at = ? WHERE id = ?
+                """,
+                (evaluator_hash, utc_now(), campaign_id),
+            )
+
+    def bind_prompt_campaign_holdout(
+        self,
+        campaign_id: str,
+        holdout_hash: str,
+    ) -> None:
+        """Bind one deferred prompt campaign to an external holdout exactly once."""
+        if not holdout_hash.strip():
+            raise ValueError("Prompt holdout identity is required.")
+        with self.connect() as connection:
+            campaign = connection.execute(
+                """
+                SELECT status, kind, holdout_hash
+                FROM evaluation_campaigns WHERE id = ?
+                """,
+                (campaign_id,),
+            ).fetchone()
+            if campaign is None or campaign["status"] != "active":
+                raise ValueError("Campaign is missing or not active.")
+            if campaign["kind"] != "prompt-optimization":
+                raise ValueError("Only prompt campaigns may bind a deferred holdout.")
+            current = campaign["holdout_hash"]
+            if current is not None and current != holdout_hash:
+                raise ValueError("Prompt campaign holdout identity is already frozen.")
+            if current == holdout_hash:
+                return
+            evaluation_count = connection.execute(
+                "SELECT COUNT(*) FROM evaluation_runs WHERE campaign_id = ?",
+                (campaign_id,),
+            ).fetchone()[0]
+            if evaluation_count:
+                raise ValueError(
+                    "Prompt holdout cannot change after evaluation starts."
+                )
+            connection.execute(
+                """
+                UPDATE evaluation_campaigns
+                SET holdout_hash = ?, updated_at = ? WHERE id = ?
+                """,
+                (holdout_hash, utc_now(), campaign_id),
+            )
+
     def create_evaluation(
         self,
         *,
@@ -821,7 +905,7 @@ class StateStore:
                 campaign = connection.execute(
                     """
                     SELECT status, max_candidates, baseline_commit, suite_hash, budget,
-                           holdout_hash, environment_hash
+                           holdout_hash, environment_hash, kind
                     FROM evaluation_campaigns WHERE id = ?
                     """,
                     (campaign_id,),
@@ -844,7 +928,7 @@ class StateStore:
                 build = connection.execute(
                     """
                     SELECT candidate_builds.status, candidate_builds.run_id,
-                           candidate_builds.worktree,
+                           candidate_builds.worktree, candidate_builds.build_kind,
                            improvement_briefs.status AS brief_status
                     FROM candidate_builds
                     JOIN improvement_briefs
@@ -856,10 +940,30 @@ class StateStore:
                 ).fetchone()
                 if build is None:
                     raise ValueError("Candidate build does not belong to the campaign.")
-                if (
+                if campaign["kind"] == "prompt-optimization":
+                    artifact_count = connection.execute(
+                        """
+                        SELECT COUNT(*) FROM candidate_artifacts
+                        WHERE build_id = ? AND kind = 'prompt_candidate'
+                        """,
+                        (build_id,),
+                    ).fetchone()[0]
+                    if (
+                        build["status"] != "candidate_ready"
+                        or build["run_id"] is not None
+                        or build["worktree"] is not None
+                        or build["build_kind"] != "prompt-optimization"
+                        or build["brief_status"] != "approved"
+                        or artifact_count != 1
+                    ):
+                        raise ValueError(
+                            "Prompt candidate build has no evaluable artifact lineage."
+                        )
+                elif (
                     build["status"] not in {"awaiting_approval", "needs_attention"}
                     or build["run_id"] is None
                     or build["worktree"] is None
+                    or build["build_kind"] != "source"
                     or build["brief_status"] != "approved"
                 ):
                     raise ValueError(

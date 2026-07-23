@@ -248,6 +248,7 @@ def build_prompt_improvement_brief(
     forbidden_files: Iterable[str],
     evidence_run_ids: Iterable[str],
     evaluation_holdout: dict[str, object] | None = None,
+    prompt_evaluator_hash: str | None = None,
 ) -> dict[str, Any]:
     """Build one inert prompt-specific improvement brief."""
     metrics = (
@@ -271,8 +272,14 @@ def build_prompt_improvement_brief(
     )
     if holdout.get("mode") not in {"external", "deferred", "unspecified"}:
         raise PromptCampaignError("Unsupported prompt evaluation holdout mode.")
+    if prompt_evaluator_hash is not None and not prompt_evaluator_hash.strip():
+        raise PromptCampaignError("Prompt evaluator hash must be non-empty text.")
     metadata = spec.to_metadata()
     metadata["evaluation_holdout"] = holdout
+    metadata["prompt_evaluator"] = {
+        "mode": ("frozen" if prompt_evaluator_hash is not None else "deferred"),
+        "identity_hash": prompt_evaluator_hash,
+    }
     body = {
         "evidence_run_ids": tuple(sorted(set(evidence_run_ids))),
         "baseline_commit": baseline_commit,
@@ -447,30 +454,55 @@ def prompt_candidate_build_status(artifact: dict[str, Any]) -> str:
     return str(status)
 
 
+def load_prompt_candidate_artifact(
+    build: dict[str, Any],
+) -> dict[str, Any]:
+    """Return one hash-verified prompt candidate artifact from a campaign build."""
+    artifacts = build.get("artifacts")
+    if not isinstance(artifacts, list) or len(artifacts) != 1:
+        raise PromptCampaignError(
+            "Prompt candidate build requires exactly one candidate artifact."
+        )
+    stored = artifacts[0]
+    try:
+        artifact = json.loads(stored["content"])
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise PromptCampaignError("Prompt candidate artifact is malformed.") from exc
+    if not isinstance(artifact, dict):
+        raise PromptCampaignError("Prompt candidate artifact must be an object.")
+    if stored.get("kind") != PROMPT_CANDIDATE_ARTIFACT_KIND:
+        raise PromptCampaignError("Campaign build has an unexpected artifact kind.")
+    content_hash = stored.get("content_hash")
+    if not isinstance(content_hash, str) or not content_hash:
+        raise PromptCampaignError("Prompt candidate artifact hash is missing.")
+    if content_hash != stable_hash(artifact):
+        raise PromptCampaignError("Prompt candidate artifact hash is invalid.")
+    stored_path = stored.get("path")
+    output_path = artifact.get("output")
+    if not isinstance(stored_path, str) or not isinstance(output_path, str):
+        raise PromptCampaignError("Prompt candidate artifact path is missing.")
+    if Path(stored_path).resolve() != Path(output_path).resolve():
+        raise PromptCampaignError("Prompt candidate artifact path is inconsistent.")
+    if artifact.get("artifact_kind") != PROMPT_CANDIDATE_ARTIFACT_KIND:
+        raise PromptCampaignError("Campaign build has no prompt candidate artifact.")
+    return artifact
+
+
 def require_prompt_candidate_evaluation_eligibility(
     build: dict[str, Any],
-) -> None:
+) -> dict[str, Any]:
     """Fail closed unless a campaign build contains an accepted prompt candidate."""
     status = build.get("status")
     if status != "candidate_ready":
         raise PromptCampaignError(
             f"Prompt candidate build is not evaluation-ready: {status}."
         )
-    artifacts = build.get("artifacts")
-    if not isinstance(artifacts, list) or len(artifacts) != 1:
-        raise PromptCampaignError(
-            "Prompt candidate build requires exactly one candidate artifact."
-        )
-    try:
-        artifact = json.loads(artifacts[0]["content"])
-    except (KeyError, TypeError, json.JSONDecodeError) as exc:
-        raise PromptCampaignError("Prompt candidate artifact is malformed.") from exc
-    if artifact.get("artifact_kind") != PROMPT_CANDIDATE_ARTIFACT_KIND:
-        raise PromptCampaignError("Campaign build has no prompt candidate artifact.")
+    artifact = load_prompt_candidate_artifact(build)
     if artifact.get("candidate_accepted") is not True:
         raise PromptCampaignError("Prompt candidate was not accepted for evaluation.")
     if artifact.get("selected_candidate_changed") is not True:
         raise PromptCampaignError("Prompt candidate does not differ from baseline.")
+    return artifact
 
 
 def build_prompt_candidate(

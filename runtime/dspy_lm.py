@@ -15,6 +15,7 @@ def build_dspy_lm(
     api_base: str = LITELLM_API_BASE,
     api_key: str = LITELLM_API_KEY,
     max_tokens: int = 2048,
+    timeout: int | None = None,
     dspy_module: Any | None = None,
 ) -> Any:
     """Return a deterministic DSPy LM for one trusted LiteLLM alias."""
@@ -22,6 +23,8 @@ def build_dspy_lm(
         raise ValueError(f"Unsupported DSPy route: {route}")
     if max_tokens <= 0:
         raise ValueError("max_tokens must be positive")
+    if timeout is not None and timeout <= 0:
+        raise ValueError("timeout must be positive")
     if dspy_module is None:
         try:
             import dspy as dspy_module
@@ -30,13 +33,15 @@ def build_dspy_lm(
                 "DSPy is not installed. Run `make agent-install`."
             ) from exc
 
-    return dspy_module.LM(
-        f"openai/{route}",
-        model_type="chat",
-        api_base=api_base,
-        api_key=api_key,
-        temperature=0,
-        max_tokens=max_tokens,
-        cache=False,
-        num_retries=0,
-    )
+    options = {
+        "model_type": "chat",
+        "api_base": api_base,
+        "api_key": api_key,
+        "temperature": 0,
+        "max_tokens": max_tokens,
+        "cache": False,
+        "num_retries": 0,
+    }
+    if timeout is not None:
+        options["timeout"] = timeout
+    return dspy_module.LM(f"openai/{route}", **options)

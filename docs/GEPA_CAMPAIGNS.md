@@ -1,37 +1,41 @@
 # GEPA Prompt Campaigns
 
-C2.1 makes an offline GEPA result a first-class campaign candidate without adding any
-runtime activation or promotion authority.
+C2.1 makes an offline GEPA result a first-class campaign candidate. C2.2 adds
+trusted paired prompt evaluation while preserving the same separate decision and
+activation boundaries.
 
 ## Boundary
 
 A `prompt-optimization` campaign reuses the existing bounded lifecycle:
 
 ```text
-create-campaign -> approve-brief -> build-candidate
+create-campaign -> approve-brief -> build-candidate -> evaluate
+                -> record-decision -> close-campaign -> audit-campaign
 ```
 
 Campaign creation freezes the development suite, evaluator environment, GEPA dataset
 hashes, selected role, model routes, approximate GEPA metric target, hard campaign model
 call limit, reflection limits, unsafe-proposal limit, seed, and rollback condition. An
-external evaluator holdout may also be frozen at creation time.
-When it is omitted during this C2.1 build-only slice, the brief records that paired prompt
-evaluation remains blocked until an external holdout is supplied by the later evaluation
-slice. The approved brief permits no source-file edits.
+external evaluator holdout may also be frozen at creation time. When it is omitted,
+the brief records a deferred holdout and paired evaluation remains blocked until the
+operator supplies one. New campaigns also freeze the trusted prompt-evaluator hash at
+creation. C2.1 campaigns created before that field existed bind the evaluator hash exactly
+once before their first evaluation. The approved brief permits no source-file edits.
 
 `build-candidate` invokes the existing offline GEPA runner. It writes immutable output
 under `.local-coder/gepa-campaigns/` and records one hash-bound `prompt_candidate`
 artifact in SQLite. The build has no agent run, Git branch, source worktree, activation,
 or promotion action.
 
-Paired prompt evaluation, scorecard integration, decision lineage, and activation remain
-later campaign slices.
+Paired prompt evaluation and scorecard lineage are implemented. Evaluation archives the
+inert DSPy program state and trusted evaluator identity but performs no activation.
+`record-decision` remains separate, and activation remains a later campaign slice.
 
 ## Create a campaign
 
-An external evaluator holdout is optional for this build-only slice. Omitting it creates
-a campaign with an explicitly deferred evaluation holdout; source campaigns and actual
-paired evaluation still require an operator-controlled external rotation.
+An external evaluator holdout is optional at campaign creation. Omitting it creates a
+campaign with an explicitly deferred evaluation holdout; paired evaluation still requires
+an operator-controlled external rotation.
 
 ```bash
 ./local-coder.py create-campaign \
@@ -96,10 +100,39 @@ use three explicit terminal outcomes:
 - `no_improvement`: the selected program remains the baseline without a rejected winning
   proposal.
 
-Only `candidate_ready` is eligible for the later paired-evaluation slice. C2.1.2 still
-fails closed with a clear message because paired prompt evaluation itself begins in C2.2.
-Every prompt build has `build_kind: prompt-optimization`, no `run_id`, and exactly one
-`prompt_candidate` artifact.
+Only `candidate_ready` is eligible for paired evaluation. Every prompt build has
+`build_kind: prompt-optimization`, no `run_id`, and exactly one `prompt_candidate`
+artifact. Rejected and null-result candidates are blocked before external holdout files
+are loaded.
+
+## Run paired prompt evaluation
+
+Provision a `prompt-replay` holdout using the schema in
+[`PROMPT_HOLDOUT.md`](PROMPT_HOLDOUT.md), then run:
+
+```bash
+./local-coder.py evaluate \
+  --campaign-id CAMPAIGN_ID \
+  --build-id BUILD_ID \
+  --holdout-suite .local-coder/holdout/ROTATION/manifest.json \
+  --holdout-oracle .local-coder/holdout/ROTATION/oracle.json
+```
+
+Prompt evaluation derives baseline and candidate instruction state from campaign lineage,
+so source-worktree flags are rejected. It replays the frozen development split and the
+external holdout, records paired cases in SQLite, and emits the standard ordered
+safety-through-efficiency scorecard. Exact holdout case scores, observation hashes, and
+oracle outputs remain redacted from stdout. A deferred campaign binds to its first
+external holdout identity exactly once; subsequent holdout or evaluator mismatches fail
+closed.
+
+An eligible result may then receive an explicit decision without activating the prompt:
+
+```bash
+./local-coder.py record-decision EVALUATION_ID promote \
+  --actor trusted-reviewer \
+  --rationale 'All predeclared prompt gates passed.'
+```
 
 ## Fail-closed behavior
 
@@ -112,7 +145,10 @@ Creation or build fails when:
 - role or dataset identity differs from the approved brief;
 - optimizer lineage hashes are incomplete;
 - accepted, proposed, and selected instruction state contradict one another;
-- a rejected or null-result build is submitted for paired evaluation; or
+- a rejected or null-result build is submitted for paired evaluation;
+- external prompt manifest, role, oracle, or case identity differs;
+- the candidate state or instruction hash changes after build;
+- a deferred campaign is rebound to a different holdout; or
 - GEPA reports activation or promotion.
 
 ## Candidate outcome integrity

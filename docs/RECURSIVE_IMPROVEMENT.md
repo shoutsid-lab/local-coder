@@ -55,6 +55,11 @@ Only one brief is allowed per campaign. A campaign permits one candidate until t
 store contains ten completed campaigns with no safety or regression failure; the hard
 ceiling then becomes three.
 
+A prompt campaign uses the same approval record but freezes a GEPA dataset, one DSPy role,
+optimization and model-call budgets, a trusted prompt-evaluator hash, and either an
+external `prompt-replay` holdout identity or an explicit deferred holdout. See
+[`GEPA_CAMPAIGNS.md`](GEPA_CAMPAIGNS.md).
+
 ## 3. Build a candidate
 
 Prompt and skill ideas can be represented by `ExperimentOverlay` in memory. Source
@@ -71,6 +76,11 @@ trusted service or more capable model independent from the candidate.
 This service-dependent command derives its task only from the approved structured brief,
 creates one normal agent worktree, and records the build lineage. It never commits the
 result. A failed build consumes the bounded attempt rather than retrying indefinitely.
+
+For `prompt-optimization`, `build-candidate` instead runs bounded offline GEPA and records
+one hash-bound `prompt_candidate` artifact. The artifact points to an inert DSPy JSON
+program state and has no run, branch, worktree, activation, or promotion side effect. Only
+a changed, accepted `candidate_ready` result may enter evaluation.
 
 ## 4. Run paired evaluation
 
@@ -115,6 +125,15 @@ the technical scorecard. Campaign control and efficiency gates incorporate
 the recorded build trajectory, including rejected edits, tool failures, bounded retries,
 terminal status, fresh review, and model usage.
 
+Prompt candidates use the same ordered gates and campaign records through a dedicated
+base-owned replay adapter. The adapter loads baseline and candidate instruction states,
+replays the frozen development split and a separately provisioned external holdout, and
+archives paired cases, the candidate program state, and the prompt-evaluator identity.
+Source-worktree flags are rejected for this path. Exact holdout case scores, outputs, and
+observation hashes remain redacted from CLI stdout. Older C2.1 prompt campaigns bind the
+prompt-evaluator hash once before their first evaluation; new campaigns freeze it at
+creation. Neither evaluation path activates or promotes its candidate.
+
 ## 5. Record the authorization decision
 
 ```bash
@@ -133,6 +152,7 @@ explicit operations.
 
 `audit-campaign` opens SQLite read-only and fails closed unless the campaign has one
 approved brief, bounded build lineage, frozen suite/holdout/environment identity, paired
-case evidence, hash-valid candidate patch and trajectory artifacts, ordered scorecards,
-one authorization decision per evaluation, and a terminal status consistent with safety
-and regression evidence.
+case evidence, ordered scorecards, one authorization decision per evaluation, and a
+terminal status consistent with safety and regression evidence. Source evaluations require
+hash-valid candidate patch and trajectory artifacts. Prompt evaluations require a
+hash-valid inert program state and prompt-evaluator identity bound to the campaign.

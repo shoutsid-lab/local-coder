@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 class MigrationError(RuntimeError):
@@ -204,6 +204,13 @@ MIGRATIONS = (
             )""",
         ),
     ),
+    Migration(
+        10,
+        (
+            """ALTER TABLE evaluation_campaigns
+                ADD COLUMN prompt_evaluator_hash TEXT""",
+        ),
+    ),
 )
 
 
@@ -277,6 +284,7 @@ EXPECTED_COLUMNS = {
         "holdout_hash",
         "environment_hash",
         "kind",
+        "prompt_evaluator_hash",
     ),
     "evaluation_runs": (
         "id",
@@ -475,8 +483,10 @@ def _validate(connection: sqlite3.Connection, version: int) -> None:
                 expected_columns = expected_columns[:-1]
             if table == "evaluation_campaigns":
                 if version < 8:
-                    expected_columns = expected_columns[:-3]
+                    expected_columns = expected_columns[:-4]
                 elif version < 9:
+                    expected_columns = expected_columns[:-2]
+                elif version < 10:
                     expected_columns = expected_columns[:-1]
             if table == "improvement_briefs" and version < 9:
                 expected_columns = expected_columns[:-1]

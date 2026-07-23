@@ -89,9 +89,12 @@ Each signature is wrapped in a small `dspy.Module` (e.g. `dspy.ChainOfThought` o
   1. `create-campaign --kind prompt-optimization` mines one bounded brief from run history (e.g. "planner instructions underperform on multi-file discovery tasks").
   2. An authorized actor approves the brief (unchanged step).
   3. `build-candidate` runs `dspy.GEPA` offline, against the frozen dev/holdout split already defined for code campaigns, producing a candidate *signature/instruction set* (a JSON program state) instead of a candidate commit.
-  4. `evaluate` runs the **same** `evaluation/supervisor.py` bubblewrap sandbox, base-owned contracts, and holdout oracles — the candidate prompts are just another artifact type being scored, not a new execution path.
+  4. `evaluate` uses a dedicated base-owned prompt replay adapter because the candidate is an inert DSPy JSON program state rather than a source worktree. It still reuses the same campaign state, frozen identities, external holdout boundary, ordered scorecard gates, decision records, close rules, and read-only audit path.
   5. `record-decision` / `close-campaign` / `audit-campaign` are unchanged. Promotion still cannot be delegated to the candidate under evaluation.
 - This means GEPA never touches `.local-coder/holdout/`, never sees oracle data, and never decides its own promotion — identical to the existing candidate-code boundary in `docs/RECURSIVE_IMPROVEMENT.md`.
+
+**Implemented through C2.2:** prompt campaigns now complete
+`create-campaign → approve-brief → build-candidate → evaluate → record-decision → close-campaign → audit-campaign`. Paired evaluation replays the frozen development split and a separately provisioned `prompt-replay` holdout, archives the inert program state and evaluator identity, and performs no activation.
 
 ### C3. Reflection LM: keep it optional and operator-controlled
 - GEPA's *reflection* LM (the model that reads failures and proposes new instructions) is allowed to be a stronger model than the 3B `local-coder` alias — but only on the **trusted-evaluator side**, run by the operator outside any candidate worktree, exactly like the existing "trusted evaluator... more capable model" allowance already written into `docs/PIPELINE.md`'s Recursive Improvement Pipeline section ("The actor may be a trusted service or more capable model, but not the candidate under evaluation").

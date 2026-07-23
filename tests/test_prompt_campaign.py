@@ -188,7 +188,7 @@ def _fake_gepa_result(
     return {"manifest": manifest, "report": report}
 
 
-def test_schema_v9_preserves_v8_campaign_defaults(tmp_path: Path) -> None:
+def test_schema_v10_preserves_v8_campaign_defaults(tmp_path: Path) -> None:
     database = tmp_path / "v8.db"
     with sqlite3.connect(database) as connection:
         for migration in MIGRATIONS[:8]:
@@ -215,8 +215,46 @@ def test_schema_v9_preserves_v8_campaign_defaults(tmp_path: Path) -> None:
 
     assert details is not None
     assert details["kind"] == "source"
+    assert details["prompt_evaluator_hash"] is None
     assert details["candidate_artifacts"] == []
-    assert store.schema_version() == 9
+    assert store.schema_version() == 10
+
+
+def test_schema_v10_migrates_existing_prompt_campaign_for_one_time_binding(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "v9-prompt.db"
+    with sqlite3.connect(database) as connection:
+        for migration in MIGRATIONS[:9]:
+            for statement in migration.statements:
+                connection.execute(statement)
+            connection.execute(
+                "INSERT INTO schema_migrations VALUES (?, ?)",
+                (migration.version, "2026-01-01T00:00:00+00:00"),
+            )
+            connection.execute(f"PRAGMA user_version = {migration.version}")
+        connection.execute("""
+            INSERT INTO evaluation_campaigns (
+                id, baseline_commit, status, suite_hash, budget, max_candidates,
+                created_at, updated_at, holdout_hash, environment_hash, kind
+            ) VALUES (
+                'campaign', 'base', 'active', 'suite', '{}', 1,
+                '2026-01-01T00:00:00+00:00',
+                '2026-01-01T00:00:00+00:00', NULL, 'environment',
+                'prompt-optimization'
+            )
+            """)
+
+    store = StateStore(database)
+    details = store.campaign_details("campaign")
+
+    assert details is not None
+    assert details["prompt_evaluator_hash"] is None
+    store.bind_prompt_campaign_evaluator("campaign", "prompt-evaluator")
+    assert (
+        store.campaign_details("campaign")["prompt_evaluator_hash"]
+        == "prompt-evaluator"
+    )
 
 
 def test_prompt_spec_freezes_dataset_and_builds_typed_brief(tmp_path: Path) -> None:
@@ -536,6 +574,56 @@ def test_build_candidate_dispatches_prompt_campaign_without_orchestrator(
     assert json.loads(details["candidate_artifacts"][0]["content"]) == artifact
 
 
+def test_create_prompt_campaign_freezes_prompt_evaluator_hash(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    dataset = _dataset(tmp_path / "dataset")
+    args = CLI.build_parser().parse_args(
+        [
+            "create-campaign",
+            "--kind",
+            "prompt-optimization",
+            "--baseline",
+            str(ROOT),
+            "--dataset",
+            str(dataset),
+            "--role",
+            "planner",
+            "--rollback-condition",
+            "Any regression.",
+        ]
+    )
+    args.database = tmp_path / "agent.db"
+
+    with (
+        patch(
+            "evaluation.supervisor.committed_generation",
+            return_value="base-commit",
+        ),
+        patch(
+            "evaluation.supervisor.environment_identity",
+            return_value=({}, "environment-hash"),
+        ),
+        patch(
+            "evaluation.prompt_evaluator.prompt_evaluator_identity",
+            return_value=({}, "prompt-evaluator-hash"),
+        ),
+    ):
+        status = CLI.handle_create_campaign(args)
+
+    assert status == 0
+    payload = json.loads(capsys.readouterr().out)
+    details = StateStore(args.database).campaign_details(payload["campaign_id"])
+    assert details is not None
+    assert details["prompt_evaluator_hash"] == "prompt-evaluator-hash"
+    metadata = payload["brief"]["metadata"]
+    assert metadata["prompt_evaluator"] == {
+        "mode": "frozen",
+        "identity_hash": "prompt-evaluator-hash",
+    }
+
+
 def test_prompt_campaign_parser_allows_deferred_holdout(tmp_path: Path) -> None:
     dataset = _dataset(tmp_path / "dataset")
     args = CLI.build_parser().parse_args(
@@ -676,7 +764,14 @@ def test_only_accepted_changed_prompt_is_evaluation_ready(tmp_path: Path) -> Non
     artifact = build_prompt_candidate_artifact(spec, output, result)
     build = {
         "status": "candidate_ready",
-        "artifacts": [{"content": json.dumps(artifact)}],
+        "artifacts": [
+            {
+                "kind": PROMPT_CANDIDATE_ARTIFACT_KIND,
+                "path": str(output),
+                "content_hash": stable_hash(artifact),
+                "content": json.dumps(artifact),
+            }
+        ],
     }
 
     require_prompt_candidate_evaluation_eligibility(build)

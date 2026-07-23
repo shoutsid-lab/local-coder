@@ -63,7 +63,44 @@ def _artifact_valid(artifact: dict[str, Any]) -> bool:
     if kind == "candidate_trajectory":
         parsed = _json_object(content)
         return parsed is not None and stable_hash(parsed) == content_hash
+    if kind == "prompt_program_state":
+        return hash_text(content) == content_hash
+    if kind == "prompt_evaluation_identity":
+        parsed = _json_object(content)
+        return parsed is not None and stable_hash(parsed) == content_hash
     return False
+
+
+def _prompt_candidate_artifact_valid(
+    artifact: dict[str, Any],
+    *,
+    build_status: str | None,
+) -> bool:
+    """Validate one stored prompt-candidate build artifact without its files."""
+    parsed = _json_object(artifact.get("content"))
+    if parsed is None:
+        return False
+    if artifact.get("kind") != "prompt_candidate":
+        return False
+    if stable_hash(parsed) != artifact.get("content_hash"):
+        return False
+    if parsed.get("artifact_kind") != "prompt_candidate":
+        return False
+    if parsed.get("campaign_kind") != "prompt-optimization":
+        return False
+    if parsed.get("build_outcome") != build_status:
+        return False
+    if parsed.get("activation") != "not_performed":
+        return False
+    if parsed.get("promotion") != "not_performed":
+        return False
+    stored_path = artifact.get("path")
+    output_path = parsed.get("output")
+    return bool(
+        isinstance(stored_path, str)
+        and isinstance(output_path, str)
+        and stored_path == output_path
+    )
 
 
 def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
@@ -83,6 +120,8 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
         )
 
     checks: list[AuditCheck] = []
+    campaign_kind = campaign.get("kind", "source")
+    prompt_evaluator_hash = campaign.get("prompt_evaluator_hash")
     checks.append(
         AuditCheck(
             "campaign_identity",
@@ -92,12 +131,14 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
                 and campaign.get("holdout_hash")
                 and campaign.get("environment_hash")
                 and campaign.get("budget")
+                and (campaign_kind != "prompt-optimization" or prompt_evaluator_hash)
             ),
             {
                 "baseline_commit": campaign.get("baseline_commit"),
                 "suite_hash": campaign.get("suite_hash"),
                 "holdout_hash": campaign.get("holdout_hash"),
                 "environment_hash": campaign.get("environment_hash"),
+                "prompt_evaluator_hash": prompt_evaluator_hash,
             },
         )
     )
@@ -105,6 +146,25 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
     briefs = campaign["briefs"]
     approvals = campaign["brief_approvals"]
     brief = briefs[0] if len(briefs) == 1 else None
+    brief_metadata = _json_object(brief.get("metadata")) if brief is not None else None
+    brief_prompt_evaluator = (
+        brief_metadata.get("prompt_evaluator")
+        if isinstance(brief_metadata, dict)
+        else None
+    )
+    brief_prompt_hash = (
+        brief_prompt_evaluator.get("identity_hash")
+        if isinstance(brief_prompt_evaluator, dict)
+        else None
+    )
+    prompt_brief_identity_ok = bool(
+        campaign_kind != "prompt-optimization"
+        or brief_prompt_evaluator is None
+        or (
+            isinstance(brief_prompt_evaluator, dict)
+            and brief_prompt_hash == prompt_evaluator_hash
+        )
+    )
     brief_ok = bool(
         brief
         and brief.get("status") == "approved"
@@ -115,6 +175,7 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
         and brief.get("baseline_commit") == campaign.get("baseline_commit")
         and brief.get("suite_hash") == campaign.get("suite_hash")
         and brief.get("budget") == campaign.get("budget")
+        and prompt_brief_identity_ok
     )
     checks.append(
         AuditCheck(
@@ -126,22 +187,53 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
 
     builds = campaign["candidate_builds"]
     max_candidates = campaign.get("max_candidates")
+    allowed_build_statuses = (
+        {
+            "candidate_ready",
+            "candidate_rejected",
+            "no_improvement",
+            "failed",
+        }
+        if campaign_kind == "prompt-optimization"
+        else {"awaiting_approval", "needs_attention", "failed", "no_changes"}
+    )
     builds_ok = bool(
         brief
         and isinstance(max_candidates, int)
         and 1 <= len(builds) <= max_candidates
         and all(build.get("brief_id") == brief.get("id") for build in builds)
-        and all(
-            build.get("status")
-            in {"awaiting_approval", "needs_attention", "failed", "no_changes"}
-            for build in builds
-        )
+        and all(build.get("status") in allowed_build_statuses for build in builds)
+        and all(build.get("build_kind") == campaign_kind for build in builds)
     )
     checks.append(
         AuditCheck(
             "bounded_candidate_builds",
             builds_ok,
             {"build_count": len(builds), "max_candidates": max_candidates},
+        )
+    )
+
+    candidate_artifact_failures: list[str] = []
+    if campaign_kind == "prompt-optimization":
+        artifacts_by_build: dict[str, list[dict[str, Any]]] = {}
+        for artifact in campaign.get("candidate_artifacts", []):
+            artifacts_by_build.setdefault(artifact.get("build_id"), []).append(artifact)
+        for build in builds:
+            build_artifacts = artifacts_by_build.get(build.get("id"), [])
+            if len(build_artifacts) != 1 or not _prompt_candidate_artifact_valid(
+                build_artifacts[0],
+                build_status=build.get("status"),
+            ):
+                candidate_artifact_failures.append(str(build.get("id")))
+    checks.append(
+        AuditCheck(
+            "candidate_artifact_lineage",
+            (
+                not candidate_artifact_failures
+                if campaign_kind == "prompt-optimization"
+                else True
+            ),
+            {"failed_build_ids": candidate_artifact_failures},
         )
     )
 
@@ -164,8 +256,20 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
         and all(details is not None for details in evaluation_details)
         and all(
             build_id in build_by_id
-            and build_by_id[build_id].get("run_id")
-            and build_by_id[build_id].get("worktree")
+            and (
+                (
+                    campaign_kind == "prompt-optimization"
+                    and build_by_id[build_id].get("status") == "candidate_ready"
+                    and build_by_id[build_id].get("run_id") is None
+                    and build_by_id[build_id].get("worktree") is None
+                    and build_by_id[build_id].get("build_kind") == "prompt-optimization"
+                )
+                or (
+                    campaign_kind != "prompt-optimization"
+                    and build_by_id[build_id].get("run_id")
+                    and build_by_id[build_id].get("worktree")
+                )
+            )
             for build_id in evaluated_builds
         )
         and all(
@@ -199,7 +303,11 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
         artifacts_by_kind: dict[str, list[dict[str, Any]]] = {}
         for artifact in details["artifacts"]:
             artifacts_by_kind.setdefault(artifact["kind"], []).append(artifact)
-        required_artifacts = ("candidate_patch", "candidate_trajectory")
+        required_artifacts = (
+            ("prompt_program_state", "prompt_evaluation_identity")
+            if campaign_kind == "prompt-optimization"
+            else ("candidate_patch", "candidate_trajectory")
+        )
         if any(
             len(artifacts_by_kind.get(kind, [])) != 1 for kind in required_artifacts
         ):
@@ -208,6 +316,16 @@ def audit_campaign(store: StateStore, campaign_id: str) -> CampaignAudit:
             _artifact_valid(artifacts_by_kind[kind][0]) for kind in required_artifacts
         ):
             artifact_failures.append(evaluation_id)
+        elif campaign_kind == "prompt-optimization":
+            identity_artifact = artifacts_by_kind["prompt_evaluation_identity"][0]
+            identity = _json_object(identity_artifact.get("content"))
+            if (
+                identity is None
+                or identity.get("evaluator_hash") != prompt_evaluator_hash
+                or identity.get("campaign_id") != campaign_id
+                or identity.get("build_id") != details.get("build_id")
+            ):
+                artifact_failures.append(evaluation_id)
 
         cases = details["cases"]
         case_keys = {

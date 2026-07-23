@@ -421,6 +421,48 @@ def _load_campaign_evaluation_identity(
         )
 
     if has_suite:
+        if kind == PROMPT_OPTIMIZATION_CAMPAIGN_KIND:
+            if prompt_spec is None:
+                raise ValueError("Prompt campaign specification is missing.")
+            from evaluation.prompt_evaluator import (
+                load_prompt_holdout,
+                prompt_holdout_identity,
+            )
+
+            if not all(
+                _is_external_holdout(path)
+                for path in (args.holdout_suite, args.holdout_oracle)
+            ):
+                raise ValueError(
+                    "Campaign holdout inputs must be outside candidate-visible "
+                    "Git content."
+                )
+            development = load_suite(
+                args.development_suite,
+                expected_visibility="development",
+            )
+            holdout, _, oracle_hash = load_prompt_holdout(
+                args.holdout_suite,
+                args.holdout_oracle,
+                expected_role=prompt_spec.role,
+            )
+            holdout_hash = prompt_holdout_identity(holdout, oracle_hash)
+            suite_hash = stable_hash(
+                {
+                    "development": development.manifest_hash,
+                    "prompt_dataset": prompt_spec.dataset_hash,
+                    "prompt_dataset_manifest": (prompt_spec.dataset_manifest_hash),
+                }
+            )
+            return (
+                suite_hash,
+                holdout_hash,
+                {
+                    "mode": "external",
+                    "suite_kind": "prompt-replay",
+                    "identity_hash": holdout_hash,
+                },
+            )
         development, holdout, _, oracle_hash = _load_evaluation_inputs(
             args,
             require_external_holdout=True,
@@ -472,6 +514,107 @@ def _load_campaign_evaluation_identity(
     )
 
 
+def _handle_prompt_evaluate(
+    args: argparse.Namespace,
+    *,
+    state,
+    campaign: dict[str, object],
+    build: dict[str, object],
+) -> int:
+    """Run trusted paired replay for one inert prompt candidate."""
+    from evaluation.manifests import load_suite
+    from evaluation.outcomes import stable_hash
+    from evaluation.prompt_campaign import (
+        PromptCampaignError,
+        PromptCampaignSpec,
+        require_prompt_candidate_evaluation_eligibility,
+    )
+    from evaluation.prompt_evaluator import (
+        PromptEvaluationError,
+        evaluate_prompt_pair,
+        load_prompt_holdout,
+    )
+
+    try:
+        require_prompt_candidate_evaluation_eligibility(build)
+        source_arguments = {
+            "baseline": getattr(args, "baseline", None),
+            "candidate": getattr(args, "candidate", None),
+            "allowed_file": getattr(args, "allowed_file", None),
+            "target_case": getattr(args, "target_case", None),
+        }
+        supplied = [name for name, value in source_arguments.items() if value]
+        if supplied:
+            raise ValueError(
+                "Prompt evaluation does not accept source-candidate arguments: "
+                f"{sorted(supplied)}"
+            )
+        holdout_suite = getattr(args, "holdout_suite", None)
+        holdout_oracle = getattr(args, "holdout_oracle", None)
+        if holdout_suite is None or holdout_oracle is None:
+            raise ValueError(
+                "Prompt evaluation requires --holdout-suite and --holdout-oracle."
+            )
+        if not all(
+            _is_external_holdout(path) for path in (holdout_suite, holdout_oracle)
+        ):
+            raise ValueError(
+                "Prompt holdout inputs must be outside candidate-visible Git "
+                "content."
+            )
+        approved = [
+            brief for brief in campaign["briefs"] if brief["status"] == "approved"
+        ]
+        if len(approved) != 1:
+            raise ValueError("Campaign requires one approved brief.")
+        metadata_text = approved[0].get("metadata")
+        if not isinstance(metadata_text, str):
+            raise ValueError("Approved prompt brief has no typed metadata.")
+        spec = PromptCampaignSpec.from_metadata(json.loads(metadata_text))
+        development = load_suite(
+            args.development_suite,
+            expected_visibility="development",
+        )
+        expected_suite_hash = stable_hash(
+            {
+                "development": development.manifest_hash,
+                "prompt_dataset": spec.dataset_hash,
+                "prompt_dataset_manifest": spec.dataset_manifest_hash,
+            }
+        )
+        if expected_suite_hash != campaign.get("suite_hash"):
+            raise ValueError("Prompt evaluation suite differs from the campaign.")
+        holdout, oracle, oracle_hash = load_prompt_holdout(
+            holdout_suite,
+            holdout_oracle,
+            expected_role=spec.role,
+        )
+        budget = _evaluation_budget(args)
+        with redirect_stdout(sys.stderr):
+            evaluation, scorecard = evaluate_prompt_pair(
+                trusted_root=ROOT,
+                campaign=campaign,
+                build=build,
+                spec=spec,
+                holdout=holdout,
+                holdout_oracle=oracle,
+                holdout_oracle_hash=oracle_hash,
+                repetitions=args.repetitions,
+                budget=budget,
+                state=state,
+                campaign_id=str(campaign["id"]),
+                build_id=str(build["id"]),
+                expected_environment_hash=args.expected_environment_hash,
+            )
+    except (PromptCampaignError, PromptEvaluationError, ValueError) as exc:
+        print(f"Evaluation failed closed: {exc}", file=sys.stderr)
+        return 1
+    report = evaluation.to_dict(redact_holdout=True)
+    report["scorecard"] = scorecard.to_dict()
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0 if scorecard.recommendation == "eligible_for_promotion" else 2
+
+
 def handle_evaluate(args: argparse.Namespace) -> int:
     """Run and record one bounded paired generation evaluation."""
     from dataclasses import asdict
@@ -495,19 +638,18 @@ def handle_evaluate(args: argparse.Namespace) -> int:
             ):
                 raise ValueError("Candidate build does not belong to the campaign.")
             if preflight_campaign.get("kind") == "prompt-optimization":
-                from evaluation.prompt_campaign import (
-                    PromptCampaignError,
-                    require_prompt_candidate_evaluation_eligibility,
+                return _handle_prompt_evaluate(
+                    args,
+                    state=state,
+                    campaign=preflight_campaign,
+                    build=preflight_build,
                 )
-
-                try:
-                    require_prompt_candidate_evaluation_eligibility(preflight_build)
-                except PromptCampaignError as exc:
-                    raise ValueError(str(exc)) from exc
-                raise ValueError(
-                    "Prompt candidate paired evaluation is not implemented until "
-                    "C2.2."
-                )
+        if getattr(args, "baseline", None) is None:
+            raise ValueError("Source evaluation requires --baseline.")
+        if getattr(args, "candidate", None) is None:
+            raise ValueError("Source evaluation requires --candidate.")
+        if not getattr(args, "target_case", None):
+            raise ValueError("Source evaluation requires --target-case.")
         development, holdout, oracle, oracle_hash = _load_evaluation_inputs(
             args,
             require_external_holdout=args.campaign_id is not None,
@@ -629,8 +771,18 @@ def handle_rotate_holdout(args: argparse.Namespace) -> int:
         )
         return 1
     try:
-        manifest = load_suite(manifest_source, expected_visibility="holdout")
-        load_holdout_oracle(oracle_source, manifest)
+        raw_manifest = json.loads(manifest_source.read_text(encoding="utf-8"))
+        suite_kind = (
+            raw_manifest.get("suite_kind") if isinstance(raw_manifest, dict) else None
+        )
+        if suite_kind == "prompt-replay":
+            from evaluation.prompt_evaluator import load_prompt_holdout
+
+            load_prompt_holdout(manifest_source, oracle_source)
+        else:
+            manifest = load_suite(manifest_source, expected_visibility="holdout")
+            load_holdout_oracle(oracle_source, manifest)
+            suite_kind = "source-contract"
         HOLDOUT_STORAGE.mkdir(parents=True, exist_ok=True, mode=0o700)
         destination = HOLDOUT_STORAGE / rotation_id
         if destination.exists():
@@ -656,6 +808,7 @@ def handle_rotate_holdout(args: argparse.Namespace) -> int:
                 "rotation_id": rotation_id,
                 "holdout_suite": str(destination / "manifest.json"),
                 "holdout_oracle": str(destination / "oracle.json"),
+                "suite_kind": suite_kind,
             },
             indent=2,
             sort_keys=True,
@@ -696,6 +849,7 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
             "tests/test_evaluation_contract.py",
         }
         baseline_commit = committed_generation(args.baseline)
+        prompt_evaluator_hash = None
         if args.kind == PROMPT_OPTIMIZATION_CAMPAIGN_KIND:
             if args.dataset is None or args.role is None:
                 raise ValueError("Prompt campaigns require --dataset and --role.")
@@ -728,6 +882,11 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
                     prompt_spec=spec,
                 )
             )
+            from evaluation.prompt_evaluator import (
+                prompt_evaluator_identity,
+            )
+
+            _, prompt_evaluator_hash = prompt_evaluator_identity(ROOT, spec.role)
             brief = build_prompt_improvement_brief(
                 spec,
                 baseline_commit=baseline_commit,
@@ -737,6 +896,7 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
                 forbidden_files=forbidden,
                 evidence_run_ids=spec.source_run_ids,
                 evaluation_holdout=evaluation_holdout,
+                prompt_evaluator_hash=prompt_evaluator_hash,
             )
         else:
             suite_hash, holdout_hash, _ = _load_campaign_evaluation_identity(
@@ -780,6 +940,7 @@ def handle_create_campaign(args: argparse.Namespace) -> int:
             holdout_hash=holdout_hash,
             environment_hash=evaluator_environment_hash,
             kind=args.kind,
+            prompt_evaluator_hash=prompt_evaluator_hash,
         )
         store.add_improvement_brief(campaign_id, brief)
     except (EvaluationError, PromptCampaignError, ValueError) as exc:
@@ -1369,8 +1530,8 @@ def build_parser() -> argparse.ArgumentParser:
         "evaluate",
         help="Run a bounded trusted baseline/candidate comparison.",
     )
-    evaluate_parser.add_argument("--baseline", type=Path, required=True)
-    evaluate_parser.add_argument("--candidate", type=Path, required=True)
+    evaluate_parser.add_argument("--baseline", type=Path)
+    evaluate_parser.add_argument("--candidate", type=Path)
     evaluate_parser.add_argument("--database", type=Path, default=STATE_PATH)
     evaluate_parser.add_argument("--campaign-id")
     evaluate_parser.add_argument(
@@ -1387,7 +1548,6 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_parser.add_argument(
         "--target-case",
         action="append",
-        required=True,
         help="Predeclared case whose paired pass count must improve.",
     )
     add_evaluation_arguments(evaluate_parser)

@@ -227,7 +227,9 @@ Create a bounded `prompt-optimization` campaign, approve its frozen brief, then 
 `prompt_candidate`. It creates no source worktree and performs no activation or
 promotion. Build outcomes distinguish an accepted `candidate_ready` instruction from
 `candidate_rejected` and `no_improvement`; only the accepted changed candidate may enter
-the later paired-evaluation slice. The report preserves approximate metric-call targets,
-actual counts, and the hard campaign model-call limit. Known DSPy `prefix` deprecations
-are filtered narrowly while unexpected warnings remain visible. See
-[`docs/GEPA_CAMPAIGNS.md`](docs/GEPA_CAMPAIGNS.md).
+paired prompt evaluation. That evaluator replays the frozen development split and a
+separately provisioned external `prompt-replay` holdout without activating the program.
+The report preserves approximate metric-call targets, actual counts, and the hard campaign
+model-call limit. Known DSPy `prefix` deprecations are filtered narrowly while unexpected
+warnings remain visible. See [`docs/GEPA_CAMPAIGNS.md`](docs/GEPA_CAMPAIGNS.md) and
+[`docs/PROMPT_HOLDOUT.md`](docs/PROMPT_HOLDOUT.md).

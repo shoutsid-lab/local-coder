@@ -72,7 +72,8 @@ gepa-experiment-check:
 	$(PYTHON) -m pytest -q --tb=short tests/test_gepa_experiment.py
 
 prompt-campaign-check:
-	$(PYTHON) -m pytest -q --tb=short tests/test_prompt_campaign.py
+	$(PYTHON) -m pytest -q --tb=short \
+		tests/test_prompt_campaign.py tests/test_prompt_evaluation.py
 
 runs:
 	$(PYTHON) local-coder.py runs

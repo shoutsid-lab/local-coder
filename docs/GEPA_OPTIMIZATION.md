@@ -19,8 +19,9 @@ The runner:
 
 This replay metric compares candidate typed outputs with audited typed outputs. The
 historical verification result and reviewer text are returned as GEPA feedback. It is a
-foundation for prompt search, not a promotion-grade evaluator; campaign integration and
-trusted holdout scoring remain later work.
+prompt-search metric, not the promotion-grade decision by itself. A `candidate_ready`
+program state must subsequently pass the separate paired prompt evaluator and an external
+`prompt-replay` holdout described in [`PROMPT_HOLDOUT.md`](PROMPT_HOLDOUT.md).
 
 ## Dataset readiness
 
