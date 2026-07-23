@@ -15,6 +15,7 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
+from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Callable
 
@@ -325,24 +326,25 @@ def handle_optimize_gepa(args: argparse.Namespace) -> int:
     )
 
     try:
-        result = run_gepa_optimization(
-            args.dataset,
-            args.output,
-            role=args.role,
-            dry_run=args.dry_run,
-            reflection_route=args.reflection_route,
-            auto=args.auto,
-            target_metric_calls=args.target_metric_calls,
-            hard_model_call_limit=args.hard_model_call_limit,
-            max_unsafe_proposals=args.max_unsafe_proposals,
-            no_improvement_patience=args.no_improvement_patience,
-            reflection_max_tokens=args.reflection_max_tokens,
-            max_instruction_chars=args.max_instruction_chars,
-            allow_perfect_only=args.allow_perfect_only,
-            force_search_perfect_baseline=args.force_search_perfect_baseline,
-            seed=args.seed,
-            num_threads=args.num_threads,
-        )
+        with redirect_stdout(sys.stderr):
+            result = run_gepa_optimization(
+                args.dataset,
+                args.output,
+                role=args.role,
+                dry_run=args.dry_run,
+                reflection_route=args.reflection_route,
+                auto=args.auto,
+                target_metric_calls=args.target_metric_calls,
+                hard_model_call_limit=args.hard_model_call_limit,
+                max_unsafe_proposals=args.max_unsafe_proposals,
+                no_improvement_patience=args.no_improvement_patience,
+                reflection_max_tokens=args.reflection_max_tokens,
+                max_instruction_chars=args.max_instruction_chars,
+                allow_perfect_only=args.allow_perfect_only,
+                force_search_perfect_baseline=args.force_search_perfect_baseline,
+                seed=args.seed,
+                num_threads=args.num_threads,
+            )
     except GepaRunnerError as exc:
         print(f"GEPA optimization failed closed: {exc}", file=sys.stderr)
         return 1
@@ -857,7 +859,8 @@ def _handle_prompt_candidate_build(
                 / build_id
             ).resolve()
         )
-        result, artifact = build_prompt_candidate(spec, output)
+        with redirect_stdout(sys.stderr):
+            result, artifact = build_prompt_candidate(spec, output)
         content = prompt_candidate_content(artifact)
         store.add_candidate_artifact(
             build_id,

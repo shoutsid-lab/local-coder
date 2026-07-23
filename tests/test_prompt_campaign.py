@@ -370,6 +370,114 @@ def test_state_records_prompt_campaign_build_and_artifact(tmp_path: Path) -> Non
     assert len(build["artifacts"]) == 1
 
 
+def test_optimize_gepa_reserves_stdout_for_json(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    result = {
+        "manifest": {"manifest_hash": "manifest"},
+        "report": {"status": "complete"},
+    }
+    args = Namespace(
+        dataset=tmp_path / "dataset",
+        output=tmp_path / "output",
+        role="planner",
+        dry_run=False,
+        reflection_route="local-plan",
+        auto=None,
+        target_metric_calls=20,
+        hard_model_call_limit=32,
+        max_unsafe_proposals=3,
+        no_improvement_patience=3,
+        reflection_max_tokens=256,
+        max_instruction_chars=800,
+        allow_perfect_only=True,
+        force_search_perfect_baseline=False,
+        seed=0,
+        num_threads=1,
+    )
+
+    def noisy_optimizer(*_args: object, **_kwargs: object) -> dict[str, object]:
+        print("Average Metric: 2.85 / 3")
+        return result
+
+    with patch(
+        "runtime.dspy_programs.gepa_runner.run_gepa_optimization",
+        side_effect=noisy_optimizer,
+    ):
+        status = CLI.handle_optimize_gepa(args)
+
+    captured = capsys.readouterr()
+    assert status == 0
+    assert json.loads(captured.out) == result
+    assert "Average Metric" not in captured.out
+    assert "Average Metric: 2.85 / 3" in captured.err
+
+
+def test_prompt_build_reserves_stdout_for_json(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    dataset = _dataset(tmp_path / "dataset")
+    spec = _spec(dataset)
+    store = StateStore(tmp_path / "agent.db")
+    campaign_id = store.create_campaign(
+        baseline_commit="base",
+        suite_hash="suite",
+        budget={"max_model_calls": 20},
+        max_candidates=1,
+        holdout_hash=None,
+        environment_hash="environment",
+        kind=PROMPT_OPTIMIZATION_CAMPAIGN_KIND,
+    )
+    brief = build_prompt_improvement_brief(
+        spec,
+        baseline_commit="base",
+        suite_hash="suite",
+        budget={"max_model_calls": 20},
+        rollback_condition="Any regression.",
+        forbidden_files=("evaluation/",),
+        evidence_run_ids=spec.source_run_ids,
+    )
+    store.add_improvement_brief(campaign_id, brief)
+    store.approve_improvement_brief(
+        brief["id"], actor="review-model", rationale="Run bounded GEPA."
+    )
+    artifact = {
+        "schema_version": 2,
+        "artifact_kind": PROMPT_CANDIDATE_ARTIFACT_KIND,
+        "campaign_kind": PROMPT_OPTIMIZATION_CAMPAIGN_KIND,
+        "role": "planner",
+        "build_outcome": "candidate_ready",
+    }
+    result = {"manifest": {"manifest_hash": "manifest"}, "report": {}}
+    args = Namespace(
+        campaign_id=campaign_id,
+        database=store.path,
+        output=tmp_path / "output",
+        max_steps=12,
+        overlay=None,
+    )
+
+    def noisy_build(*_args: object, **_kwargs: object):
+        print("GEPA Optimization: 100%")
+        return result, artifact
+
+    with patch(
+        "evaluation.prompt_campaign.build_prompt_candidate",
+        side_effect=noisy_build,
+    ):
+        status = CLI.handle_build_candidate(args)
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert status == 0
+    assert payload["status"] == "candidate_ready"
+    assert payload["artifact"] == artifact
+    assert "GEPA Optimization" not in captured.out
+    assert "GEPA Optimization: 100%" in captured.err
+
+
 def test_build_candidate_dispatches_prompt_campaign_without_orchestrator(
     tmp_path: Path,
 ) -> None:

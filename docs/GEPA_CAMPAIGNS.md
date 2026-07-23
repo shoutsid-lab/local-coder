@@ -75,6 +75,10 @@ record approval:
 ./local-coder.py build-candidate CAMPAIGN_ID
 ```
 
+The command reserves stdout for one complete JSON document. DSPy/GEPA progress,
+metric summaries, and logging are routed to stderr, so piping stdout through `tee` or
+`jq` remains reliable during a live optimization run.
+
 The output includes:
 
 - the candidate-build ID;
