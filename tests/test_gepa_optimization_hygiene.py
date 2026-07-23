@@ -582,6 +582,140 @@ def test_compact_proposer_avoids_reserved_signature_field_names() -> None:
     assert "output_fields" not in annotations
 
 
+def test_budgeted_lm_wraps_as_dspy_baselm_and_delegates_capabilities() -> None:
+    class FakeBaseLM:
+        pass
+
+    class FakeLM(FakeBaseLM):
+        def __init__(self) -> None:
+            self.kwargs = {"temperature": 0}
+            self.calls = 0
+
+        @property
+        def supports_function_calling(self) -> bool:
+            return True
+
+        @property
+        def supports_reasoning(self) -> bool:
+            return True
+
+        @property
+        def supports_response_schema(self) -> bool:
+            return True
+
+        @property
+        def supported_params(self) -> set[str]:
+            return {"response_format"}
+
+        def copy(self, **kwargs: object) -> "FakeLM":
+            copied = FakeLM()
+            copied.kwargs = {**self.kwargs, **kwargs}
+            return copied
+
+        def __call__(self, *_args: object, **_kwargs: object) -> str:
+            self.calls += 1
+            return "ok"
+
+    raw = FakeLM()
+    budget = ModelCallBudget(2)
+    wrapped = BudgetedLM.wrap(
+        raw,
+        budget,
+        "student",
+        base_lm_type=FakeBaseLM,
+    )
+
+    assert isinstance(wrapped, FakeBaseLM)
+    assert wrapped.kwargs == {"temperature": 0}
+    assert wrapped.supports_function_calling is True
+    assert wrapped.supports_reasoning is True
+    assert wrapped.supports_response_schema is True
+    assert wrapped.supported_params == {"response_format"}
+
+    copied = wrapped.copy(temperature=0.5)
+    assert isinstance(copied, FakeBaseLM)
+    assert copied.kwargs == {"temperature": 0.5}
+    assert wrapped() == "ok"
+    assert copied() == "ok"
+    with pytest.raises(ModelCallBudgetExceeded, match="2/2"):
+        copied()
+    assert budget.summary()["total"] == 2
+
+
+def test_gepa_run_passes_baselm_compatible_wrappers_to_dspy(
+    tmp_path: Path,
+) -> None:
+    class FakeBaseLM:
+        pass
+
+    class FakeLM(FakeBaseLM):
+        def __init__(self) -> None:
+            self.kwargs = {"temperature": 0}
+
+        @property
+        def supported_params(self) -> set[str]:
+            return set()
+
+        def copy(self, **_kwargs: object) -> "FakeLM":
+            return FakeLM()
+
+        def __call__(self, *_args: object, **_kwargs: object) -> str:
+            return "ok"
+
+    class StrictGEPA(RecordingGEPA):
+        def __init__(self, **kwargs: object) -> None:
+            assert isinstance(kwargs["reflection_lm"], FakeBaseLM)
+            super().__init__(**kwargs)
+
+        def compile(
+            self,
+            student: object,
+            *,
+            trainset: list[object],
+            valset: list[object],
+        ) -> FakeOptimized:
+            assert isinstance(student, FakeProgram)
+            assert isinstance(student.lm, FakeBaseLM)
+            return super().compile(
+                student,
+                trainset=trainset,
+                valset=valset,
+            )
+
+    records = _records(imperfect_train=True)
+    dataset = tmp_path / "dataset"
+    _write_dataset(dataset, records)
+    exact = _exact_outputs(records)
+    student = FakeProgram(
+        exact,
+        instructions="Baseline planner instruction.",
+        saved_payload='{"baseline":true}\n',
+    )
+    RecordingGEPA.calls = []
+    RecordingGEPA.optimized = FakeOptimized(
+        exact,
+        instructions="Baseline planner instruction.",
+        scores=[1.0],
+    )
+    dspy_module = FakeDSPy(StrictGEPA)
+    dspy_module.BaseLM = FakeBaseLM
+
+    with patch(
+        "runtime.dspy_programs.gepa_runner._role_program",
+        return_value=student,
+    ):
+        run_gepa_optimization(
+            dataset,
+            tmp_path / "run",
+            role="planner",
+            target_metric_calls=20,
+            hard_model_call_limit=40,
+            force_search_perfect_baseline=True,
+            dspy_module=dspy_module,
+            lm_factory=lambda _route, **_kwargs: FakeLM(),
+        )
+
+
 def test_budgeted_lm_copies_share_a_hard_call_limit() -> None:
     class FakeLM:
         def __init__(self) -> None:

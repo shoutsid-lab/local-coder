@@ -137,13 +137,53 @@ class ModelCallBudget:
 class BudgetedLM:
     """Transparent LM proxy that shares one strict call budget across copies."""
 
+    _compatible_types: dict[type, type] = {}
+
     def __init__(self, lm: Any, budget: ModelCallBudget, category: str) -> None:
         self._lm = lm
         self._budget = budget
         self._category = category
 
+    @classmethod
+    def wrap(
+        cls,
+        lm: Any,
+        budget: ModelCallBudget,
+        category: str,
+        *,
+        base_lm_type: Any = None,
+    ) -> "BudgetedLM":
+        """Return a proxy that also satisfies DSPy's BaseLM type contract."""
+        if not isinstance(base_lm_type, type) or not isinstance(lm, base_lm_type):
+            return cls(lm, budget, category)
+        compatible_type = cls._compatible_types.get(base_lm_type)
+        if compatible_type is None:
+            compatible_type = type(
+                "BaseLMCompatibleBudgetedLM",
+                (cls, base_lm_type),
+                {"__module__": cls.__module__},
+            )
+            cls._compatible_types[base_lm_type] = compatible_type
+        return compatible_type(lm, budget, category)
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._lm, name)
+
+    @property
+    def supports_function_calling(self) -> bool:
+        return bool(getattr(self._lm, "supports_function_calling", False))
+
+    @property
+    def supports_reasoning(self) -> bool:
+        return bool(getattr(self._lm, "supports_reasoning", False))
+
+    @property
+    def supports_response_schema(self) -> bool:
+        return bool(getattr(self._lm, "supports_response_schema", False))
+
+    @property
+    def supported_params(self) -> set[str]:
+        return set(getattr(self._lm, "supported_params", set()))
 
     def __deepcopy__(self, memo: dict[int, Any]) -> "BudgetedLM":
         del memo
@@ -153,7 +193,7 @@ class BudgetedLM:
         """Preserve the shared hard budget across DSPy LM runtime copies."""
         method = getattr(self._lm, "copy", None)
         copied = method(**kwargs) if callable(method) else self._lm
-        return BudgetedLM(copied, self._budget, self._category)
+        return self.__class__(copied, self._budget, self._category)
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         self._budget.consume(self._category)
@@ -886,7 +926,12 @@ def run_gepa_optimization(
     predictor_count = _program_predictor_count(student)
     model_budget = ModelCallBudget(hard_model_call_limit)
     student_lm_raw = _build_lm(lm_factory, ROLE_ROUTES[role])
-    student_lm = BudgetedLM(student_lm_raw, model_budget, "student")
+    student_lm = BudgetedLM.wrap(
+        student_lm_raw,
+        model_budget,
+        "student",
+        base_lm_type=getattr(dspy_module, "BaseLM", None),
+    )
     set_lm = getattr(student, "set_lm", None)
     if callable(set_lm):
         set_lm(student_lm)
@@ -953,10 +998,11 @@ def run_gepa_optimization(
             reflection_route,
             max_tokens=reflection_max_tokens,
         )
-        reflection_lm = BudgetedLM(
+        reflection_lm = BudgetedLM.wrap(
             reflection_lm_raw,
             model_budget,
             "reflection",
+            base_lm_type=getattr(dspy_module, "BaseLM", None),
         )
         try:
             with tempfile.TemporaryDirectory(prefix="local-coder-gepa-log-") as log_dir:
