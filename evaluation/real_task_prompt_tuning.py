@@ -267,7 +267,7 @@ def _program_runner(
     """Build a production-equivalent JSONAdapter runner with an inert override."""
 
     def run(*, lm: Any, **inputs: Any) -> Any:
-        nonlocal dspy_module, program_factory
+        nonlocal dspy_module
         if dspy_module is None:
             try:
                 import dspy as dspy_module
