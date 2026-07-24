@@ -37,3 +37,9 @@ It does not change active runtime routes.
 experiment. It holds the selected role generation settings constant, compares the
 code-defined instructions with two reusable role-level candidates, and cannot access the
 sealed holdout or activate a prompt.
+
+
+`track-g-holdout-qualification-v1.json` freezes the G4 one-shot independent
+comparison. It binds the sealed holdout and G3.1 selection hashes, exact Qwen and selected
+Qwythos role configurations, one attempt per sealed case, and the final accuracy-first
+qualification thresholds. It does not activate routes.

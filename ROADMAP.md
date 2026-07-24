@@ -72,15 +72,13 @@ Track G runs alongside Track F. The detailed plan lives in
 
 G0 and G1 freeze a versioned 12-case corpus from actual repository tasks, failures, and
 successful fixes: eight complete development cases plus a four-case holdout represented in
-Git only by metadata and canonical hashes. The trusted holdout payload remains in ignored,
-candidate-inaccessible storage. G2 collected the current Qwen and Qwythos development
-evidence through the production planner/reviewer adapters. Qwythos improved mean quality
-slightly but remained mixed by case. G3 compared three accuracy-first Qwythos generation
-profiles. Greater reasoning depth did not improve mean quality, and no selected role cleared
-the frozen development gain gate, so holdout stays sealed. The repeated failure classes now
-identify reusable prompt instructions as the measured bottleneck. G3.1 freezes three
-development-only prompt-contract profiles while holding the strongest role generation
-settings constant.
+Git only by metadata and canonical hashes. G2 collected comparable Qwen and Qwythos
+development evidence through the production adapters. G3 found no gain from larger
+reasoning budgets. G3.1 then isolated the measured prompt-contract bottleneck: the selected
+planner prompt improved mean score by 0.0625 and the selected reviewer prompt improved it by
+0.05 without material case regressions. Both roles cleared the frozen role-wise holdout gate.
+G4 now freezes a one-shot Qwen-versus-Qwythos holdout runner and final qualification policy;
+the trusted payload remains unopened until that runner is committed and verified.
 
 Synthetic sentinel edits remain smoke fixtures and are not primary capability evidence.
 Track F route changes do not become defaults without Track G development and independent

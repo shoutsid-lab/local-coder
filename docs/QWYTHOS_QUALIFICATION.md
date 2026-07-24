@@ -259,18 +259,18 @@ compatibility, not superior task quality.
 
 ## Remaining qualification work
 
-Track G G0/G1 now freezes the varied real-task corpus described in
-[`REAL_TASK_CORPUS.md`](REAL_TASK_CORPUS.md). The next qualification work is:
+Track G G3.1 selected `evidence-completeness` for planner and `field-checklist` for reviewer.
+Both roles cleared the frozen development gain and no-material-regression gates. The next
+qualification work is:
 
-1. collect and compare the frozen G3.1 prompt-contract candidates documented in
-   `QWYTHOS_PROMPT_TUNING.md`, using the measured G3 role generation settings;
-2. select planner and reviewer prompts independently under the unchanged accuracy-first,
-   no-material-regression policy;
-3. open only the role-specific independently provisioned holdout cases permitted by that
-   frozen gate;
+1. commit and verify the one-shot G4 runner documented in
+   `QWYTHOS_HOLDOUT_QUALIFICATION.md`;
+2. collect one full Qwen and one full Qwythos report across all four sealed cases;
+3. issue independent planner and reviewer qualification decisions under the precommitted
+   policy;
 4. measure cold startup and serial model-switch time; and
 5. bind adapter, resource, lifecycle, development, and holdout evidence into one new
-   versioned decision contract.
+   versioned route-decision contract.
 
 The final policy must separate structural contract gates from scored task quality. It must
 also use observed hardware behavior rather than treating an arbitrary VRAM reserve as a

@@ -83,3 +83,17 @@ make real-task-prompt-tuning-compare \
 
 The same accuracy-first ranking and no-material-regression holdout gate apply. A selected
 prompt remains inert. Promotion and activation are not performed by this experiment.
+
+## Recorded G3.1 result
+
+The three clean prompt reports completed at implementation commit `1e12f4b`. Planner
+`evidence-completeness` improved mean score from `0.75` to `0.8125`, raised the minimum
+attempt from `0.5` to approximately `0.667`, and reduced forbidden-file failures from three
+to one. Reviewer `field-checklist` improved mean score from `0.9` to `0.95`, raised the
+minimum attempt from `0.6` to `0.8`, and retained `0.75` stable case success.
+
+Both role selections cleared the frozen mean-gain and no-material-regression gates. The
+combined development gate remained closed only because stable case success stayed at
+`0.375`; that does not revoke role-wise holdout permission. Further development tuning
+stops to avoid overfitting. The selected role configurations are consumed by
+[Qwythos one-shot holdout qualification](QWYTHOS_HOLDOUT_QUALIFICATION.md).

@@ -32,6 +32,8 @@
   profiles, repeated collection, selection policy, and holdout gate.
 - [Qwythos prompt tuning](QWYTHOS_PROMPT_TUNING.md) — development-only
   instruction candidates after the G3 profile ceiling, with fixed generation settings.
+- [Qwythos holdout qualification](QWYTHOS_HOLDOUT_QUALIFICATION.md) — frozen
+  one-shot Qwen/Qwythos comparison, consumption receipts, and final role decisions.
 - [Real-task corpus](REAL_TASK_CORPUS.md) — Track G case format, committed development
   cases, sealed holdout index, validation, trusted holdout handling, and development
   evidence collection.

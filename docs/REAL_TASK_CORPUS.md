@@ -76,10 +76,10 @@ fields and freeze the expected verdict and required issue/unrelated paths.
 
 ## Holdout handling
 
-Do not commit, print, mount, or prompt with the trusted holdout payload. Do not use holdout
-results while tuning routes or prompts. G2 establishes the current-route baseline on the
-development set. G3 performs frozen comparisons and opens the holdout only for the final
-independent decision.
+Do not commit, print, or expose the trusted holdout payload outside the trusted scorer.
+Do not use holdout results while tuning routes or prompts. G2 establishes the current-route
+baseline, G3/G3.1 freeze the selected Qwythos generation and prompt contracts, and G4 is the
+only model-running surface permitted to load the payload for the final independent decision.
 
 The supplied holdout archive should be extracted at the repository root. Its payload path
 is already ignored by Git.
@@ -123,16 +123,26 @@ cleared the frozen development gain gate. See
 
 ## G3.1 prompt-contract tuning
 
-The repeated G3 failure classes point to instruction completeness rather than reasoning
-budget. G3.1 holds the measured role generation settings constant and compares three
-reusable prompt profiles on the same eight visible cases. See
-[Qwythos prompt tuning](QWYTHOS_PROMPT_TUNING.md).
+The repeated G3 failure classes pointed to instruction completeness rather than reasoning
+budget. G3.1 held generation settings constant and selected `evidence-completeness` for
+planner and `field-checklist` for reviewer. Both cleared the frozen role-wise holdout gate.
+See [Qwythos prompt tuning](QWYTHOS_PROMPT_TUNING.md).
+
+## G4 one-shot holdout qualification
+
+`evaluation/real_task_holdout.py` is the only runner that accepts the trusted payload. It
+binds the G3.1 selection hash, validates all non-holdout controls before loading the suite,
+creates exclusive per-subject consumption receipts, and always runs all four cases exactly
+once. The final comparison qualifies planner and reviewer independently and never changes
+an active route. See
+[Qwythos holdout qualification](QWYTHOS_HOLDOUT_QUALIFICATION.md).
 
 Validate both tuning controls without model services:
 
 ```bash
 make real-task-profile-tuning-check
 make real-task-prompt-tuning-check
+make real-task-holdout-check
 ```
 
 Both collectors use the production programs, JSON adapter, scorer, clean implementation

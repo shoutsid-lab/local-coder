@@ -1,0 +1,138 @@
+{
+  "attempts_per_case": 1,
+  "holdout": {
+    "index_sha256": "0cfa958d4a19a35fcebddb0a9d86f3dc2a01b7ab56041e626104d34fc03db5d4",
+    "suite_id": "real-task-holdout-v1",
+    "suite_sha256": "bbbd7964479333e14435f4628c94be69cad644d704021fbaaad044597cb6cabc"
+  },
+  "protocol_id": "track-g-holdout-qualification-v1",
+  "qualification_policy": {
+    "adapter_success_rate": 1.0,
+    "material_regression_delta": 0.2,
+    "maximum_material_regressions": 0,
+    "minimum_case_score": 0.6,
+    "minimum_case_success_delta": 0.0,
+    "minimum_role_mean_gain": 0.05,
+    "schema_rate": 1.0
+  },
+  "schema_version": 1,
+  "scoring_version": "role-oracle-v1",
+  "selection_evidence": {
+    "comparison_kind": "real-task-prompt-selection-v1",
+    "comparison_sha256": "3b4426b5168c538dcd4002fef029240cb472f0d15479edd95eba1e5d8d4f4658",
+    "implementation_commit": "1e12f4b0bc974b1e819b607fdda75ee7697ca2f3",
+    "open_roles": [
+      "planner",
+      "reviewer"
+    ],
+    "prompt_profile_sha256": {
+      "planner": "e945a609612dd452d5a985a9ad45ca0895fe52f217de91ae7520e9bc882b7665",
+      "reviewer": "2be2cf2dc86cc7ec8be031c6b3d3710951fab448a7fd88b5dfe4587d2b196b05"
+    },
+    "prompt_protocol_id": "track-g-qwythos-prompt-tuning-v1",
+    "prompt_protocol_sha256": "c472f56be5ea2547e4b18559f899bb93e80eb87e5a2bcfb116d7be9f6b94b798",
+    "report_hashes": {
+      "code-control": "158dee294772a9cc5ca1351d50f42e32ac62d54110ff1209792211f93722d7a5",
+      "evidence-completeness": "ff0ef011edffdad9d957b66cfb992ebdaf18b6e8afa458daf8db6b013f345f2f",
+      "field-checklist": "77a3cd8cfa22f79cac854b18a52a48442a07ca3f89da74d838e837c2a788594b"
+    },
+    "selected_prompt_profiles": {
+      "planner": "evidence-completeness",
+      "reviewer": "field-checklist"
+    }
+  },
+  "subjects": {
+    "baseline": {
+      "llama_alias": "local-coder",
+      "model_file": "qwen2.5-coder-3b-instruct-q4_k_m.gguf",
+      "prompt_profiles": {
+        "planner": "code-control",
+        "reviewer": "code-control"
+      },
+      "route_profiles": {
+        "planner": {
+          "alias": "local-plan",
+          "final_answer_tokens": 3072,
+          "max_tokens": 3072,
+          "model_alias": "local-coder",
+          "preserve_reasoning": false,
+          "reasoning_mode": "off",
+          "reasoning_tokens": 0,
+          "repetition_penalty": null,
+          "requires_model_switch": false,
+          "retries": 0,
+          "temperature": 0.0,
+          "timeout_seconds": 180,
+          "top_k": null,
+          "top_p": 1.0
+        },
+        "reviewer": {
+          "alias": "local-review",
+          "final_answer_tokens": 2048,
+          "max_tokens": 2048,
+          "model_alias": "local-coder",
+          "preserve_reasoning": false,
+          "reasoning_mode": "off",
+          "reasoning_tokens": 0,
+          "repetition_penalty": null,
+          "requires_model_switch": false,
+          "retries": 0,
+          "temperature": 0.0,
+          "timeout_seconds": 180,
+          "top_k": null,
+          "top_p": 1.0
+        }
+      },
+      "routes": {
+        "planner": "local-plan",
+        "reviewer": "local-review"
+      }
+    },
+    "candidate": {
+      "llama_alias": "local-reason",
+      "model_file": "Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_K_M.gguf",
+      "prompt_profiles": {
+        "planner": "evidence-completeness",
+        "reviewer": "field-checklist"
+      },
+      "route_profiles": {
+        "planner": {
+          "alias": "local-reason",
+          "final_answer_tokens": 1024,
+          "max_tokens": 2048,
+          "model_alias": "local-reason",
+          "preserve_reasoning": false,
+          "reasoning_mode": "on",
+          "reasoning_tokens": 1024,
+          "repetition_penalty": 1.05,
+          "requires_model_switch": true,
+          "retries": 0,
+          "temperature": 0.6,
+          "timeout_seconds": 300,
+          "top_k": 20,
+          "top_p": 0.95
+        },
+        "reviewer": {
+          "alias": "local-reason",
+          "final_answer_tokens": 1536,
+          "max_tokens": 3072,
+          "model_alias": "local-reason",
+          "preserve_reasoning": false,
+          "reasoning_mode": "on",
+          "reasoning_tokens": 1536,
+          "repetition_penalty": 1.05,
+          "requires_model_switch": true,
+          "retries": 0,
+          "temperature": 0.0,
+          "timeout_seconds": 480,
+          "top_k": null,
+          "top_p": 1.0
+        }
+      },
+      "routes": {
+        "planner": "local-reason",
+        "reviewer": "local-reason"
+      }
+    }
+  }
+}

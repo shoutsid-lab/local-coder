@@ -12,7 +12,9 @@ PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runt
 	real-task-development-collect real-task-profile-tuning-check \
 	real-task-profile-tuning-collect real-task-profile-tuning-compare \
 	real-task-prompt-tuning-check real-task-prompt-tuning-collect \
-	real-task-prompt-tuning-compare route-qualification-policy-hash \
+	real-task-prompt-tuning-compare real-task-holdout-check \
+	real-task-holdout-collect real-task-holdout-compare \
+	route-qualification-policy-hash \
 	route-qualification-collect route-qualification route-probe runs live-e2e \
 	live-e2e-report
 
@@ -43,6 +45,7 @@ agent-check:
 	$(PYTHON) -m json.tool profiles/track-g-development-v1.json >/dev/null
 	$(PYTHON) -m json.tool profiles/track-g-qwythos-tuning-v1.json >/dev/null
 	$(PYTHON) -m json.tool profiles/track-g-qwythos-prompt-tuning-v1.json >/dev/null
+	$(PYTHON) -m json.tool profiles/track-g-holdout-qualification-v1.json >/dev/null
 
 agent-install:
 	$(PYTHON) -m pip install -r requirements-agent.txt
@@ -192,6 +195,27 @@ real-task-prompt-tuning-compare:
 	@test -n "$(REPORTS)" || (echo "Usage: make real-task-prompt-tuning-compare REPORTS='path1 path2 path3' [OUTPUT=path]"; exit 1)
 	$(PYTHON) -m evaluation.real_task_prompt_tuning compare \
 		--reports $(REPORTS) \
+		$(if $(OUTPUT),--output "$(OUTPUT)",)
+
+real-task-holdout-check:
+	$(PYTHON) -m pytest -q --tb=short tests/test_real_task_holdout.py
+
+real-task-holdout-collect:
+	@test -n "$(SUBJECT)" -a -n "$(ENVIRONMENT)" -a -n "$(HOLDOUT)" -a -n "$(SELECTION)" || (echo "Usage: make real-task-holdout-collect SUBJECT=baseline|candidate ENVIRONMENT=machine-id HOLDOUT=trusted.json SELECTION=prompt-selection.json [OUTPUT=path]"; exit 1)
+	$(PYTHON) -m evaluation.real_task_holdout collect \
+		--subject "$(SUBJECT)" \
+		--environment-id "$(ENVIRONMENT)" \
+		--holdout-suite "$(HOLDOUT)" \
+		--selection-report "$(SELECTION)" \
+		$(if $(OUTPUT),--output "$(OUTPUT)",)
+
+real-task-holdout-compare:
+	@test -n "$(BASELINE)" -a -n "$(CANDIDATE)" -a -n "$(HOLDOUT)" -a -n "$(SELECTION)" || (echo "Usage: make real-task-holdout-compare BASELINE=baseline.json CANDIDATE=candidate.json HOLDOUT=trusted.json SELECTION=prompt-selection.json [OUTPUT=path]"; exit 1)
+	$(PYTHON) -m evaluation.real_task_holdout compare \
+		--baseline "$(BASELINE)" \
+		--candidate "$(CANDIDATE)" \
+		--holdout-suite "$(HOLDOUT)" \
+		--selection-report "$(SELECTION)" \
 		$(if $(OUTPUT),--output "$(OUTPUT)",)
 
 route-qualification-policy-hash:

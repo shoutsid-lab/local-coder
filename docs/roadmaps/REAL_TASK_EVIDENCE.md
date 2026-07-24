@@ -1,7 +1,7 @@
 # ROADMAP: Real-Task Capability Evidence
 
 **Target repository:** `shoutsid-lab/local-coder`
-**Status:** Active — G0–G3 measured; G3.1 prompt tuning ready
+**Status:** Active — G0–G3.1 measured; G4 holdout runner ready
 **Track:** G
 
 ## 0. Why this document exists
@@ -158,30 +158,36 @@ without an explicit, frozen tradeoff decision.
 - Increasing reasoning depth did not remove the repeated planner acceptance-criteria,
   instruction-completeness, and scope-reference failures.
 
-### G3.1. Qwythos prompt-contract comparison — runner ready
+### G3.1. Qwythos prompt-contract comparison — measured
 
-- `profiles/track-g-qwythos-prompt-tuning-v1.json` freezes `code-control`,
-  `evidence-completeness`, and `field-checklist`.
-- Planner generation uses the highest-mean G3 control profile. Reviewer generation uses the
-  deterministic profile that tied the best mean with higher stability. These settings remain
-  identical across prompt candidates.
-- Candidate instructions address only measured reusable failure classes: concrete
-  evidence-backed acceptance criteria, out-of-scope path leakage, complete defect-path
-  reporting, and unrelated changed-file classification.
-- `evaluation/real_task_prompt_tuning.py` applies inert instruction overrides to the same
-  production programs and `JSONAdapter`, requires no active deployed prompt state, retains
-  no generated text, and exposes no holdout input.
-- The existing accuracy-first and no-material-regression holdout gate remains unchanged.
+- `profiles/track-g-qwythos-prompt-tuning-v1.json` froze `code-control`,
+  `evidence-completeness`, and `field-checklist` while holding generation settings fixed.
+- `evidence-completeness` raised planner mean score from 0.75 to 0.8125 and the minimum
+  attempt score from 0.5 to approximately 0.667.
+- `field-checklist` raised reviewer mean score from 0.9 to 0.95 while retaining 0.75 stable
+  case success and raising the minimum score from 0.6 to 0.8.
+- Neither selected role introduced a material case regression. Both cleared the frozen
+  role-wise holdout gate; the combined development gate remained closed only because stable
+  case success did not increase.
+- Further tuning against the eight visible cases stops here to avoid case-specific
+  overfitting.
 
-### G4. Decision and backlog reset
+### G4. One-shot holdout qualification — runner ready
 
-Use the evidence to decide:
+- `profiles/track-g-holdout-qualification-v1.json` binds the sealed suite and index hashes,
+  G3.1 comparison hash, exact Qwen and Qwythos role configurations, one attempt per case,
+  and final qualification thresholds.
+- `evaluation/real_task_holdout.py` validates all non-holdout controls before creating an
+  exclusive subject reservation and loading the trusted payload.
+- Each subject always runs both planner and reviewer cases; partial roles and case subsets
+  are unsupported.
+- Interrupted runs remain consumed, completed runs receive hash-bound receipts, and final
+  comparison requires both completion receipts.
+- Planner and reviewer qualify independently. No evidence result activates a route.
 
-- whether `local-reason` improves planner and/or reviewer outcomes;
-- whether model switching cost is acceptable;
-- which failure classes should drive ordinary engineering work;
-- whether another real GEPA campaign is justified; and
-- whether frozen control-plane items R1–R3 should remain frozen.
+After the one-shot comparison, use the evidence to decide whether `local-reason` qualifies
+for planner, reviewer, both, or diagnostic-only use; then incorporate measured model-switch
+cost before changing Track F route assignments or resetting the deferred backlog.
 
 ## 6. Exit criteria
 
