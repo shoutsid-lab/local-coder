@@ -142,6 +142,37 @@ def test_audited_model_holds_route_session_during_generation(tmp_path: Path) -> 
     assert metadata["model_service"]["profile_id"] == "fast-qwen"
 
 
+def test_audited_model_preserves_keyboard_interrupt_and_records_it(
+    tmp_path: Path,
+) -> None:
+    store = StateStore(tmp_path / "agent.db")
+    run_id = store.create_run(
+        task="interrupt",
+        mode="agentic",
+        repository=tmp_path,
+        base_branch="main",
+    )
+
+    def interrupt(*_args: object, **_kwargs: object) -> None:
+        raise KeyboardInterrupt
+
+    model = AuditedModel(
+        SimpleNamespace(generate=interrupt),
+        route="local-plan",
+        state=store,
+        run_id=run_id,
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        model.generate([])
+
+    metric = store.run_details(run_id)["model_metrics"][0]
+    metadata = json.loads(metric["metadata"])
+    assert metadata["status"] == "interrupted"
+    assert metric["prompt_tokens"] is None
+    assert metric["completion_tokens"] is None
+
+
 def test_candidate_token_excess_is_recorded_before_run_stops(tmp_path: Path) -> None:
     store = StateStore(tmp_path / "agent.db")
     run_id = store.create_run(
@@ -821,6 +852,22 @@ def test_run_plan_step_rejects_unapproved_hash(
     assert "Approved plan hash does not match" in capsys.readouterr().err
 
 
+def test_cli_main_returns_130_on_keyboard_interrupt(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = SimpleNamespace(
+        parse_args=lambda: SimpleNamespace(
+            handler=lambda _args: (_ for _ in ()).throw(KeyboardInterrupt)
+        )
+    )
+    monkeypatch.setattr(local_coder, "ensure_project_python", lambda: None)
+    monkeypatch.setattr(local_coder, "build_parser", lambda: parser)
+
+    assert local_coder.main() == 130
+    assert "Interrupted." in capsys.readouterr().err
+
+
 def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -> None:
     from runtime.agents import (
         DSPyImplementerAgent,
@@ -1215,6 +1262,70 @@ def test_no_diff_skips_verification_and_ignores_manager_success_claim(
     assert "verification skipped" in summary.result.lower()
     run_verification.assert_not_called()
     review_diff.assert_not_called()
+
+
+def test_keyboard_interrupt_cancels_run_and_stops_managed_server(
+    tmp_path: Path,
+) -> None:
+    from runtime.orchestrator import AgentOrchestrator, OrchestratorConfig
+
+    repository = tmp_path / "repository"
+    worktree_path = tmp_path / "worktree"
+    repository.mkdir()
+    worktree_path.mkdir()
+    orchestrator = AgentOrchestrator(OrchestratorConfig(repository=repository))
+    stopped: list[str] = []
+    orchestrator.model_services = SimpleNamespace(
+        stop_managed=lambda *, reason: stopped.append(reason)
+    )
+
+    def interrupt(*_args: object, **_kwargs: object) -> None:
+        raise KeyboardInterrupt
+
+    bundle = SimpleNamespace(manager=SimpleNamespace(run=interrupt))
+
+    with (
+        patch.object(orchestrator, "_service_preflight"),
+        patch.object(orchestrator, "_run_identity", return_value=("abc", "def", "ghi")),
+        patch("runtime.orchestrator.current_branch", return_value="main"),
+        patch(
+            "runtime.orchestrator.create_worktree",
+            return_value=Worktree(worktree_path, "agent/test", "main"),
+        ),
+        patch("runtime.orchestrator.discover_skills", return_value={}),
+        patch("runtime.orchestrator.build_agent_bundle", return_value=bundle),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        orchestrator.run("Interrupt this run")
+
+    run = orchestrator.state.recent_runs(limit=1)[0]
+    details = orchestrator.state.run_details(run["id"])
+    assert details is not None
+    assert details["status"] == "cancelled"
+    assert details["steps"][0]["status"] == "cancelled"
+    assert stopped == ["keyboard_interrupt"]
+
+
+def test_keyboard_interrupt_during_preflight_stops_managed_server(
+    tmp_path: Path,
+) -> None:
+    from runtime.orchestrator import AgentOrchestrator, OrchestratorConfig
+
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    orchestrator = AgentOrchestrator(OrchestratorConfig(repository=repository))
+    stopped: list[str] = []
+    orchestrator.model_services = SimpleNamespace(
+        stop_managed=lambda *, reason: stopped.append(reason)
+    )
+
+    with (
+        patch.object(orchestrator, "_service_preflight", side_effect=KeyboardInterrupt),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        orchestrator.run("Interrupt during preflight")
+
+    assert stopped == ["keyboard_interrupt"]
 
 
 def test_no_diff_with_editor_error_requires_attention() -> None:

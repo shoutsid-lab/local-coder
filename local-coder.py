@@ -1969,7 +1969,11 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     handler: Callable[[argparse.Namespace], int] = args.handler
-    return handler(args)
+    try:
+        return handler(args)
+    except KeyboardInterrupt:
+        print("\nInterrupted.", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":

@@ -19,6 +19,9 @@ from typing import Any, Iterator, Mapping
 
 DEFAULT_CONFIG_PATH = Path("profiles/model-services-v1.json")
 STATE_DIRECTORY = Path(".local-coder/model-services")
+INTERRUPT_GRACE_SECONDS = 1
+TERMINATE_GRACE_SECONDS = 2
+KILL_WAIT_SECONDS = 5
 
 
 class ModelServiceError(RuntimeError):
@@ -498,6 +501,21 @@ class ModelServiceManager:
             if not self._wait_for_exit(pid, 5):
                 raise ModelServiceError(f"Could not stop llama-server PID {pid}")
 
+    def _stop_pid_for_interrupt(self, pid: int) -> None:
+        """Stop a managed server promptly after an operator interrupt."""
+        for interrupt_signal, timeout in (
+            (signal.SIGINT, INTERRUPT_GRACE_SECONDS),
+            (signal.SIGTERM, TERMINATE_GRACE_SECONDS),
+            (signal.SIGKILL, KILL_WAIT_SECONDS),
+        ):
+            try:
+                os.kill(pid, interrupt_signal)
+            except ProcessLookupError:
+                return
+            if self._wait_for_exit(pid, timeout):
+                return
+        raise ModelServiceError(f"Could not interrupt llama-server PID {pid}")
+
     def _stop_active_server(self) -> None:
         pid = self._discover_server_pid()
         identity = self.current_identity()
@@ -508,6 +526,77 @@ class ModelServiceManager:
                 )
             return
         self._stop_pid(pid)
+
+    def _stop_managed_server_locked(self, *, reason: str) -> dict[str, Any]:
+        """Stop only the llama.cpp process recorded as managed by local-coder."""
+        state = self._read_state()
+        pid = state.get("pid")
+        profile_id = state.get("profile_id")
+        if not isinstance(pid, int) or not isinstance(profile_id, str):
+            return {
+                "event": "managed_stop_skipped",
+                "at_utc": datetime.now(UTC).isoformat(),
+                "reason": reason,
+                "stopped": False,
+                "detail": "no managed llama-server is recorded",
+            }
+        if state.get("config_sha256") != self.config.config_sha256:
+            raise ModelServiceError(
+                "Refusing to stop a managed server from a different service config"
+            )
+        try:
+            profile = self.config.profiles[profile_id]
+        except KeyError as exc:
+            raise ModelServiceError(
+                f"Refusing to stop unknown managed profile: {profile_id}"
+            ) from exc
+        if not self._profile_command_matches(profile, pid):
+            raise ModelServiceError(
+                "Refusing to stop managed PID because its command no longer matches"
+            )
+
+        if reason == "keyboard_interrupt":
+            self._stop_pid_for_interrupt(pid)
+        else:
+            self._stop_pid(pid)
+        self.state_path.unlink(missing_ok=True)
+        identity = ServiceIdentity(
+            llama_alias=profile.alias,
+            model_file=profile.model.name,
+            model_path=str(profile.model),
+            configured_context_tokens=profile.context_tokens,
+            total_slots=profile.total_slots,
+            build_info=self.config.build_info,
+        )
+        event = {
+            "event": "managed_stopped",
+            "at_utc": datetime.now(UTC).isoformat(),
+            "reason": reason,
+            "stopped": True,
+            "pid": pid,
+            "profile_id": profile_id,
+            "service_identity": identity.to_dict() if identity else None,
+        }
+        self._record_event(event)
+        return event
+
+    def _stop_managed_after_interrupt_locked(self) -> None:
+        """Best-effort interrupt cleanup without replacing KeyboardInterrupt."""
+        try:
+            event = self._stop_managed_server_locked(reason="keyboard_interrupt")
+            if not event.get("stopped"):
+                self._record_event(event)
+        except Exception as exc:
+            try:
+                self._record_event(
+                    {
+                        "event": "managed_interrupt_stop_failed",
+                        "at_utc": datetime.now(UTC).isoformat(),
+                        "error": str(exc),
+                    }
+                )
+            except Exception:
+                pass
 
     def _launch_command(self, profile: ServerProfile) -> list[str]:
         return [
@@ -723,6 +812,9 @@ class ModelServiceManager:
             fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
             try:
                 return self._switch_locked(profile_id, route=route)
+            except KeyboardInterrupt:
+                self._stop_managed_after_interrupt_locked()
+                raise
             finally:
                 fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
@@ -747,6 +839,9 @@ class ModelServiceManager:
             fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
             try:
                 yield self._switch_locked(profile_id, route=route)
+            except KeyboardInterrupt:
+                self._stop_managed_after_interrupt_locked()
+                raise
             finally:
                 fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
@@ -781,6 +876,16 @@ class ModelServiceManager:
                 }
                 self._record_event(event)
                 return event
+            finally:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+    def stop_managed(self, *, reason: str = "operator_request") -> dict[str, Any]:
+        """Stop only a server launched and recorded by local-coder."""
+        self.state_root.mkdir(parents=True, exist_ok=True)
+        with self.lock_path.open("a+", encoding="utf-8") as lock_handle:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            try:
+                return self._stop_managed_server_locked(reason=reason)
             finally:
                 fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 

@@ -83,6 +83,8 @@ class AuditedModel:
         """Generate one response and persist known token counts."""
         started = time.perf_counter()
         metadata: dict[str, Any] = {}
+        prompt_tokens: int | None = None
+        completion_tokens: int | None = None
         if self._usage_budget is not None:
             self._usage_budget.reserve_call()
         try:
@@ -101,9 +103,10 @@ class AuditedModel:
             completion_tokens = normalized.completion_tokens
             metadata["status"] = "success"
             metadata.update(normalized.bounded_metadata())
+        except KeyboardInterrupt:
+            metadata["status"] = "interrupted"
+            raise
         except Exception as exc:
-            prompt_tokens = None
-            completion_tokens = None
             normalized = normalize_provider_error(exc, model=self._route)
             metadata.update(status="error", error_type=type(exc).__name__)
             metadata.update(normalized.bounded_metadata())

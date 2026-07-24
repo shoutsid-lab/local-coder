@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import signal
 from pathlib import Path
 
 import pytest
@@ -285,6 +286,143 @@ def test_route_session_holds_lock_through_request(
         assert events == [fcntl.LOCK_EX]
 
     assert events[-1] == fcntl.LOCK_UN
+
+
+def test_route_session_interrupt_stops_managed_server_before_unlock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = _write_config(tmp_path)
+    manager = ModelServiceManager(tmp_path, config_path=config_path)
+    events: list[object] = []
+    monkeypatch.setattr(
+        "runtime.model_service.fcntl.flock",
+        lambda _fd, operation: events.append(operation),
+    )
+    monkeypatch.setattr(
+        manager,
+        "_switch_locked",
+        lambda profile_id, route: {
+            "profile_id": profile_id,
+            "route": route,
+        },
+    )
+    monkeypatch.setattr(
+        manager,
+        "_stop_managed_after_interrupt_locked",
+        lambda: events.append("stopped"),
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        with manager.route_session("local-reason"):
+            raise KeyboardInterrupt
+
+    assert events == [fcntl.LOCK_EX, "stopped", fcntl.LOCK_UN]
+
+
+def test_route_preparation_interrupt_stops_managed_server_before_unlock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = _write_config(tmp_path)
+    manager = ModelServiceManager(tmp_path, config_path=config_path)
+    events: list[object] = []
+    monkeypatch.setattr(
+        "runtime.model_service.fcntl.flock",
+        lambda _fd, operation: events.append(operation),
+    )
+
+    def interrupt(*_args: object, **_kwargs: object) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(manager, "_switch_locked", interrupt)
+    monkeypatch.setattr(
+        manager,
+        "_stop_managed_after_interrupt_locked",
+        lambda: events.append("stopped"),
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        manager.ensure_route("local-reason")
+
+    assert events == [fcntl.LOCK_EX, "stopped", fcntl.LOCK_UN]
+
+
+def test_stop_managed_does_not_kill_unowned_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = _write_config(tmp_path)
+    manager = ModelServiceManager(tmp_path, config_path=config_path)
+    stopped: list[int] = []
+    monkeypatch.setattr(manager, "_stop_pid", lambda pid: stopped.append(pid))
+
+    result = manager.stop_managed(reason="keyboard_interrupt")
+
+    assert result["stopped"] is False
+    assert stopped == []
+
+
+def test_stop_managed_stops_recorded_exact_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = _write_config(tmp_path)
+    manager = ModelServiceManager(tmp_path, config_path=config_path)
+    manager._write_state(
+        {
+            "config_sha256": manager.config.config_sha256,
+            "pid": 42,
+            "profile_id": "fast-qwen",
+        }
+    )
+    identity = _identity(
+        "local-coder",
+        "qwen.gguf",
+        model_path=manager.config.profiles["fast-qwen"].model,
+    )
+    monkeypatch.setattr(manager, "current_identity", lambda: identity)
+    monkeypatch.setattr(manager, "_profile_command_matches", lambda *_: True)
+    stopped: list[int] = []
+    monkeypatch.setattr(
+        manager,
+        "_stop_pid_for_interrupt",
+        lambda pid: stopped.append(pid),
+    )
+    events: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        manager,
+        "_record_event",
+        lambda event: events.append(dict(event)),
+    )
+
+    result = manager.stop_managed(reason="keyboard_interrupt")
+
+    assert result["stopped"] is True
+    assert stopped == [42]
+    assert not manager.state_path.exists()
+    assert events[-1]["event"] == "managed_stopped"
+    assert events[-1]["reason"] == "keyboard_interrupt"
+
+
+def test_interrupt_stop_escalates_without_normal_twenty_second_wait(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = _write_config(tmp_path)
+    manager = ModelServiceManager(tmp_path, config_path=config_path)
+    signals: list[int] = []
+    waits: list[int] = []
+    monkeypatch.setattr(
+        "runtime.model_service.os.kill",
+        lambda _pid, sent_signal: signals.append(sent_signal),
+    )
+
+    def wait(_pid: int, timeout: int) -> bool:
+        waits.append(timeout)
+        return len(waits) == 3
+
+    monkeypatch.setattr(manager, "_wait_for_exit", wait)
+
+    manager._stop_pid_for_interrupt(42)
+
+    assert signals == [signal.SIGINT, signal.SIGTERM, signal.SIGKILL]
+    assert waits == [1, 2, 5]
 
 
 def test_model_registry_delegates_route_preparation() -> None:

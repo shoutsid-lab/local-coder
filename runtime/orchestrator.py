@@ -144,7 +144,15 @@ class AgentOrchestrator:
     def run(self, task: str) -> RunSummary:
         if self.config.mode != "agentic":
             raise ValueError("Only agentic mode is currently supported.")
-        self._service_preflight()
+        try:
+            self._service_preflight()
+        except KeyboardInterrupt:
+            if self.model_services is not None:
+                try:
+                    self.model_services.stop_managed(reason="keyboard_interrupt")
+                except Exception:
+                    pass
+            raise
         base_branch = current_branch(self.root)
         baseline_commit, model_hash, configuration_hash = self._run_identity()
         run_id = self.state.create_run(
@@ -232,6 +240,9 @@ Required process:
             manager_status = "completed"
             try:
                 result: Any = bundle.manager.run(prompt, reset=True)
+            except KeyboardInterrupt:
+                manager_status = "cancelled"
+                raise
             except Exception:
                 manager_status = "failed"
                 raise
@@ -304,6 +315,19 @@ Required process:
                 result=result_text,
                 review_verdict=review_verdict,
             )
+        except KeyboardInterrupt:
+            self.state.update_run(
+                run_id,
+                status="cancelled",
+                error="KeyboardInterrupt: interrupted by operator",
+                result={"interrupted": True},
+            )
+            if self.model_services is not None:
+                try:
+                    self.model_services.stop_managed(reason="keyboard_interrupt")
+                except Exception:
+                    pass
+            raise
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             self.state.update_run(
