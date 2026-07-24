@@ -286,7 +286,6 @@ LIVE_E2E_KEEP_WORKTREE=1 make live-e2e
 | [`docs/PIPELINE.md`](docs/PIPELINE.md) | Editing, verification, review, and approval flow. |
 | [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) | Coding, capability, and roadmap rules. |
 | [`docs/REPOSITORY_INTELLIGENCE.md`](docs/REPOSITORY_INTELLIGENCE.md) | Search installation, registry, index, query, context, and recovery operations. |
-| [`docs/roadmaps/INDEXED_REPOSITORY_INTELLIGENCE.md`](docs/roadmaps/INDEXED_REPOSITORY_INTELLIGENCE.md) | Completed indexed-repository intelligence design and implementation record. |
 | [`docs/README.md`](docs/README.md) | Complete operator and programme-document index. |
 | [`docs/HISTORY.md`](docs/HISTORY.md) | Concise completed-programme index. |
 
