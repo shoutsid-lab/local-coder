@@ -73,6 +73,30 @@ Manual service commands remain available for diagnosis:
 Normal `run`, `repair`, and `review` commands do not require those manual switch
 commands. See [`docs/MODEL_SWITCHING.md`](docs/MODEL_SWITCHING.md).
 
+## Build repository intelligence indexes
+
+Repository search uses ripgrep for current bytes and optional persistent Zoekt and
+Universal Ctags indexes. Install and inspect the local backends:
+
+```bash
+sudo apt install ripgrep universal-ctags golang-go plocate
+make search-install
+make search-check
+```
+
+Register and build an external disposable index, then search it:
+
+```bash
+./local-coder.py index add ~/code/local-coder --id local-coder
+./local-coder.py index build local-coder
+./local-coder.py search 'RepositoryContextCompiler' --mode symbol
+```
+
+Explorer and Planner automatically receive ranked, bounded context from the active
+worktree. Dirty and untracked files override committed index results. Missing Zoekt or
+Ctags degrades to ripgrep without changing source-write authority. See
+[`docs/REPOSITORY_INTELLIGENCE.md`](docs/REPOSITORY_INTELLIGENCE.md).
+
 ## Run the coding harness
 
 Inspect the available role skills and run one bounded task:
@@ -81,10 +105,13 @@ Inspect the available role skills and run one bounded task:
 ./local-coder.py skills
 make skills-lint
 ./local-coder.py run "Implement one atomic task"
+./local-coder.py run "Inspect a shared contract" --search-repo registered-id
 ```
 
-Each run creates a sibling worktree and an `agent/...` branch. The runtime does not
-commit, merge, push, or remove the worktree.
+Each run creates a sibling worktree and an `agent/...` branch. Repeated
+`--search-repo` options attach registered repositories as read-only Explorer and
+Planner context without expanding edit scope. The runtime does not commit, merge,
+push, or remove the worktree.
 
 Inspect recorded evidence:
 
@@ -258,7 +285,8 @@ LIVE_E2E_KEEP_WORKTREE=1 make live-e2e
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Component and trust boundaries. |
 | [`docs/PIPELINE.md`](docs/PIPELINE.md) | Editing, verification, review, and approval flow. |
 | [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) | Coding, capability, and roadmap rules. |
-| [`docs/roadmaps/INDEXED_REPOSITORY_INTELLIGENCE.md`](docs/roadmaps/INDEXED_REPOSITORY_INTELLIGENCE.md) | Active indexed search and agent-context implementation plan. |
+| [`docs/REPOSITORY_INTELLIGENCE.md`](docs/REPOSITORY_INTELLIGENCE.md) | Search installation, registry, index, query, context, and recovery operations. |
+| [`docs/roadmaps/INDEXED_REPOSITORY_INTELLIGENCE.md`](docs/roadmaps/INDEXED_REPOSITORY_INTELLIGENCE.md) | Completed indexed-repository intelligence design and implementation record. |
 | [`docs/README.md`](docs/README.md) | Complete operator and programme-document index. |
 | [`docs/HISTORY.md`](docs/HISTORY.md) | Concise completed-programme index. |
 

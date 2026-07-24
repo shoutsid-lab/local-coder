@@ -18,8 +18,6 @@ from .editor import apply_edits, parse_edit_payload, request_and_apply
 from .state import StateStore
 from .verification_evidence import summarize_verification_output
 
-TRUSTED_READ_PREFIXES = ("evaluation/holdout/", "evaluation/oracles/")
-
 
 @dataclass(frozen=True)
 class Worktree:
@@ -180,6 +178,7 @@ class ToolContext:
     reviewer_route: str = "local-review"
     editor_route: str = "local-fast"
     route_session: Callable[[str], Any] | None = None
+    attached_repository_ids: tuple[str, ...] = ()
 
     @staticmethod
     def _normalized_path(relative: str) -> str:
@@ -190,14 +189,14 @@ class ToolContext:
         return normalized
 
     def _safe_path(self, relative: str) -> Path:
-        normalized = Path(relative).as_posix().lstrip("./")
-        if normalized.startswith(TRUSTED_READ_PREFIXES):
-            raise ValueError(f"Path is restricted to the trusted evaluator: {relative}")
-        candidate = (self.worktree.path / relative).resolve()
-        root = self.worktree.path.resolve()
-        if candidate != root and root not in candidate.parents:
-            raise ValueError(f"Path escapes the worktree: {relative}")
-        return candidate
+        from .search.path_policy import safe_repository_path
+
+        resolved = safe_repository_path(self.worktree.path, relative)
+        if resolved is None:
+            raise ValueError(
+                f"Path escapes the worktree or protected readable scope: {relative}"
+            )
+        return resolved[1]
 
     def _recorded(
         self,
@@ -259,24 +258,30 @@ class ToolContext:
         return self._recorded("list_files", {"pattern": pattern}, operation)
 
     def search_repository(self, query: str, pattern: str = "*") -> str:
-        """Search tracked UTF-8 files without invoking a shell."""
+        """Search current worktree bytes through the repository search plane."""
 
         def operation() -> str:
-            file_result = command(["git", "ls-files", pattern], cwd=self.worktree.path)
-            if file_result.returncode != 0:
-                raise RuntimeError(file_result.stderr.strip())
-            matches: list[str] = []
-            for relative in file_result.stdout.splitlines():
-                path = self._safe_path(relative)
-                try:
-                    lines = path.read_text(encoding="utf-8").splitlines()
-                except (UnicodeDecodeError, OSError):
-                    continue
-                for number, line in enumerate(lines, start=1):
-                    if query.lower() in line.lower():
-                        matches.append(f"{relative}:{number}:{line}")
-                        if len(matches) >= 100:
-                            return "\n".join(matches)
+            from .search.context_compiler import RepositoryContextCompiler
+            from .search.contracts import RepositorySearchRequest
+
+            compiler = RepositoryContextCompiler(self.root)
+            active = compiler.registry.find_path(self.worktree.path)
+            repository_id = active.id if active is not None else "active"
+            request = RepositorySearchRequest(
+                query=query,
+                repository_ids=(repository_id,),
+                worktree=self.worktree.path,
+                mode="text",
+                path_globs=(() if pattern == "*" else (pattern,)),
+                limit=100,
+                active_repository_id=repository_id,
+            )
+            hits = compiler.engine.search(request)
+            matches = [
+                f"{hit.path}:{hit.start_line or 1}:{hit.snippet}"
+                for hit in hits
+                if hit.match_kind != "deleted"
+            ]
             return "\n".join(matches) or "No matches found."
 
         return self._recorded(
@@ -623,11 +628,11 @@ def build_smol_tools(context: ToolContext, names: tuple[str, ...]) -> list[Any]:
 
     @tool
     def search_repository(query: str, pattern: str = "*") -> str:
-        """Search tracked text files for a case-insensitive string.
+        """Search current repository text for a case-insensitive string.
 
         Args:
             query: Text to locate.
-            pattern: Git path glob restricting searched files.
+            pattern: Path glob restricting searched files.
         """
         return context.search_repository(query, pattern)
 

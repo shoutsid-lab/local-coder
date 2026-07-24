@@ -247,6 +247,7 @@ def handle_run(args: argparse.Namespace) -> int:
         expected_changed_paths=(
             tuple(args.expected_file) if args.expected_file else None
         ),
+        attached_repository_ids=tuple(getattr(args, "search_repo", None) or ()),
     )
     summary = AgentOrchestrator(config).run(args.task)
     print(summary.to_json())
@@ -306,6 +307,7 @@ def handle_run_plan_step(args: argparse.Namespace) -> int:
         keep_worktree=True,
         mode="agentic",
         expected_changed_paths=step.editable_files,
+        attached_repository_ids=tuple(getattr(args, "search_repo", None) or ()),
     )
     summary = AgentOrchestrator(config).run(render_step_task(plan, step))
     print(summary.to_json())
@@ -1468,6 +1470,155 @@ def handle_skills(_: argparse.Namespace) -> int:
     return 0
 
 
+def _repository_search_services():
+    """Construct repository-search services from the committed profile."""
+    from runtime.search.ctags_backend import CtagsBackend
+    from runtime.search.index_manager import IndexManager
+    from runtime.search.profile import load_search_profile
+    from runtime.search.registry import RepositoryRegistry
+    from runtime.search.ripgrep_backend import RipgrepBackend
+    from runtime.search.zoekt_backend import ZoektBackend
+
+    profile = load_search_profile(ROOT)
+    registry = RepositoryRegistry()
+    ripgrep = RipgrepBackend(profile)
+    zoekt = ZoektBackend(profile)
+    ctags = CtagsBackend(profile)
+    indexes = IndexManager(registry, zoekt, ctags)
+    return profile, registry, ripgrep, zoekt, ctags, indexes
+
+
+def handle_search_check(_: argparse.Namespace) -> int:
+    """Report optional repository-search backend and registry readiness."""
+    try:
+        _, registry, ripgrep, zoekt, ctags, indexes = _repository_search_services()
+        records = indexes.status()
+    except Exception as exc:
+        print(f"repository search INVALID ({exc})", file=sys.stderr)
+        return 1
+    print(f"ripgrep           {ripgrep.version() or 'UNAVAILABLE'}")
+    print(
+        "Zoekt CLI         "
+        f"{zoekt.version() or 'UNAVAILABLE (ripgrep fallback active)'}"
+    )
+    print(
+        "Universal Ctags   "
+        f"{ctags.version() or 'UNAVAILABLE (symbol fallback active)'}"
+    )
+    print(f"registry          {len(registry.list())} repositories")
+    current = sum(1 for item in records if item.get("current"))
+    print(f"indexes           {current}/{len(records)} current")
+    return 0 if ripgrep.available else 1
+
+
+def handle_index(args: argparse.Namespace) -> int:
+    """Manage external disposable repository indexes and discovery metadata."""
+    from dataclasses import asdict
+
+    from runtime.search.registry import (
+        RegistryError,
+        discover_repositories,
+        locate_registered_filename,
+    )
+
+    try:
+        profile, registry, _, _, _, indexes = _repository_search_services()
+        if args.index_action == "add":
+            payload = asdict(registry.add(args.path, repository_id=args.repository_id))
+        elif args.index_action == "remove":
+            payload = asdict(registry.remove(args.repository_id))
+        elif args.index_action in {"build", "refresh"}:
+            identifiers = (
+                [args.repository_id]
+                if args.repository_id
+                else [item.id for item in registry.list()]
+            )
+            operation = (
+                indexes.build if args.index_action == "build" else indexes.refresh
+            )
+            payload = [operation(identifier) for identifier in identifiers]
+        elif args.index_action == "status":
+            payload = list(indexes.status(args.repository_id))
+        elif args.index_action == "discover":
+            roots = args.roots or [ROOT.parent]
+            payload = [
+                str(item)
+                for item in discover_repositories(
+                    roots,
+                    maximum_depth=args.depth,
+                    limit=args.limit,
+                )
+            ]
+        elif args.index_action == "locate":
+            payload = list(
+                locate_registered_filename(
+                    args.filename,
+                    registry=registry,
+                    profile=profile,
+                    limit=args.limit,
+                )
+            )
+        else:
+            raise RegistryError(f"Unsupported index action: {args.index_action}")
+    except (OSError, ValueError, RegistryError, RuntimeError) as exc:
+        print(f"Repository index error: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def handle_repository_search(args: argparse.Namespace) -> int:
+    """Run one bounded repository-scoped search through trusted adapters."""
+    from dataclasses import asdict
+
+    from runtime.search.contracts import RepositorySearchRequest
+    from runtime.search.engine import RepositorySearchEngine
+    from runtime.search.git_backend import GitFallbackBackend
+    from runtime.search.registry import RegistryError
+
+    try:
+        _, registry, ripgrep, zoekt, ctags, indexes = _repository_search_services()
+        repository_ids = tuple(args.repository or ())
+        active = registry.find_path(ROOT)
+        active_repository_id = active.id if active is not None else "active"
+        if not repository_ids:
+            repository_ids = (active_repository_id,)
+        elif active_repository_id not in repository_ids:
+            active_repository_id = None
+        engine = RepositorySearchEngine(
+            registry=registry,
+            ripgrep=ripgrep,
+            zoekt=zoekt,
+            ctags=ctags,
+            indexes=indexes,
+            fallback=GitFallbackBackend(),
+        )
+        request = RepositorySearchRequest(
+            query=args.query,
+            repository_ids=repository_ids,
+            worktree=ROOT,
+            mode=args.mode,
+            path_globs=tuple(args.glob or ()),
+            limit=args.limit,
+            timeout_seconds=args.timeout,
+            active_repository_id=active_repository_id,
+        )
+        hits = engine.search(request)
+        payload = {
+            "query": args.query,
+            "mode": args.mode,
+            "repositories": list(repository_ids),
+            "hits": [asdict(item) for item in hits],
+            "backend_failures": engine.failures,
+            "degraded": bool(engine.failures),
+        }
+    except (OSError, ValueError, RegistryError, RuntimeError) as exc:
+        print(f"Repository search error: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Local AI coding pipeline CLI.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1498,6 +1649,79 @@ def build_parser() -> argparse.ArgumentParser:
     )
     role_profiles_parser.set_defaults(handler=handle_role_profiles)
 
+    search_check_parser = subparsers.add_parser(
+        "search-check",
+        help="Check repository-search backends, registry, and index freshness.",
+    )
+    search_check_parser.set_defaults(handler=handle_search_check)
+
+    search_parser = subparsers.add_parser(
+        "search",
+        help="Search current bytes and registered persistent indexes.",
+    )
+    search_parser.add_argument("query")
+    search_parser.add_argument(
+        "--repo",
+        dest="repository",
+        action="append",
+        help="Registered repository ID; may be repeated.",
+    )
+    search_parser.add_argument(
+        "--mode",
+        choices=("auto", "filename", "text", "regex", "symbol", "changed"),
+        default="auto",
+    )
+    search_parser.add_argument(
+        "--glob",
+        action="append",
+        help="Restrict paths with a ripgrep/filename glob; may be repeated.",
+    )
+    search_parser.add_argument("--limit", type=int, default=20)
+    search_parser.add_argument("--timeout", type=float, default=5.0)
+    search_parser.set_defaults(handler=handle_repository_search)
+
+    index_parser = subparsers.add_parser(
+        "index",
+        help="Register repositories and manage disposable search indexes.",
+    )
+    index_subparsers = index_parser.add_subparsers(dest="index_action", required=True)
+    index_add = index_subparsers.add_parser("add", help="Register a Git repository.")
+    index_add.add_argument("path", type=Path)
+    index_add.add_argument("--id", dest="repository_id")
+    index_add.set_defaults(handler=handle_index)
+    index_remove = index_subparsers.add_parser(
+        "remove", help="Remove repository registration only."
+    )
+    index_remove.add_argument("repository_id")
+    index_remove.set_defaults(handler=handle_index)
+    for action in ("build", "refresh"):
+        child = index_subparsers.add_parser(
+            action, help=f"{action.title()} disposable repository indexes."
+        )
+        child.add_argument("repository_id", nargs="?")
+        child.set_defaults(handler=handle_index)
+    index_status = index_subparsers.add_parser(
+        "status", help="Show live registry and index freshness."
+    )
+    index_status.add_argument("repository_id", nargs="?")
+    index_status.set_defaults(handler=handle_index)
+    index_discover = index_subparsers.add_parser(
+        "discover",
+        help=(
+            "Find Git repositories under explicit roots without registering " "them."
+        ),
+    )
+    index_discover.add_argument("roots", type=Path, nargs="*")
+    index_discover.add_argument("--depth", type=int, default=5)
+    index_discover.add_argument("--limit", type=int, default=100)
+    index_discover.set_defaults(handler=handle_index)
+    index_locate = index_subparsers.add_parser(
+        "locate", help="Locate a filename only inside already registered repositories."
+    )
+    index_locate.add_argument("filename")
+    index_locate.add_argument("--limit", type=int, default=50)
+    index_locate.set_defaults(handler=handle_index)
+
     run_parser = subparsers.add_parser(
         "run", help="Run the role-separated agent harness in an isolated worktree."
     )
@@ -1512,6 +1736,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--expected-file",
         action="append",
         help="Predeclare an expected changed path; may be repeated.",
+    )
+    run_parser.add_argument(
+        "--search-repo",
+        action="append",
+        help="Attach one registered repository for read-only search; may repeat.",
     )
     run_parser.set_defaults(handler=handle_run)
 
@@ -1543,6 +1772,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=8,
         help="Maximum manager-agent steps for this atomic plan step.",
+    )
+    run_plan_parser.add_argument(
+        "--search-repo",
+        action="append",
+        help="Attach one registered repository for read-only search; may repeat.",
     )
     run_plan_parser.set_defaults(handler=handle_run_plan_step)
 

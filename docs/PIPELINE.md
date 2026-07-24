@@ -160,6 +160,24 @@ is never substituted for a missing final answer or retained in normal audit reco
 * Atomic repair mode: passed
 * Manual commit gate: passed
 
+## Repository context compilation
+
+Before Explorer or Planner invokes its typed DSPy programme, the runtime derives a bounded
+query plan from the authoritative task and delegated request. Filename, path, exact text,
+regex, symbol, behavior-term, and changed-file signals route through trusted adapters.
+Results from current-worktree ripgrep, committed Zoekt indexes, Universal Ctags, and Git
+state are merged with current dirty paths taking priority.
+
+Selected source ranges are reread from current bytes, line-numbered, clipped to the role
+policy, and hashed. Explorer receives broader short-range evidence; Planner receives fewer,
+longer definition and test ranges. The DSPy programme remains one-shot. If persistent search
+backends are absent or stale, retrieval falls back to ripgrep and then a bounded Git scanner
+without blocking the edit pipeline.
+
+Search lineage is recorded as a run artifact, including queries, selected paths and ranges,
+content hashes, unresolved terms, truncation, timings, and backend failures. Repository
+content is not duplicated into the SQLite lineage record.
+
 ## Role-Separated Agent Runtime
 
 The primary runtime is now a smolagents manager with managed explorer, planner,
@@ -169,10 +187,13 @@ worktree, verification, and review components.
 ```bash
 make agent-install
 ./local-coder.py run "Implement one concrete task"
+./local-coder.py run "Inspect a shared contract" --search-repo registered-id
 ```
 
 The command requires a clean base repository, creates an isolated sibling worktree, and
-leaves all edits uncommitted for independent inspection. Each editor call validates a
+leaves all edits uncommitted for independent inspection. Registered repositories may
+be attached repeatedly with `--search-repo`; they supply read-only Explorer and Planner
+context and never expand editable paths. Each editor call validates a
 complete atomic edit batch before writing; the orchestrator runs full deterministic
 verification after the planned steps and invokes the read-only reviewer against tracked,
 staged, and untracked changes.

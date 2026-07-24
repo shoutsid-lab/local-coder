@@ -30,6 +30,7 @@ class OrchestratorConfig:
     max_model_calls: int | None = None
     max_prompt_tokens: int | None = None
     max_completion_tokens: int | None = None
+    attached_repository_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -109,6 +110,16 @@ class AgentOrchestrator:
         self.model_services: ModelServiceManager | None = None
         self.models = ModelRegistry()
 
+    def _validate_attached_repositories(self) -> None:
+        """Reject unknown or disabled cross-repository search attachments."""
+        from .search.registry import RepositoryRegistry
+
+        registry = RepositoryRegistry()
+        for repository_id in dict.fromkeys(self.config.attached_repository_ids):
+            record = registry.get(repository_id)
+            if not record.search_enabled:
+                raise RuntimeError(f"Repository search is disabled: {repository_id}")
+
     def _service_preflight(self) -> None:
         if self.model_services is None:
             self.model_services = ModelServiceManager(self.root)
@@ -131,6 +142,22 @@ class AgentOrchestrator:
             "runtime/orchestrator.py",
             "runtime/role_profiles.py",
             "runtime/tools.py",
+            "runtime/search/__init__.py",
+            "runtime/search/context_compiler.py",
+            "runtime/search/contracts.py",
+            "runtime/search/ctags_backend.py",
+            "runtime/search/engine.py",
+            "runtime/search/git_backend.py",
+            "runtime/search/git_state.py",
+            "runtime/search/index_manager.py",
+            "runtime/search/path_policy.py",
+            "runtime/search/policies.py",
+            "runtime/search/profile.py",
+            "runtime/search/query_router.py",
+            "runtime/search/registry.py",
+            "runtime/search/ripgrep_backend.py",
+            "runtime/search/zoekt_backend.py",
+            "profiles/repository-search-v1.json",
             "profiles/model-services-v1.json",
             "profiles/qwythos-role-activation-v1.json",
             "evidence/track-g/baseline-track-g-holdout-v1-20260724T031908Z.json",
@@ -139,12 +166,17 @@ class AgentOrchestrator:
         ):
             hasher.update(relative.encode("utf-8"))
             hasher.update((self.root / relative).read_bytes())
+        hasher.update(b"attached_repository_ids\0")
+        for repository_id in sorted(dict.fromkeys(self.config.attached_repository_ids)):
+            hasher.update(repository_id.encode("utf-8"))
+            hasher.update(b"\0")
         return baseline.stdout.strip(), model_hash, hasher.hexdigest()
 
     def run(self, task: str) -> RunSummary:
         if self.config.mode != "agentic":
             raise ValueError("Only agentic mode is currently supported.")
         try:
+            self._validate_attached_repositories()
             self._service_preflight()
         except KeyboardInterrupt:
             if self.model_services is not None:
@@ -206,6 +238,7 @@ class AgentOrchestrator:
                 reviewer_route=role_route("reviewer"),
                 editor_route=role_route("implementer"),
                 route_session=self.models.route_session,
+                attached_repository_ids=self.config.attached_repository_ids,
             )
             skills = discover_skills(worktree.path / ".local-coder" / "skills")
             bundle = build_agent_bundle(

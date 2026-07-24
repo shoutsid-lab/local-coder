@@ -1,5 +1,5 @@
 PYTHON := .venv/bin/python
-PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runtime/*.py runtime/dspy_programs/*.py tests/*.py
+PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runtime/*.py runtime/dspy_programs/*.py runtime/search/*.py tests/*.py
 
 .PHONY: health format format-check lint agent-check agent-install agent-smoke handoff-check test verify \
 	metrics review review-cached skills skills-lint gepa-dataset-check gepa-runner-check \
@@ -8,7 +8,7 @@ PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runt
 	route-contract-diagnostic-check route-contract-diagnostic-collect \
 	route-contract-diagnostic-compare route-adapter-diagnostic-check \
 	route-adapter-diagnostic-collect route-adapter-diagnostic-compare \
-	model-service-check role-profile-check \
+	model-service-check role-profile-check search-install search-check repository-search-check \
 	real-task-corpus-check real-task-corpus-summary real-task-development-check \
 	real-task-development-collect real-task-profile-tuning-check \
 	real-task-profile-tuning-collect real-task-profile-tuning-compare \
@@ -49,6 +49,7 @@ agent-check:
 	$(PYTHON) -m json.tool profiles/track-g-holdout-qualification-v1.json >/dev/null
 	$(PYTHON) -m json.tool profiles/qwythos-role-activation-v1.json >/dev/null
 	$(PYTHON) -m json.tool profiles/model-services-v1.json >/dev/null
+	$(PYTHON) -m json.tool profiles/repository-search-v1.json >/dev/null
 	$(PYTHON) -m json.tool evidence/track-g/baseline-track-g-holdout-v1-20260724T031908Z.json >/dev/null
 	$(PYTHON) -m json.tool evidence/track-g/candidate-track-g-holdout-v1-20260724T032051Z.json >/dev/null
 	$(PYTHON) -m json.tool evidence/track-g/qwythos-holdout-qualification-v1.json >/dev/null
@@ -119,6 +120,24 @@ model-service-check:
 
 role-profile-check:
 	$(PYTHON) -m pytest -q --tb=short tests/test_role_profiles.py
+
+search-install:
+	@command -v rg >/dev/null || (echo "Install ripgrep first: sudo apt install ripgrep"; exit 1)
+	@command -v ctags >/dev/null || (echo "Install Universal Ctags first: sudo apt install universal-ctags"; exit 1)
+	@command -v go >/dev/null || (echo "Install Go before building pinned Zoekt commands."; exit 1)
+	@version=$$($(PYTHON) -c 'import json; print(json.load(open("profiles/repository-search-v1.json"))["pins"]["zoekt_module_version"])'); \
+		go install github.com/sourcegraph/zoekt/cmd/zoekt@$$version; \
+		go install github.com/sourcegraph/zoekt/cmd/zoekt-git-index@$$version
+	@echo "Ensure $$(go env GOPATH)/bin is on PATH, then run make search-check."
+
+search-check:
+	$(PYTHON) local-coder.py search-check
+
+repository-search-check:
+	$(PYTHON) -m pytest -q --tb=short \
+		tests/test_repository_search.py tests/test_search_registry.py \
+		tests/test_zoekt_backend.py tests/test_ctags_backend.py \
+		tests/test_repository_context.py tests/test_index_manager.py
 
 route-qualification-check:
 	$(PYTHON) -m pytest -q --tb=short tests/test_route_qualification.py

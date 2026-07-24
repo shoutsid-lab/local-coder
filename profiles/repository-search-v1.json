@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "binaries": {
+    "ripgrep": "rg",
+    "zoekt": "zoekt",
+    "zoekt_git_index": "zoekt-git-index",
+    "ctags": "ctags",
+    "plocate": "plocate"
+  },
+  "limits": {
+    "max_file_size": "2M",
+    "default_limit": 20,
+    "timeout_seconds": 5.0,
+    "context_character_budget": 18000
+  },
+  "pins": {
+    "zoekt_module_version": "v0.0.0-20260501120958-f59b17b6437b"
+  }
+}

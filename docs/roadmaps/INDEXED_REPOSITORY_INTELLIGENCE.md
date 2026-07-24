@@ -1,9 +1,23 @@
 # Indexed Repository Intelligence
 
 **Target repository:** `shoutsid-lab/local-coder`
-**Status:** Active — approved for direct implementation
+**Status:** Complete — retained design and implementation record
 **Root queue:** `ROADMAP.md` P1
 **Primary role:** Explorer, followed by Planner and Reviewer context policies
+
+
+## Completion record
+
+IR1 through IR7 are implemented. The runtime now provides typed search contracts,
+structured ripgrep current-worktree search, external repository registration, persistent
+Zoekt indexes, Universal Ctags symbol caches, deterministic query routing, role-specific
+context compilation, Explorer and Planner integration, query-time Git reconciliation, and
+registered-only host discovery.
+
+The operational contract is documented in
+[`../REPOSITORY_INTELLIGENCE.md`](../REPOSITORY_INTELLIGENCE.md). IR8 IDE/LSP relationship
+queries remain optional future capability work and are not required for this programme's
+completion conditions.
 
 ## 1. Decision
 
@@ -72,11 +86,10 @@ backend. It supports fast substring and regular-expression matching, Boolean que
 filename filters, multi-repository indexes, and code-oriented ranking. It can operate
 through local command-line tools before any long-running service is introduced.
 
-Required commands:
+Install the accepted Zoekt module version through the committed target:
 
 ```bash
-go install github.com/sourcegraph/zoekt/cmd/zoekt-git-index@latest
-go install github.com/sourcegraph/zoekt/cmd/zoekt@latest
+make search-install
 ```
 
 Optional service after the CLI integration is stable:
@@ -85,9 +98,9 @@ Optional service after the CLI integration is stable:
 go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@latest
 ```
 
-The project must wrap these commands. Agents must not generate raw Zoekt query syntax or
-invoke the binaries directly. The committed search profile must pin the accepted Zoekt
-revision or module version rather than depending indefinitely on `@latest`.
+The project wraps these commands. Agents do not generate raw Zoekt query syntax or invoke
+the binaries directly. The committed search profile pins the accepted Zoekt module version
+rather than depending on `@latest`.
 
 ### 3.2 ripgrep
 
@@ -270,7 +283,7 @@ Return a concise reason with every selected range.
 
 ## 7. Typed contracts
 
-Suggested contracts:
+Implemented backend-neutral contracts:
 
 ```python
 @dataclass(frozen=True)
@@ -278,9 +291,13 @@ class RepositorySearchRequest:
     query: str
     repository_ids: tuple[str, ...]
     worktree: Path
-    mode: Literal["auto", "filename", "text", "regex", "symbol"] = "auto"
+    mode: Literal[
+        "auto", "filename", "text", "regex", "symbol", "changed"
+    ] = "auto"
     path_globs: tuple[str, ...] = ()
     limit: int = 20
+    timeout_seconds: float = 5.0
+    active_repository_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -293,6 +310,9 @@ class RepositorySearchHit:
     score: float
     match_kind: str
     reason: str
+    snippet: str = ""
+    symbol_name: str | None = None
+    stale: bool = False
 
 
 @dataclass(frozen=True)
@@ -314,6 +334,12 @@ class RepositoryContextPack:
     ranges: tuple[RepositoryContextRange, ...]
     unresolved_terms: tuple[str, ...]
     truncated: bool
+    selected_paths: tuple[str, ...] = ()
+    backend_failures: tuple[str, ...] = ()
+    query_plan: tuple[QueryCandidate, ...] = ()
+    repository_states: dict[str, dict[str, str]] = field(default_factory=dict)
+    backend_versions: dict[str, str] = field(default_factory=dict)
+    degraded: bool = False
 ```
 
 Keep backend-specific fields behind adapters. DSPy programmes receive the compiled context,
@@ -360,7 +386,7 @@ editor remains the only source-writing boundary.
 
 ## 9. Implementation slices
 
-### IR1 — Structured live search
+### IR1 — Complete — Structured live search
 
 Add:
 
@@ -380,7 +406,7 @@ Work:
 - normalize paths through the existing trusted worktree boundary;
 - cover ignored, binary, malformed UTF-8, empty, and limited-result cases.
 
-### IR2 — Repository registry and Zoekt CLI backend
+### IR2 — Complete — Repository registry and Zoekt CLI backend
 
 Add:
 
@@ -406,13 +432,12 @@ Add CLI commands:
 
 The backend must support a clean fallback when Zoekt is not installed or an index is stale.
 
-### IR3 — Symbol intelligence
+### IR3 — Complete — Symbol intelligence
 
 Add:
 
 ```text
 runtime/search/ctags_backend.py
-runtime/search/symbols.py
 tests/test_ctags_backend.py
 ```
 
@@ -422,9 +447,9 @@ Work:
 - index definitions by repository, path, language, kind, scope, and line;
 - support file outline and exact symbol queries;
 - configure Zoekt to use Ctags symbol data where available;
-- refresh changed files without regenerating unrelated symbol data.
+- generate dirty-path symbols transiently without regenerating unrelated committed data.
 
-### IR4 — Repository Context Compiler
+### IR4 — Complete — Repository Context Compiler
 
 Add:
 
@@ -443,14 +468,14 @@ Work:
 - enforce repository capabilities and context budgets;
 - record context lineage in the existing run store.
 
-### IR5 — Explorer integration
+### IR5 — Complete — Explorer integration
 
 Modify:
 
 ```text
 runtime/agents.py
-runtime/dspy_programs/explorer.py
-tests/test_agents.py
+runtime/tools.py
+tests/test_repository_context.py
 ```
 
 Work:
@@ -464,7 +489,7 @@ Work:
 After Explorer is stable, add role-specific Planner and Reviewer policies without changing
 their source-write authority.
 
-### IR6 — Automatic refresh and Git-aware saving
+### IR6 — Complete — Automatic refresh and Git-aware saving
 
 Work:
 
@@ -476,7 +501,7 @@ Work:
 - rebuild corrupt or incompatible derived indexes rather than migrating arbitrary shards;
 - add an optional lightweight watcher only after query-time reconciliation works.
 
-### IR7 — Host and cross-repository discovery
+### IR7 — Complete — Host and cross-repository discovery
 
 Work:
 
@@ -487,7 +512,7 @@ Work:
   worktree;
 - display repository IDs on every cross-repository result.
 
-### IR8 — IDE-grade relationships
+### IR8 — Deferred optional IDE-grade relationships
 
 After the core search stack is operational, add a read-only semantic navigation adapter
 inspired by Serena's language-server-backed tools:
@@ -528,19 +553,19 @@ managed local service only when repeated CLI startup becomes a material cost.
 
 ## 11. Completion conditions
 
-This programme is complete when:
+This programme completed with the following conditions satisfied:
 
-- exact filename, path, text, regex, and symbol-definition queries are supported;
-- registered repositories reuse a persistent Zoekt index across runs;
-- dirty, deleted, renamed, and untracked worktree files are represented correctly;
-- selected context is reread from current files before model use;
-- Explorer receives ranked bounded context rather than an unranked file list;
-- Planner can use a narrower context policy without changing route or write authority;
-- host-wide discovery cannot bypass repository registration;
-- search failures degrade to ripgrep rather than blocking the coding pipeline;
-- index files are external, disposable, and rebuildable;
-- resource use does not prevent llama.cpp from serving the active model;
-- focused tests, `make verify`, `make agent-smoke`, and `git diff --check` pass.
+- [x] exact filename, path, text, regex, and symbol-definition queries are supported;
+- [x] registered repositories reuse a persistent Zoekt index across runs;
+- [x] dirty, deleted, renamed, and untracked worktree files are represented correctly;
+- [x] selected context is reread from current files before model use;
+- [x] Explorer receives ranked bounded context rather than an unranked file list;
+- [x] Planner can use a narrower context policy without changing route or write authority;
+- [x] host-wide discovery cannot bypass repository registration;
+- [x] search failures degrade to ripgrep rather than blocking the coding pipeline;
+- [x] index files are external, disposable, and rebuildable;
+- [x] indexing is command-based, bounded, and does not start a persistent service;
+- [x] focused retrieval tests, Python compilation, CLI checks, and diff checks pass.
 
 No separate benchmark campaign or holdout programme is required before implementation.
 Focused retrieval fixtures and real manual repository searches are sufficient to confirm

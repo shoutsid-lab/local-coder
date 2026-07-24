@@ -7,21 +7,15 @@ This file is the repository-wide queue for unfinished engineering work. Complete
 programmes belong in [`docs/HISTORY.md`](docs/HISTORY.md); detailed implementation plans
 belong under [`docs/roadmaps/`](docs/roadmaps/).
 
-## Current direction: improve repository intelligence
+## Current direction: close routing, then stabilize state
 
-The editing, isolation, model-routing, verification, review, campaign, and prompt-deployment
-foundations are implemented. Qwythos is qualified and activated for planner and reviewer
-calls, while Qwen remains the explorer, orchestrator, implementer, and repairer model.
+Indexed repository intelligence is implemented. Explorer and Planner now receive ranked,
+bounded current-worktree context from ripgrep, persistent Zoekt indexes, Universal Ctags,
+and Git-aware overlays. Repository registration remains read-only and external indexes are
+disposable.
 
-The next practical bottleneck is repository understanding. The current explorer evidence
-adapter extracts at most three filename-looking strings from the task and otherwise returns
-an unranked tracked-file list. The existing `search_repository` implementation rereads
-tracked files and performs a Python substring scan for each query.
-
-The primary programme is therefore direct integration of established local code-search and
-symbol-indexing tools. This is approved capability work, not a research proposal. Validation
-should confirm correct integration, current-worktree accuracy, bounded resource use, and no
-regressions; it should not repeatedly re-prove that indexed code search is useful.
+The next active item is the target-machine closeout for reasoning-route switching. State
+schema stabilization follows it.
 
 ## Completed foundation
 
@@ -35,44 +29,14 @@ The following capabilities are complete and retained:
 - prompt activation, hash-verified loading, and rollback;
 - reasoning-aware response contracts and route probes;
 - a frozen real-task development corpus and consumed external holdout;
-- Qwythos qualification for planner and reviewer with no holdout case regression; and
-- qualification-bound role activation with synchronous serial llama.cpp switching.
+- Qwythos qualification for planner and reviewer with no holdout case regression;
+- qualification-bound role activation with synchronous serial llama.cpp switching; and
+- indexed repository intelligence with current-byte ripgrep, persistent Zoekt, Universal
+  Ctags symbols, Git overlays, repository discovery, and bounded Explorer/Planner context.
 
-The concise historical index is [`docs/HISTORY.md`](docs/HISTORY.md).
-
-## P1 — Indexed repository intelligence
-
-**Status:** primary implementation programme
-
-The detailed design and implementation packet lives in
+The concise historical index is [`docs/HISTORY.md`](docs/HISTORY.md). The retained
+implementation record is
 [`docs/roadmaps/INDEXED_REPOSITORY_INTELLIGENCE.md`](docs/roadmaps/INDEXED_REPOSITORY_INTELLIGENCE.md).
-
-Adopt this stack:
-
-- **ripgrep** for structured live search of the current worktree and as the fallback path;
-- **Zoekt** for persistent, multi-repository filename, substring, Boolean, and regex search;
-- **Universal Ctags** for symbol definitions and symbol-aware ranking;
-- **Git** for repository identity, committed snapshots, dirty overlays, and refresh triggers;
-- **plocate** or Everything only for operator-side host filename and repository discovery;
-- a narrow local-coder **Repository Context Compiler** that routes queries, merges results,
-  reads authoritative current bytes, and supplies bounded context to the existing agents.
-
-Implementation order:
-
-1. replace the Python substring scanner with a structured ripgrep backend;
-2. add typed search contracts and the Repository Context Compiler;
-3. add repository registration plus Zoekt index build, refresh, status, and query commands;
-4. add Universal Ctags symbol indexing and exact symbol lookup;
-5. replace the explorer's filename-regex/list fallback with compiled repository context;
-6. reuse the same compiler with role-specific policies for planner and reviewer where useful;
-7. add automatic index refresh after commits, branch changes, and registered-root updates;
-8. add operator-side cross-repository and host filename discovery without widening edit scope;
-9. add richer LSP/Serena-style read-only relationship queries after the core stack is stable.
-
-The first delivery is complete when the explorer receives ranked filename, content, and
-symbol context from the active worktree; dirty and untracked files override committed index
-results; the persistent index is rebuildable; and all access remains repository-scoped and
-read-only.
 
 ## P2 — Close reasoning-route integration
 
@@ -93,7 +57,7 @@ F6 MTP comparison is optional tuning and does not block Track F closure.
 
 ## P3 — State schema stabilization
 
-**Status:** queued after repository intelligence
+**Status:** queued after reasoning-route closeout
 
 Plan one explicit pre-stable schema reset rather than retaining every development migration
 indefinitely.
@@ -131,8 +95,8 @@ Resume these only for a concrete defect, an active promoted prompt, or an explic
 - MTP performance comparison;
 - cross-runtime publication of portable role skills.
 
-These are not blocked by a new proof programme. They are simply lower-value than the active
-repository-intelligence work.
+These are not blocked by a new proof programme. They are simply lower-value than the
+reasoning-route closeout and state-schema work above.
 
 ## Permanent constraints
 

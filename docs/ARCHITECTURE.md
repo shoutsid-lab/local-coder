@@ -70,6 +70,25 @@ Formatting, linting, compilation, tests, protected contracts, and review evidenc
 deterministic and authoritative. Model output can propose a change, but it cannot bypass
 the editor or verification boundaries.
 
+## Repository intelligence boundary
+
+Repository understanding is compiled before the existing one-shot Explorer and Planner
+DSPy calls. The trusted search plane wraps ripgrep, Zoekt, Universal Ctags, and read-only
+Git identity behind typed Python adapters. Agents do not receive shell access or raw backend
+query syntax.
+
+Persistent indexes and the repository registry live under
+`~/.local/share/local-coder/search/`, outside source repositories and worktrees. Registration
+grants read-only search capability only; it never expands the active worktree or native
+editor scope.
+
+The authority order is current worktree bytes, Git dirty/untracked/deleted state, committed
+Zoekt results, then registry metadata. Search hits are candidate locations rather than source
+truth. The Repository Context Compiler normalizes paths, rejects trusted evaluator prefixes,
+rereads selected ranges from the current filesystem, applies role-specific budgets, and
+records only context lineage and hashes in the run store. Missing Zoekt or Ctags backends
+degrade to ripgrep.
+
 ## Skills and model routing
 
 Role procedures live in `.local-coder/skills/*/SKILL.md`. Each skill selects its logical

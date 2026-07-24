@@ -10,9 +10,6 @@
 
 ## Active capability programmes
 
-- [Indexed repository intelligence](roadmaps/INDEXED_REPOSITORY_INTELLIGENCE.md) — direct
-  integration of ripgrep, Zoekt, Universal Ctags, Git-aware overlays, repository discovery,
-  and bounded agent context compilation.
 - [Reasoning-capable model routes](roadmaps/REASONING_MODEL_ROUTES.md) — Track F response
   contracts, qualified planner/reviewer activation, and remaining target-machine closeout.
 
@@ -23,6 +20,8 @@
 
 ## Runtime and operator references
 
+- [Repository intelligence](REPOSITORY_INTELLIGENCE.md) — ripgrep, Zoekt, Ctags,
+  registry, index lifecycle, search CLI, context compiler, and degraded operation.
 - [Trusted task plans](TASK_PLANS.md) — hash-approved, one-step-at-a-time decomposition.
 - [Agent Skills](AGENT_SKILLS.md) — portable role-skill discovery and activation.
 - [DSPy integration](DSPY_INTEGRATION.md) — typed role programs behind stable adapters.
@@ -51,6 +50,8 @@
 
 - [Project history](HISTORY.md) — concise index of completed programmes and current
   interpretation.
+- [Indexed repository intelligence](roadmaps/INDEXED_REPOSITORY_INTELLIGENCE.md) —
+  completed design and implementation record.
 - [Real-task capability evidence](roadmaps/REAL_TASK_EVIDENCE.md) — completed Track G
   corpus, development comparison, prompt selection, and consumed holdout programme.
 - [Completed handoff](HANDOFF.md) — detailed recursive-improvement control-plane record.

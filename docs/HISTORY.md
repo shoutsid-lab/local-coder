@@ -45,6 +45,20 @@ References:
 - [`QWYTHOS_PROMPT_TUNING.md`](QWYTHOS_PROMPT_TUNING.md); and
 - [`QWYTHOS_HOLDOUT_QUALIFICATION.md`](QWYTHOS_HOLDOUT_QUALIFICATION.md).
 
+### Indexed repository intelligence
+
+Delivered the repository search plane and Repository Context Compiler: structured current
+worktree ripgrep search, persistent per-repository Zoekt indexes, Universal Ctags symbol
+definitions, Git-aware dirty/deleted/renamed/untracked overlays, an external repository
+registry, query-time refresh, host metadata discovery, and ranked bounded Explorer/Planner
+context. Search scope remains independent from edit scope and missing persistent backends
+degrade to ripgrep.
+
+References:
+
+- [`REPOSITORY_INTELLIGENCE.md`](REPOSITORY_INTELLIGENCE.md); and
+- [`roadmaps/INDEXED_REPOSITORY_INTELLIGENCE.md`](roadmaps/INDEXED_REPOSITORY_INTELLIGENCE.md).
+
 ## Completed foundation within active Track F
 
 Reasoning-aware response normalization, route probes, qualification-bound planner/reviewer
@@ -63,8 +77,8 @@ make further capability work conditional on creating another campaign, holdout, 
 comparison programme. Established infrastructure may be integrated directly with focused
 regression, resource, and operational checks.
 
-The active capability priority is indexed repository intelligence: better filename, text,
-regex, symbol, and cross-repository localisation for the existing role-separated agents.
+The active priorities are the remaining target-machine reasoning-route closeout followed by
+one explicit pre-stable state-schema baseline.
 
 ## Documentation lifecycle
 

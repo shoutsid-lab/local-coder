@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from collections.abc import Callable, Mapping
@@ -284,20 +285,114 @@ class ReadOnlyEvidenceAgent:
         try:
             self.activate_skill()
             authoritative_task = self.context.task_file.read_text(encoding="utf-8")
-            named_files = list(
-                dict.fromkeys(
-                    re.findall(
-                        r"[\w./-]+\.[A-Za-z0-9]+",
-                        f"{authoritative_task}\n{task}",
+            evidence: list[str] = []
+            context_pack = None
+            try:
+                from .search.context_compiler import RepositoryContextCompiler
+
+                context_pack = RepositoryContextCompiler(self.context.root).compile(
+                    f"{authoritative_task}\n\nDelegated task:\n{task}",
+                    role=self.name,
+                    worktree=self.context.worktree.path,
+                    attached_repository_ids=self.context.attached_repository_ids,
+                )
+                if context_pack.ranges:
+                    for source_range in context_pack.ranges:
+                        if (
+                            source_range.repository_id
+                            == context_pack.active_repository_id
+                        ):
+                            content = self.context.read_file(
+                                source_range.path,
+                                source_range.start_line,
+                                source_range.end_line,
+                            )
+                        else:
+                            content = source_range.content
+                        reason = "; ".join(source_range.reasons)
+                        evidence.append(
+                            "\n".join(
+                                (
+                                    f"Repository: {source_range.repository_id}",
+                                    (
+                                        f"Source: {source_range.path}:"
+                                        f"{source_range.start_line}-"
+                                        f"{source_range.end_line}"
+                                    ),
+                                    f"Selected because: {reason}",
+                                    content,
+                                )
+                            )
+                        )
+                metadata["repository_context"] = {
+                    "queries": list(context_pack.queries),
+                    "selected_paths": list(context_pack.selected_paths),
+                    "unresolved_terms": list(context_pack.unresolved_terms),
+                    "truncated": context_pack.truncated,
+                    "backend_failures": list(context_pack.backend_failures),
+                    "degraded": context_pack.degraded,
+                    "backend_versions": context_pack.backend_versions,
+                    "repository_states": context_pack.repository_states,
+                }
+                if self.state is not None and self.run_id is not None:
+                    lineage = {
+                        "base_commit": context_pack.base_commit,
+                        "worktree_diff_sha256": context_pack.worktree_diff_sha256,
+                        "queries": list(context_pack.queries),
+                        "ranges": [
+                            {
+                                "repository_id": item.repository_id,
+                                "path": item.path,
+                                "start_line": item.start_line,
+                                "end_line": item.end_line,
+                                "content_sha256": item.content_sha256,
+                                "reasons": list(item.reasons),
+                            }
+                            for item in context_pack.ranges
+                        ],
+                        "unresolved_terms": list(context_pack.unresolved_terms),
+                        "truncated": context_pack.truncated,
+                        "backend_failures": list(context_pack.backend_failures),
+                        "backend_versions": context_pack.backend_versions,
+                        "repository_states": context_pack.repository_states,
+                        "degraded": context_pack.degraded,
+                        "query_plan": [
+                            {
+                                "query": item.query,
+                                "mode": item.mode,
+                                "reason": item.reason,
+                                "weight": item.weight,
+                                "path_globs": list(item.path_globs),
+                            }
+                            for item in context_pack.query_plan
+                        ],
+                        "timings_ms": context_pack.timings_ms,
+                    }
+                    self.state.add_artifact(
+                        self.run_id,
+                        kind=f"repository-context-{self.name}",
+                        content=json.dumps(lineage, sort_keys=True),
+                    )
+            except Exception as exc:
+                metadata["repository_context"] = {
+                    "degraded": True,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+
+            if not evidence:
+                named_files = list(
+                    dict.fromkeys(
+                        re.findall(
+                            r"[\w./-]+\.[A-Za-z0-9]+",
+                            f"{authoritative_task}\n{task}",
+                        )
                     )
                 )
-            )
-            evidence: list[str] = []
-            for path in named_files[:3]:
-                try:
-                    evidence.append(self.context.read_file(path, 1, 240))
-                except (FileNotFoundError, ValueError):
-                    continue
+                for path in named_files[:3]:
+                    try:
+                        evidence.append(self.context.read_file(path, 1, 240))
+                    except (FileNotFoundError, ValueError):
+                        continue
             if not evidence:
                 evidence.append(self.context.list_files("*"))
             if self.usage_budget is not None:
@@ -366,13 +461,27 @@ class ReadOnlyEvidenceAgent:
                         "task": authoritative_task,
                         "delegated_task": task,
                         "repository_evidence": evidence,
+                        "repository_context": (
+                            {
+                                "queries": list(context_pack.queries),
+                                "selected_paths": list(context_pack.selected_paths),
+                                "unresolved_terms": list(context_pack.unresolved_terms),
+                                "truncated": context_pack.truncated,
+                            }
+                            if context_pack is not None
+                            else metadata.get("repository_context", {})
+                        ),
                     },
                     output=output,
                 )
+            # Repository context has dedicated lineage artifacts and trace fields.
+            # Keep the established model-metric metadata contract unchanged.
+            metadata.pop("repository_context", None)
             metadata["status"] = "success"
             return response
         except Exception as exc:
             status = "failed"
+            metadata.pop("repository_context", None)
             metadata.update(status="error", error_type=type(exc).__name__)
             raise
         finally:
@@ -927,6 +1036,7 @@ def _build_agent(
         reviewer_route=context.reviewer_route,
         editor_route=context.editor_route,
         route_session=context.route_session,
+        attached_repository_ids=context.attached_repository_ids,
     )
     state.register_agent(
         run_id,
