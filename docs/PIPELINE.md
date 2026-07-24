@@ -16,14 +16,18 @@ autonomous model behaviour.
 * Environment: WSL2 Ubuntu
 * Inference runtime: llama.cpp with CUDA acceleration
 
-## Model Profile
+## Model Profiles
 
-* Model: Qwen2.5-Coder-3B-Instruct
-* Quantisation: Q4_K_M
-* API alias: `local-coder`
+* Fast profile: Qwen2.5-Coder-3B-Instruct Q4_K_M, API alias `local-coder`
+* Reasoning profile: Qwythos 9B Q4_K_M, API alias `local-reason`
 * Server endpoint: `http://127.0.0.1:8080/v1`
 * Server context: 32,768 tokens
 * Parallel slots: 1
+* Residency: one trusted physical profile at a time
+
+The committed role activation and model-service policy select and verify the physical
+profile before every model request. Machine-specific binary and model directories may be
+overridden, but the frozen filenames, route mapping, and launch policy remain bound.
 
 ## Native Atomic Editor
 
@@ -123,10 +127,11 @@ The current model is unreliable for:
 
 Broader tasks must therefore be decomposed into atomic operations before execution.
 
-The primary capability experiment is now an optional reasoning-capable planner/reviewer
-route evaluated on real repository tasks. Prompt optimization is retained, but it is not
-assumed to overcome base-model reasoning limits and is not the current investment
-priority.
+The frozen Track G comparison qualified Qwythos for planner and reviewer use. Those two
+roles now use qualification-bound prompts and generation profiles through `local-reason`;
+orchestration, exploration, implementation, and repair remain on Qwen. Prompt optimization
+is retained, but generic active prompt state cannot override the two G4-qualified role
+profiles.
 
 All raw model-response boundaries use `runtime/model_response.py` to keep final content,
 reasoning metadata, tool calls, finish reasons, and token usage separate. Reasoning text
@@ -226,25 +231,23 @@ honors the per-request controls before increasing its token ceiling.
 
 ## Route-specific generation profiles
 
-Generation policy is defined in `runtime/route_profiles.py`; it is not inferred from a
-role name or applied as one global default. The existing `local-fast`, `local-plan`, and
-`local-review` aliases remain assigned to the current local coding model with reasoning
-disabled. The optional `local-reason` alias is additive and requires an operator-managed
-model switch before use.
+Base generation policy is defined in `runtime/route_profiles.py`. Qualified role
+overrides are derived from the frozen G4 protocol by `runtime/role_profiles.py`; they are
+not inferred from role names or editable task content.
 
-| Profile | Reasoning | Total completion | Reasoning / final | Purpose |
-|---|---:|---:|---:|---|
-| `local-fast` | off | 2048 | 0 / 2048 | implementation and repair |
-| `local-plan` | off | 3072 | 0 / 3072 | current explorer and planner |
-| `local-review` | off | 2048 | 0 / 2048 | current reviewer |
-| `local-reason` | on | 2048 | 1024 / 1024 | optional bounded planner candidate |
+| Role | Route | Reasoning / final | Temperature | Physical model |
+|---|---|---:|---:|---|
+| Orchestrator / explorer | `local-plan` | 0 / 3072 | 0.0 | Qwen |
+| Planner | `local-reason` | 1024 / 1024 | 0.6 | Qwythos |
+| Implementer / repairer | `local-fast` | 0 / 2048 | 0.0 | Qwen |
+| Reviewer | `local-reason` | 1536 / 1536 | 0.0 | Qwythos |
 
-The reasoning route starts with temperature `0.6`, top-p `0.95`, top-k `20`, repetition
-penalty `1.05`, a 300-second timeout, no provider retry, no reasoning-history
-preservation, and an explicit model-switch requirement. These are qualification inputs,
-not proof that the route is suitable or a new default.
+`runtime/model_service.py` serializes every physical switch. It validates the exact trusted
+launch profile, refuses unknown live processes, records switch evidence, and restores the
+previous recognized profile after a failed load. Normal role calls trigger this
+synchronously; no background supervisor or simultaneous 3B/9B residency is assumed.
 
-Additional bounded examples cover exact probing, reviewer work, and long-form diagnostics.
 All provider-reported completion tokens remain part of the existing completion-token
-budget, including tokens consumed before final content. Run `make route-profile-check` to
-verify profile validation and adapter wiring without starting any model service.
+budget, including tokens consumed before final content. Run `make route-profile-check`,
+`make role-profile-check`, and `make model-service-check` without starting a model service.
+See [`MODEL_SWITCHING.md`](MODEL_SWITCHING.md) for live operation.

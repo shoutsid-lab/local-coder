@@ -1,7 +1,7 @@
 # ROADMAP: Reasoning-Capable Model Routes
 
 **Target repository:** `shoutsid-lab/local-coder`
-**Status:** Active — primary capability programme, paired with Track G evidence
+**Status:** Active — F0–F5 implemented; live serial-switch validation pending; F6 optional
 **Track:** F
 **Related programmes:** Track G provides the real-task corpus and comparison evidence.
 Track E MCP integration remains queued behind the shared capability milestone.
@@ -152,7 +152,7 @@ paths. `litellm-config.yaml` exposes `local-reason` without repointing any curre
 unbounded combinations fail before a request, and the current local loop remains
 backward compatible.
 
-### F3. Qualify Qwythos for planner and reviewer work — in progress
+### F3. Qualify Qwythos for planner and reviewer work — complete
 
 Treat Qwythos as a candidate route, not as a trusted upgrade by model reputation.
 
@@ -209,10 +209,12 @@ the logical model route and its bound runtime generation profile differ.
 Reports retain bounded adapter-success, typed-schema, task-semantic, token, and latency
 classifications. They bind model identity, route profile, implementation commit, and
 environment, reject internally inconsistent evidence, and make no qualification claim.
-The next operator action is to collect baseline and candidate adapter reports under one
-clean commit and compare them before spending Track G inference budget.
+The shared-adapter diagnostic was followed by the frozen Track G development, prompt, and
+one-shot holdout programme. On 2026-07-24, Qwythos passed the preregistered planner and
+reviewer gates with no case-level holdout regression. The committed final comparison hash
+is `6ce7a71b5a36917f3f3d56051f73e1ea95e2286bfb9fa1f4ab999d5a505c27c5`.
 
-Qualification uses the frozen real-task corpus and comparison matrix defined by
+Qualification used the frozen real-task corpus and comparison matrix defined by
 [`REAL_TASK_EVIDENCE.md`](REAL_TASK_EVIDENCE.md), plus focused response-contract fixtures.
 Synthetic sentinel tasks remain smoke tests only. Freeze acceptance thresholds before
 running the comparison and preserve an independent final holdout.
@@ -247,7 +249,7 @@ Possible outcomes are independent:
 regression, resource, and final-answer requirements. A failed qualification leaves every
 existing route unchanged.
 
-### F4. Add serial, on-demand model switching
+### F4. Add serial, on-demand model switching — implemented; live validation pending
 
 The first supported lifecycle assumes one resource-constrained llama.cpp server.
 
@@ -263,10 +265,22 @@ The first supported lifecycle assumes one resource-constrained llama.cpp server.
 - Keep automatic background supervision out of scope until manual serial switching proves
   reliable.
 
+**Delivered:** `runtime/model_service.py` and `profiles/model-services-v1.json` implement
+one synchronous, lock-serialized llama.cpp manager. It validates exact trusted launch
+commands and live identity, refuses unknown processes, records switch evidence, and
+restores a previously recognized profile when a new profile fails to load. `local-coder.py`
+exposes `model-service status|ensure|switch|stop`, while normal role calls invoke the same
+manager automatically. This is synchronous switching, not background supervision.
+
+**Verification:** `make model-service-check` covers route mapping, no-op readiness,
+fast-to-reason switching, restoration, unknown-profile refusal, unidentified-server
+refusal, and protected stop behavior. The remaining exit item is one live switch cycle on
+the target Amelia machine.
+
 **Exit criteria:** an operator can switch between fast and reasoning profiles with one
 bounded command, verify the active model, and return to the prior profile after failure.
 
-### F5. Integrate qualified roles without changing write authority
+### F5. Integrate qualified roles without changing write authority — implemented; live validation pending
 
 After F3 and F4 pass:
 
@@ -283,6 +297,23 @@ After F3 and F4 pass:
 No existing alias is silently redirected. A later decision may map `local-plan` or
 `local-review` to the qualified model, but that change requires its own frozen replay
 comparison and rollback evidence.
+
+**Delivered:** `profiles/qwythos-role-activation-v1.json` validates the committed G4
+baseline, candidate, and final comparison before promoting planner and reviewer to
+`local-reason`. Their frozen prompt and generation profiles are applied directly; generic
+active prompt state cannot override them. Orchestrator, explorer, implementer, and repairer
+remain on Qwen. `runtime/editor.py` remains the only source-writing boundary, and the
+reviewer remains read-only.
+
+The qualification report itself still records `route_activation: null`; activation is a
+separate trusted manifest and runtime decision. Prior planner/reviewer Qwen routes remain
+explicit fallback metadata.
+
+**Verification:** `make role-profile-check` freezes report hashes, role assignments, prompt
+profiles, budgets, tamper rejection, and the requirement for automatic synchronous
+switching. Full runtime tests confirm the qualified reviewer CLI route and unchanged
+read-only boundaries. The remaining exit item is one live bounded agent run showing the
+expected route/model sequence in stored metrics.
 
 **Exit criteria:** selected planner/reviewer calls can use the qualified route, all role
 boundaries remain intact, and disabling the optional route restores the current behavior.

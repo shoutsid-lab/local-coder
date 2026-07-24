@@ -1,7 +1,7 @@
 # ROADMAP: Real-Task Capability Evidence
 
 **Target repository:** `shoutsid-lab/local-coder`
-**Status:** Active — G0–G3.1 measured; G4 holdout runner ready
+**Status:** Complete — G0–G4 measured; qualified activation moved to Track F
 **Track:** G
 
 ## 0. Why this document exists
@@ -172,7 +172,7 @@ without an explicit, frozen tradeoff decision.
 - Further tuning against the eight visible cases stops here to avoid case-specific
   overfitting.
 
-### G4. One-shot holdout qualification — runner ready
+### G4. One-shot holdout qualification — complete
 
 - `profiles/track-g-holdout-qualification-v1.json` binds the sealed suite and index hashes,
   G3.1 comparison hash, exact Qwen and Qwythos role configurations, one attempt per case,
@@ -184,10 +184,15 @@ without an explicit, frozen tradeoff decision.
 - Interrupted runs remain consumed, completed runs receive hash-bound receipts, and final
   comparison requires both completion receipts.
 - Planner and reviewer qualify independently. No evidence result activates a route.
+- The one-shot collection completed on 2026-07-24. Qwythos qualified for both roles with no
+  case-level regression: planner mean improved from 0.5833 to 0.6667 and reviewer mean
+  improved from 0.6 to 0.8.
+- The baseline, candidate, and final comparison are retained under `evidence/track-g/`; the
+  activation manifest validates their canonical hashes before changing role routes.
 
-After the one-shot comparison, use the evidence to decide whether `local-reason` qualifies
-for planner, reviewer, both, or diagnostic-only use; then incorporate measured model-switch
-cost before changing Track F route assignments or resetting the deferred backlog.
+Track G is complete. Track F owns the separate role activation and serial switching layer.
+The result supports planner/reviewer promotion only; it does not promote implementation or
+repair, and it does not reopen the consumed holdout for tuning.
 
 ## 6. Exit criteria
 

@@ -257,32 +257,21 @@ attempts for both models. Qwythos therefore satisfies the production adapter con
 that fixture, but used substantially more latency and completion tokens. That establishes
 compatibility, not superior task quality.
 
-## Remaining qualification work
+## Final qualification outcome
 
 Track G G3.1 selected `evidence-completeness` for planner and `field-checklist` for reviewer.
-Both roles cleared the frozen development gain and no-material-regression gates. The next
-qualification work is:
+G4 then consumed the independent four-case holdout once under commit
+`0a0825cc8ae2622d2a82f5e87088077827cd62b9`. Qwythos qualified for both roles with no
+case-level regression. Planner mean score improved from 0.5833 to 0.6667; reviewer mean
+score improved from 0.6 to 0.8 and passed one of two cases strictly.
 
-1. commit and verify the one-shot G4 runner documented in
-   `QWYTHOS_HOLDOUT_QUALIFICATION.md`;
-2. collect one full Qwen and one full Qwythos report across all four sealed cases;
-3. issue independent planner and reviewer qualification decisions under the precommitted
-   policy;
-4. measure cold startup and serial model-switch time; and
-5. bind adapter, resource, lifecycle, development, and holdout evidence into one new
-   versioned route-decision contract.
+The result is preserved under `evidence/track-g/` and interpreted as a bounded role-wise
+relative qualification. It does not claim broad task success: planner passed neither
+holdout case strictly, and the complete suite contained only two cases per role.
 
-The final policy must separate structural contract gates from scored task quality. It must
-also use observed hardware behavior rather than treating an arbitrary VRAM reserve as a
-model-quality failure.
-
-Possible final outcomes remain independent:
-
-- qualified for planner only;
-- qualified for reviewer only;
-- qualified for both;
-- retained only as an operator-invoked diagnostic route; or
-- rejected for local-coder use.
-
-No evidence outcome changes runtime route assignments. Route activation remains later
-Track F work after qualification and bounded switching are complete.
+A separate trusted activation manifest now promotes only planner and reviewer to
+`local-reason`. Qwen remains active for orchestration, exploration, implementation, and
+repair. The runtime switches between the two physical model profiles serially and records
+identity/readiness evidence. Live cold-start and complete bounded-run validation on the
+target machine remain the final Track F operational checks. See
+[`MODEL_SWITCHING.md`](MODEL_SWITCHING.md).

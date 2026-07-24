@@ -61,28 +61,31 @@ shared-adapter comparison then ran Qwen and Qwythos through the same `PlannerPro
 used materially more latency and completion tokens. That establishes compatibility, not
 superior capability.
 
-F3 now waits on the frozen Track G development and holdout evidence before a second
-qualification policy or route decision. No route assignment changes before that evidence
-exists. MTP and automatic supervision remain optional.
+The frozen Track G holdout completed on 2026-07-24. Qwythos qualified under the
+preregistered policy for both planner and reviewer with no case-level regression. F4 and F5
+now contain the bounded activation implementation: synchronous serial model switching,
+qualification-bound planner/reviewer prompts, and Qwen retained for orchestration,
+exploration, implementation, and repair. Live switch-cycle and bounded-run validation on
+the target machine remain before Track F is closed. F6 MTP benchmarking remains optional.
 
-## Active priority 2: Track G — real-task capability evidence
+## Completed capability evidence: Track G — real-task benchmark and holdout
 
 Track G runs alongside Track F. The detailed plan lives in
 [`docs/roadmaps/REAL_TASK_EVIDENCE.md`](docs/roadmaps/REAL_TASK_EVIDENCE.md).
 
-G0 and G1 freeze a versioned 12-case corpus from actual repository tasks, failures, and
-successful fixes: eight complete development cases plus a four-case holdout represented in
-Git only by metadata and canonical hashes. G2 collected comparable Qwen and Qwythos
-development evidence through the production adapters. G3 found no gain from larger
-reasoning budgets. G3.1 then isolated the measured prompt-contract bottleneck: the selected
-planner prompt improved mean score by 0.0625 and the selected reviewer prompt improved it by
-0.05 without material case regressions. Both roles cleared the frozen role-wise holdout gate.
-G4 now freezes a one-shot Qwen-versus-Qwythos holdout runner and final qualification policy;
-the trusted payload remains unopened until that runner is committed and verified.
+G0 and G1 froze a versioned 12-case corpus from actual repository tasks, failures, and
+successful fixes: eight development cases plus a four-case sealed holdout. G2 collected
+comparable Qwen and Qwythos evidence through production adapters. G3 found no gain from
+larger reasoning budgets. G3.1 isolated the prompt-contract bottleneck and selected
+`evidence-completeness` for planner and `field-checklist` for reviewer. G4 then consumed the
+one-shot holdout exactly once. Qwythos improved planner mean score from 0.5833 to 0.6667 and
+reviewer mean score from 0.6 to 0.8, with no case regression, so both frozen role gates
+passed.
 
-Synthetic sentinel edits remain smoke fixtures and are not primary capability evidence.
-Track F route changes do not become defaults without Track G development and independent
-holdout evidence.
+Track G is complete. Its normalized baseline, candidate, and final reports are committed
+under `evidence/track-g/` and must not be regenerated or used for further tuning. Track F
+owns the separate bounded activation and live model-switch validation. Synthetic sentinel
+edits remain smoke fixtures rather than primary capability evidence.
 
 ## Queued programme: Track E — MCP control-plane integration
 

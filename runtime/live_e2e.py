@@ -9,10 +9,13 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
 from .model_response import ROUTE_OK, normalize_model_response, normalize_provider_error
+from .model_service import ModelServiceManager
+from .role_profiles import role_route
 from .route_profiles import REASONING_PROFILE_EXAMPLES
 from .state import StateStore
 
@@ -111,7 +114,17 @@ def edit_schema() -> dict[str, Any]:
     }
 
 
-def route_probe(route: str) -> dict[str, Any]:
+def _route_session(
+    manager: ModelServiceManager | None,
+    route: str,
+) -> Any:
+    return manager.route_session(route) if manager is not None else nullcontext({})
+
+
+def route_probe(
+    route: str,
+    manager: ModelServiceManager | None = None,
+) -> dict[str, Any]:
     """Verify one exact route with model reasoning explicitly disabled."""
     payload = _probe_payload(
         route,
@@ -121,10 +134,11 @@ def route_probe(route: str) -> dict[str, Any]:
         thinking_budget_tokens=EXACT_PROBE_THINKING_BUDGET,
     )
     try:
-        response = post_json(
-            "http://127.0.0.1:4000/v1/chat/completions",
-            payload,
-        )
+        with _route_session(manager, route):
+            response = post_json(
+                "http://127.0.0.1:4000/v1/chat/completions",
+                payload,
+            )
     except Exception as exc:
         normalized = normalize_provider_error(exc, model=route, provider="litellm")
         raise RuntimeError(normalized.diagnostic(route=route)) from exc
@@ -155,7 +169,10 @@ def route_probe(route: str) -> dict[str, Any]:
     return metadata
 
 
-def reasoning_capability_probe(route: str) -> dict[str, Any]:
+def reasoning_capability_probe(
+    route: str,
+    manager: ModelServiceManager | None = None,
+) -> dict[str, Any]:
     """Verify bounded reasoning while still requiring an exact final answer."""
     payload = _probe_payload(
         route,
@@ -168,10 +185,11 @@ def reasoning_capability_probe(route: str) -> dict[str, Any]:
         thinking_budget_tokens=REASONING_PROBE_THINKING_BUDGET,
     )
     try:
-        response = post_json(
-            "http://127.0.0.1:4000/v1/chat/completions",
-            payload,
-        )
+        with _route_session(manager, route):
+            response = post_json(
+                "http://127.0.0.1:4000/v1/chat/completions",
+                payload,
+            )
     except Exception as exc:
         normalized = normalize_provider_error(exc, model=route, provider="litellm")
         raise RuntimeError(normalized.diagnostic(route=route)) from exc
@@ -201,7 +219,14 @@ def reasoning_capability_probe(route: str) -> dict[str, Any]:
     return metadata
 
 
-def structured_output_probe(url: str, model: str, attempts: int) -> None:
+def structured_output_probe(
+    url: str,
+    model: str,
+    attempts: int,
+    *,
+    route: str | None = None,
+    manager: ModelServiceManager | None = None,
+) -> None:
     payload = {
         "model": model,
         "messages": [
@@ -228,7 +253,8 @@ def structured_output_probe(url: str, model: str, attempts: int) -> None:
         },
     }
     for attempt in range(1, attempts + 1):
-        response = post_json(url, payload)
+        with _route_session(manager, route or model):
+            response = post_json(url, payload)
         normalized = normalize_model_response(response, accept_tool_calls=False)
         if normalized.outcome != ROUTE_OK:
             raise RuntimeError(
@@ -276,7 +302,7 @@ def dspy_explorer_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
     """Return unique audited DSPy explorer backend markers."""
     return dspy_role_backends(
         model_metrics,
-        route="local-plan",
+        route=role_route("explorer", repository_root=ROOT),
         source="dspy-explorer",
         program="ExplorerProgram",
     )
@@ -286,7 +312,7 @@ def dspy_planner_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
     """Return unique audited DSPy planner backend markers."""
     return dspy_role_backends(
         model_metrics,
-        route="local-plan",
+        route=role_route("planner", repository_root=ROOT),
         source="dspy-planner",
         program="PlannerProgram",
     )
@@ -296,7 +322,7 @@ def dspy_implementer_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
     """Return unique audited DSPy implementer backend markers."""
     return dspy_role_backends(
         model_metrics,
-        route="local-fast",
+        route=role_route("implementer", repository_root=ROOT),
         source="dspy-implementer",
         program="ImplementerProgram",
     )
@@ -306,7 +332,7 @@ def dspy_repairer_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
     """Return unique audited DSPy repairer backend markers."""
     return dspy_role_backends(
         model_metrics,
-        route="local-fast",
+        route=role_route("repairer", repository_root=ROOT),
         source="dspy-repairer",
         program="RepairerProgram",
     )
@@ -316,13 +342,15 @@ def dspy_reviewer_backends(model_metrics: list[dict[str, Any]]) -> list[str]:
     """Return unique audited DSPy reviewer backend markers."""
     return dspy_role_backends(
         model_metrics,
-        route="local-review",
+        route=role_route("reviewer", repository_root=ROOT),
         source="dspy-reviewer",
         program="ReviewerProgram",
     )
 
 
-def run_repairer_probe() -> dict[str, Any]:
+def run_repairer_probe(
+    manager: ModelServiceManager | None = None,
+) -> dict[str, Any]:
     """Exercise the real DSPy repairer, native editor, and verification loop."""
     from .agents import DSPyRepairerAgent
     from .dspy_lm import build_dspy_lm
@@ -400,11 +428,12 @@ def run_repairer_probe() -> dict[str, Any]:
             repository=repository,
             base_branch="main",
         )
+        repairer_route = role_route("repairer", repository_root=ROOT)
         store.register_agent(
             run_id,
             role="repairer",
             skill="test-and-repair",
-            model_route="local-fast",
+            model_route=repairer_route,
         )
         context = ToolContext(
             root=repository,
@@ -414,6 +443,8 @@ def run_repairer_probe() -> dict[str, Any]:
             task_file=task_file,
             agent_role="repairer",
             allowed_edit_paths=frozenset({"canary.txt"}),
+            editor_route=repairer_route,
+            route_session=manager.route_session if manager is not None else None,
         )
         initial_verification = context.run_verification()
         if not initial_verification.startswith("Verification: FAIL"):
@@ -423,12 +454,13 @@ def run_repairer_probe() -> dict[str, Any]:
             description="Repair one deterministic failure.",
             activate_skill=lambda: None,
             context=context,
-            model_route="local-fast",
-            lm_factory=lambda: build_dspy_lm("local-fast"),
+            model_route=repairer_route,
+            lm_factory=lambda: build_dspy_lm(repairer_route),
             program_runner=run_repairer_program,
             program_name="RepairerProgram",
             state=store,
             run_id=run_id,
+            route_session=manager.route_session if manager is not None else None,
         )
         result = agent(
             "Repair canary.txt by replacing REPAIR_SENTINEL=before with "
@@ -551,31 +583,49 @@ def main() -> int:
     if original.count(SOURCE_SENTINEL) != 1:
         raise RuntimeError("The live canary source sentinel must occur exactly once.")
 
+    manager = ModelServiceManager(ROOT)
+    orchestrator_route = role_route("orchestrator", repository_root=ROOT)
+    manager.ensure_route(orchestrator_route)
     command(
         [sys.executable, str(ROOT / "local-coder.py"), "status"],
         capture=False,
     )
     check_skills()
     check_skills_lint_fails_closed()
-    exact_route_probes = {
-        route: route_probe(route)
-        for route in ("local-fast", "local-plan", "local-review")
-    }
-    reasoning_route = os.environ.get("LIVE_E2E_REASONING_ROUTE", "").strip()
-    reasoning_probe = (
-        reasoning_capability_probe(reasoning_route) if reasoning_route else None
+    active_routes = sorted(
+        {
+            role_route(role, repository_root=ROOT)
+            for role in (
+                "orchestrator",
+                "explorer",
+                "planner",
+                "implementer",
+                "repairer",
+                "reviewer",
+            )
+        }
     )
+    exact_route_probes = {route: route_probe(route, manager) for route in active_routes}
+    reasoning_route = os.environ.get(
+        "LIVE_E2E_REASONING_ROUTE", ""
+    ).strip() or role_route("planner", repository_root=ROOT)
+    reasoning_probe = reasoning_capability_probe(reasoning_route, manager)
+    fast_route = role_route("implementer", repository_root=ROOT)
     structured_output_probe(
         "http://127.0.0.1:8080/v1/chat/completions",
         "local-coder",
         attempts,
+        route=fast_route,
+        manager=manager,
     )
     structured_output_probe(
         "http://127.0.0.1:4000/v1/chat/completions",
-        "local-fast",
+        fast_route,
         attempts,
+        route=fast_route,
+        manager=manager,
     )
-    repairer_probe = run_repairer_probe()
+    repairer_probe = run_repairer_probe(manager)
     if not repairer_probe["passed"]:
         raise RuntimeError("DSPy repairer live probe failed.")
 
@@ -643,7 +693,7 @@ def main() -> int:
         and len(editor_calls) == 1
         and editor_calls[0]["status"] == "success"
         and not failed_tools
-        and routes == ["local-fast", "local-plan", "local-review"]
+        and routes == active_routes
         and explorer_backends == ["ExplorerProgram/JSONAdapter"]
         and planner_backends == ["PlannerProgram/JSONAdapter"]
         and implementer_backends == ["ImplementerProgram/JSONAdapter"]

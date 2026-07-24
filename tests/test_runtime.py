@@ -2,6 +2,7 @@ import inspect
 import importlib.util
 import io
 import json
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -97,6 +98,48 @@ def test_audited_models_share_candidate_usage_budget(tmp_path: Path) -> None:
 
     assert budget.calls == 1
     assert len(store.run_details(run_id)["model_metrics"]) == 1
+
+
+def test_audited_model_holds_route_session_during_generation(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / "agent.db")
+    run_id = store.create_run(
+        task="leased",
+        mode="agentic",
+        repository=tmp_path,
+        base_branch="main",
+    )
+    active = False
+
+    @contextmanager
+    def route_session(route: str):
+        nonlocal active
+        assert route == "local-plan"
+        active = True
+        try:
+            yield {"profile_id": "fast-qwen", "switched": False}
+        finally:
+            active = False
+
+    def generate(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        assert active is True
+        return SimpleNamespace(
+            token_usage=SimpleNamespace(input_tokens=4, output_tokens=2)
+        )
+
+    model = AuditedModel(
+        SimpleNamespace(generate=generate),
+        route="local-plan",
+        state=store,
+        run_id=run_id,
+        route_session=route_session,
+    )
+
+    model.generate([])
+
+    assert active is False
+    metric = store.run_details(run_id)["model_metrics"][0]
+    metadata = json.loads(metric["metadata"])
+    assert metadata["model_service"]["profile_id"] == "fast-qwen"
 
 
 def test_candidate_token_excess_is_recorded_before_run_stops(tmp_path: Path) -> None:
@@ -228,16 +271,48 @@ def test_direct_editor_uses_instruction_when_task_file_is_omitted(
     assert request_and_apply.call_args.kwargs["protected_files"] == set()
 
 
-def test_cli_review_uses_project_python() -> None:
-    arguments = SimpleNamespace(task=Path("task.md"))
-    with patch.object(local_coder, "run_command", return_value=0) as run_command:
+def test_cli_repair_uses_qwen_repair_route() -> None:
+    arguments = SimpleNamespace(
+        instruction="Replace only the incorrect condition.",
+        files=["calculator.py"],
+    )
+    with (
+        patch(
+            "runtime.model_service.ModelServiceManager.route_session",
+            return_value=nullcontext({"profile_id": "fast-qwen"}),
+        ) as route_session,
+        patch.object(local_coder, "run_command", return_value=0) as run_command,
+    ):
+        assert local_coder.handle_repair(arguments) == 0
+
+    route_session.assert_called_once_with("local-fast")
+    assert run_command.call_args.args[0] == [
+        local_coder.sys.executable,
+        "./run-editor.py",
+        "Replace only the incorrect condition.",
+        "calculator.py",
+    ]
+
+
+def test_cli_review_uses_project_python_and_qualified_route() -> None:
+    arguments = SimpleNamespace(task=Path("task.md"), cached=False)
+    with (
+        patch(
+            "runtime.model_service.ModelServiceManager.route_session",
+            return_value=nullcontext({"profile_id": "reason-qwythos"}),
+        ) as route_session,
+        patch.object(local_coder, "run_command", return_value=0) as run_command,
+    ):
         assert local_coder.handle_review(arguments) == 0
 
+    route_session.assert_called_once_with("local-reason")
     assert run_command.call_args.args[0] == [
         local_coder.sys.executable,
         "./review-diff.py",
         "--task",
         "task.md",
+        "--model",
+        "local-reason",
     ]
 
 
@@ -850,7 +925,7 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
 
     def planner_usage() -> dict[str, dict[str, int]]:
         return {
-            "openai/local-plan": {
+            "openai/local-reason": {
                 "prompt_tokens": 13,
                 "completion_tokens": 9,
             }
@@ -890,6 +965,7 @@ def test_managed_agents_accept_positional_additional_arguments(tmp_path: Path) -
     details = store.run_details(run_id)
     assert details is not None
     planner_metric = details["model_metrics"][-1]
+    assert planner_metric["route"] == "local-reason"
     assert json.loads(planner_metric["metadata"]) == {
         "source": "dspy-planner",
         "program": "PlannerProgram",
@@ -1397,6 +1473,59 @@ def test_atomic_editor_normalizes_approved_scope_aliases(tmp_path: Path) -> None
     assert context.scope_violations == set()
 
 
+def test_atomic_editor_records_bound_physical_model_evidence(tmp_path: Path) -> None:
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+    editable = worktree_path / "README.md"
+    editable.write_text("before\n", encoding="utf-8")
+    task_file = worktree_path / "TASK.md"
+    task_file.write_text("# Task\n", encoding="utf-8")
+    _initialize_edit_test_repository(worktree_path)
+    store = StateStore(tmp_path / "agent.db")
+    run_id = store.create_run(
+        task="Edit README.md",
+        mode="agentic",
+        repository=tmp_path,
+        base_branch="main",
+    )
+    context = ToolContext(
+        root=tmp_path,
+        worktree=Worktree(worktree_path, "agent/test", "main"),
+        run_id=run_id,
+        state=store,
+        task_file=task_file,
+        route_session=lambda route: nullcontext(
+            {"route": route, "profile_id": "fast-qwen"}
+        ),
+    )
+
+    def fake_editor(**kwargs: object) -> list[str]:
+        callback = kwargs["metrics_callback"]
+        assert callable(callback)
+        callback(
+            route="local-fast",
+            prompt_tokens=10,
+            completion_tokens=5,
+            duration_ms=12.0,
+            metadata={"status": "success", "source": "native-editor"},
+        )
+        editable.write_text("after\n", encoding="utf-8")
+        return ["README.md"]
+
+    with patch("runtime.tools.request_and_apply", side_effect=fake_editor):
+        result = context.apply_atomic_edit("Change one line", "README.md")
+
+    assert result == "Atomic edit applied to: README.md"
+    details = store.run_details(run_id)
+    assert details is not None
+    metric = details["model_metrics"][-1]
+    metadata = json.loads(metric["metadata"])
+    assert metadata["model_service"] == {
+        "route": "local-fast",
+        "profile_id": "fast-qwen",
+    }
+
+
 def test_atomic_editor_rejects_success_without_an_edit(tmp_path: Path) -> None:
     worktree_path = tmp_path / "worktree"
     worktree_path.mkdir()
@@ -1486,6 +1615,10 @@ def test_review_diff_uses_project_python(tmp_path: Path) -> None:
         run_id=run_id,
         state=store,
         task_file=task_file,
+        reviewer_route="local-reason",
+        route_session=lambda route: nullcontext(
+            {"route": route, "profile_id": "reason-qwythos"}
+        ),
     )
 
     store.add_verification(
@@ -1511,7 +1644,7 @@ def test_review_diff_uses_project_python(tmp_path: Path) -> None:
         (run_dir / "REVIEW.metrics.json").write_text(
             json.dumps(
                 {
-                    "route": "local-review",
+                    "route": "local-reason",
                     "prompt_tokens": 3,
                     "completion_tokens": 2,
                     "metadata": {
@@ -1535,6 +1668,7 @@ def test_review_diff_uses_project_python(tmp_path: Path) -> None:
 
     assert command.call_args.args[0][0] == local_coder.sys.executable
     assert command.call_args.args[0][1] == "./review-diff.py"
+    assert command.call_args.args[0][-2:] == ["--model", "local-reason"]
     assert context.last_review_verdict == "pass"
     details = store.run_details(run_id)
     assert details is not None
@@ -1546,6 +1680,14 @@ def test_review_diff_uses_project_python(tmp_path: Path) -> None:
     assert traces[-1]["role"] == "reviewer"
     assert traces[-1]["inputs"]["verification_passed"] is True
     assert traces[-1]["output"]["verdict"] == "pass"
+    reviewer_metrics = [
+        row for row in details["model_metrics"] if row["route"] == "local-reason"
+    ]
+    reviewer_metadata = json.loads(reviewer_metrics[-1]["metadata"])
+    assert reviewer_metadata["model_service"] == {
+        "route": "local-reason",
+        "profile_id": "reason-qwythos",
+    }
 
 
 def test_review_diff_discards_stale_verdict_after_failure(tmp_path: Path) -> None:

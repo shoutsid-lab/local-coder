@@ -12,8 +12,9 @@ routes, and SQLite records execution and evaluation evidence.
 
 | Layer | Responsibility |
 | --- | --- |
-| llama.cpp | Serves Qwen2.5-Coder locally. |
-| LiteLLM | Exposes `local-fast`, `local-plan`, and `local-review`. |
+| llama.cpp | Serves one trusted Qwen or Qwythos profile at a time. |
+| Model service manager | Switches serially between qualified physical model profiles. |
+| LiteLLM | Exposes stable `local-fast`, `local-plan`, `local-review`, and `local-reason` routes. |
 | smolagents | Coordinates explorer, planner, implementer, repairer, and reviewer roles. |
 | DSPy | Provides typed role programs and loadable prompt states. |
 | Native editor | Applies validated exact replacements to approved files. |
@@ -37,11 +38,40 @@ exists.
 
 ## Start the local services
 
-Start llama.cpp on port 8080 and LiteLLM on port 4000, then verify both routes:
+Start only the LiteLLM gateway manually:
 
 ```bash
-./local-coder.py status
+litellm --config ~/code/local-coder/litellm-config.yaml \
+  --host 127.0.0.1 \
+  --port 4000
 ```
+
+`local-coder` starts and switches llama.cpp automatically for the role being invoked.
+Qwen remains active for the orchestrator, explorer, implementer, and repairer. The
+G4-qualified Qwythos profile is used only for planner and reviewer calls. Both models are
+never assumed to fit in memory simultaneously.
+
+Inspect the frozen role assignment and managed service state:
+
+```bash
+./local-coder.py role-profiles
+./local-coder.py model-service status
+```
+
+`model-service status` is non-mutating and may report no active profile before the first
+model-backed command. `./local-coder.py status` remains the stricter full-readiness check.
+
+Manual service commands remain available for diagnosis:
+
+```bash
+./local-coder.py model-service ensure local-plan
+./local-coder.py model-service ensure local-reason
+./local-coder.py model-service switch fast-qwen
+./local-coder.py model-service stop
+```
+
+Normal `run`, `repair`, and `review` commands do not require those manual switch
+commands. See [`docs/MODEL_SWITCHING.md`](docs/MODEL_SWITCHING.md).
 
 ## Run the coding harness
 

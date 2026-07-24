@@ -224,6 +224,38 @@ def test_route_probe_returns_bounded_success_metadata(
     }
 
 
+def test_route_probe_holds_the_model_service_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+
+    class Session:
+        def __enter__(self) -> dict[str, object]:
+            events.append("enter")
+            return {}
+
+        def __exit__(self, *_args: object) -> None:
+            events.append("exit")
+
+    manager = SimpleNamespace(
+        route_session=lambda route: events.append(route) or Session()
+    )
+
+    def fake_post(_url: str, _payload: dict[str, object]) -> dict[str, object]:
+        events.append("request")
+        return {
+            "model": "local-reason",
+            "choices": [{"finish_reason": "stop", "message": {"content": "ROUTE_OK"}}],
+            "usage": {"prompt_tokens": 4, "completion_tokens": 2},
+        }
+
+    monkeypatch.setattr("runtime.live_e2e.post_json", fake_post)
+
+    route_probe("local-reason", manager)
+
+    assert events == ["local-reason", "enter", "request", "exit"]
+
+
 def test_native_editor_rejects_reasoning_only_response_and_audits_hash() -> None:
     response = io.BytesIO(json.dumps(OBSERVED_REASONING_ONLY_RESPONSE).encode("utf-8"))
     metrics: list[dict[str, object]] = []

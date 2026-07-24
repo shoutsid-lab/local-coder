@@ -101,3 +101,27 @@ three routes retain their role assignments and local-model dependency, while
 reasoning mode, separate reasoning/final budgets, sampling values, timeouts, retry policy,
 history preservation, switch requirements, and provider kwargs. No planner or reviewer
 was repointed and no second model service became required by the default loop.
+
+## 2026-07-24 — G4 holdout qualification and bounded role activation
+
+The one-shot Track G holdout ran at implementation commit
+`0a0825cc8ae2622d2a82f5e87088077827cd62b9` under the frozen protocol. Qwythos
+qualified for both planner and reviewer without a case-level regression. Planner mean score
+increased from 0.5833 to 0.6667; reviewer mean score increased from 0.6 to 0.8 and strict
+reviewer case success increased from zero of two to one of two. Planner strict case success
+remained zero of two, so the result is retained as a bounded relative qualification rather
+than a broad task-success claim.
+
+The normalized baseline, candidate, and final comparison reports are committed under
+`evidence/track-g/`. `runtime/role_profiles.py` validates their canonical internal hashes,
+protocol lineage, service identities, suite identity, and exact selected prompt/generation
+profiles before activation. The final report remains immutable and records
+`route_activation: null`; a separate trusted activation manifest promotes only planner and
+reviewer.
+
+The serial service layer keeps one model resident at a time. Qwen remains the orchestrator,
+explorer, implementer, and repairer backend. Qwythos is loaded only for planner and reviewer
+calls. Unit tests cover exact route mapping, switch readiness, rollback after startup
+failure, refusal to replace unidentified or unrecognized servers, qualification tamper
+rejection, and prevention of generic prompt-state override. Live target-machine switch and
+bounded-run evidence remain required before Track F closes.

@@ -1,0 +1,340 @@
+{
+  "active_prompt_state": {
+    "planner": null,
+    "reviewer": null
+  },
+  "attempts": [
+    {
+      "adapter_success": true,
+      "attempt": 1,
+      "case_class": "exact_one_file_repair",
+      "case_hash": "ff3c7db6e2dfdc4cbf3c9ab8aef95ffee6b62fe76b553e023f132dd8fd25e09e",
+      "case_id": "holdout-planner-makefile-venv-interpreter",
+      "case_success": false,
+      "completion_tokens": 596,
+      "difficulty": "high",
+      "dimensions": {
+        "acceptance_terms_match": false,
+        "dependencies_match": true,
+        "forbidden_files_absent": true,
+        "instruction_terms_match": false,
+        "schema_valid": true,
+        "scope_match": true
+      },
+      "failure_codes": [
+        "instruction_terms_missing",
+        "acceptance_terms_missing"
+      ],
+      "latency_seconds": 52.781181636004476,
+      "pattern_group": "makefile-interpreter-contract",
+      "prompt_tokens": 793,
+      "role": "planner",
+      "route": "local-reason",
+      "score": 0.6666666666666666
+    },
+    {
+      "adapter_success": true,
+      "attempt": 1,
+      "case_class": "multi_file_bounded_change",
+      "case_hash": "3076e2aa939be01620d87d929f8d9a6985e078836a1f73ea1e8bb21b7683f582",
+      "case_id": "holdout-planner-dspy-lm-duplicate-construction",
+      "case_success": false,
+      "completion_tokens": 1390,
+      "difficulty": "high",
+      "dimensions": {
+        "acceptance_terms_match": true,
+        "dependencies_match": true,
+        "forbidden_files_absent": false,
+        "instruction_terms_match": false,
+        "schema_valid": true,
+        "scope_match": true
+      },
+      "failure_codes": [
+        "instruction_terms_missing",
+        "forbidden_file_reference"
+      ],
+      "latency_seconds": 85.59645292098867,
+      "pattern_group": "duplicate-lm-construction-path",
+      "prompt_tokens": 812,
+      "role": "planner",
+      "route": "local-reason",
+      "score": 0.6666666666666666
+    },
+    {
+      "adapter_success": true,
+      "attempt": 1,
+      "case_class": "planning_or_evidence_selection_failure",
+      "case_hash": "f800509f1b28542fd09b890d255ba102866b2feade133797852cafa691905262",
+      "case_id": "holdout-reviewer-stale-review-artifact",
+      "case_success": true,
+      "completion_tokens": 675,
+      "difficulty": "high",
+      "dimensions": {
+        "forbidden_issue_paths_absent": true,
+        "required_issue_paths_found": true,
+        "required_unrelated_paths_found": true,
+        "schema_valid": true,
+        "verdict_match": true
+      },
+      "failure_codes": [],
+      "latency_seconds": 57.918069262988865,
+      "pattern_group": "stale-review-success-reuse",
+      "prompt_tokens": 969,
+      "role": "reviewer",
+      "route": "local-reason",
+      "score": 1.0
+    },
+    {
+      "adapter_success": true,
+      "attempt": 1,
+      "case_class": "documentation_or_interface_consistency",
+      "case_hash": "84268427c391d3ba960c0b5ecc977db706f0b88c80e7587c1285cc41345e50c2",
+      "case_id": "holdout-reviewer-handoff-index-consistency",
+      "case_success": false,
+      "completion_tokens": 484,
+      "difficulty": "high",
+      "dimensions": {
+        "forbidden_issue_paths_absent": true,
+        "required_issue_paths_found": false,
+        "required_unrelated_paths_found": true,
+        "schema_valid": true,
+        "verdict_match": false
+      },
+      "failure_codes": [
+        "verdict_mismatch",
+        "required_issue_path_missing"
+      ],
+      "latency_seconds": 33.98870246599836,
+      "pattern_group": "moved-document-stale-index-links",
+      "prompt_tokens": 892,
+      "role": "reviewer",
+      "route": "local-reason",
+      "score": 0.6
+    }
+  ],
+  "collected_at_utc": "2026-07-24T03:24:46.110732+00:00",
+  "collection_kind": "real-task-holdout-collection-v1",
+  "collection_sha256": "e627867874dc2a3da654a7b08b03bdf91f0ac146c405ce3fefa4ff119200acb2",
+  "corpus_id": "local-coder-real-tasks-v1",
+  "environment_id": "amelia-gtx1660-v1",
+  "holdout_index_sha256": "0cfa958d4a19a35fcebddb0a9d86f3dc2a01b7ab56041e626104d34fc03db5d4",
+  "holdout_loaded": true,
+  "implementation_commit": "0a0825cc8ae2622d2a82f5e87088077827cd62b9",
+  "llama_alias": "local-reason",
+  "model_file": "Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_K_M.gguf",
+  "one_shot": true,
+  "protocol_id": "track-g-holdout-qualification-v1",
+  "protocol_sha256": "d4abdfcaa051870b777562dcdd988bd34ae8c7ecf02024ce9343a6c5fec61098",
+  "role_prompt_profile_sha256": {
+    "planner": "e945a609612dd452d5a985a9ad45ca0895fe52f217de91ae7520e9bc882b7665",
+    "reviewer": "2be2cf2dc86cc7ec8be031c6b3d3710951fab448a7fd88b5dfe4587d2b196b05"
+  },
+  "role_prompt_profiles": {
+    "planner": "evidence-completeness",
+    "reviewer": "field-checklist"
+  },
+  "route_profiles": {
+    "planner": {
+      "alias": "local-reason",
+      "final_answer_tokens": 1024,
+      "max_tokens": 2048,
+      "model_alias": "local-reason",
+      "preserve_reasoning": false,
+      "reasoning_mode": "on",
+      "reasoning_tokens": 1024,
+      "repetition_penalty": 1.05,
+      "requires_model_switch": true,
+      "retries": 0,
+      "temperature": 0.6,
+      "timeout_seconds": 300,
+      "top_k": 20,
+      "top_p": 0.95
+    },
+    "reviewer": {
+      "alias": "local-reason",
+      "final_answer_tokens": 1536,
+      "max_tokens": 3072,
+      "model_alias": "local-reason",
+      "preserve_reasoning": false,
+      "reasoning_mode": "on",
+      "reasoning_tokens": 1536,
+      "repetition_penalty": 1.05,
+      "requires_model_switch": true,
+      "retries": 0,
+      "temperature": 0.0,
+      "timeout_seconds": 480,
+      "top_k": null,
+      "top_p": 1.0
+    }
+  },
+  "routes": {
+    "planner": "local-reason",
+    "reviewer": "local-reason"
+  },
+  "schema_version": 1,
+  "scoring_version": "role-oracle-v1",
+  "selection_evidence": {
+    "comparison_sha256": "3b4426b5168c538dcd4002fef029240cb472f0d15479edd95eba1e5d8d4f4658",
+    "prompt_profile_sha256": {
+      "planner": "e945a609612dd452d5a985a9ad45ca0895fe52f217de91ae7520e9bc882b7665",
+      "reviewer": "2be2cf2dc86cc7ec8be031c6b3d3710951fab448a7fd88b5dfe4587d2b196b05"
+    },
+    "prompt_protocol_id": "track-g-qwythos-prompt-tuning-v1",
+    "prompt_protocol_sha256": "c472f56be5ea2547e4b18559f899bb93e80eb87e5a2bcfb116d7be9f6b94b798",
+    "selected_prompt_profiles": {
+      "planner": "evidence-completeness",
+      "reviewer": "field-checklist"
+    }
+  },
+  "service_identity": {
+    "build_info": "b10075-76f46ad29",
+    "configured_context_tokens": 32768,
+    "llama_alias": "local-reason",
+    "model_file": "Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_K_M.gguf",
+    "total_slots": 1
+  },
+  "storage_policy": "one-shot trusted holdout scores only; no task, input, oracle, generated field, final-answer, prompt, or reasoning text retained",
+  "subject": "candidate",
+  "suite_id": "real-task-holdout-v1",
+  "suite_sha256": "bbbd7964479333e14435f4628c94be69cad644d704021fbaaad044597cb6cabc",
+  "summary": {
+    "by_case": {
+      "holdout-planner-dspy-lm-duplicate-construction": {
+        "adapter_success_rate": 1.0,
+        "attempts": 1,
+        "case_success_rate": 0.0,
+        "cases": 1,
+        "failure_counts": {
+          "forbidden_file_reference": 1,
+          "instruction_terms_missing": 1
+        },
+        "mean_completion_tokens": 1390.0,
+        "mean_latency_seconds": 85.59645292098867,
+        "mean_prompt_tokens": 812.0,
+        "mean_score": 0.6666666666666666,
+        "minimum_score": 0.6666666666666666,
+        "schema_rate": 1.0,
+        "score_standard_deviation": 0.0,
+        "stable_case_success_rate": 0.0,
+        "total_latency_seconds": 85.59645292098867
+      },
+      "holdout-planner-makefile-venv-interpreter": {
+        "adapter_success_rate": 1.0,
+        "attempts": 1,
+        "case_success_rate": 0.0,
+        "cases": 1,
+        "failure_counts": {
+          "acceptance_terms_missing": 1,
+          "instruction_terms_missing": 1
+        },
+        "mean_completion_tokens": 596.0,
+        "mean_latency_seconds": 52.781181636004476,
+        "mean_prompt_tokens": 793.0,
+        "mean_score": 0.6666666666666666,
+        "minimum_score": 0.6666666666666666,
+        "schema_rate": 1.0,
+        "score_standard_deviation": 0.0,
+        "stable_case_success_rate": 0.0,
+        "total_latency_seconds": 52.781181636004476
+      },
+      "holdout-reviewer-handoff-index-consistency": {
+        "adapter_success_rate": 1.0,
+        "attempts": 1,
+        "case_success_rate": 0.0,
+        "cases": 1,
+        "failure_counts": {
+          "required_issue_path_missing": 1,
+          "verdict_mismatch": 1
+        },
+        "mean_completion_tokens": 484.0,
+        "mean_latency_seconds": 33.98870246599836,
+        "mean_prompt_tokens": 892.0,
+        "mean_score": 0.6,
+        "minimum_score": 0.6,
+        "schema_rate": 1.0,
+        "score_standard_deviation": 0.0,
+        "stable_case_success_rate": 0.0,
+        "total_latency_seconds": 33.98870246599836
+      },
+      "holdout-reviewer-stale-review-artifact": {
+        "adapter_success_rate": 1.0,
+        "attempts": 1,
+        "case_success_rate": 1.0,
+        "cases": 1,
+        "failure_counts": {},
+        "mean_completion_tokens": 675.0,
+        "mean_latency_seconds": 57.918069262988865,
+        "mean_prompt_tokens": 969.0,
+        "mean_score": 1.0,
+        "minimum_score": 1.0,
+        "schema_rate": 1.0,
+        "score_standard_deviation": 0.0,
+        "stable_case_success_rate": 1.0,
+        "total_latency_seconds": 57.918069262988865
+      }
+    },
+    "by_role": {
+      "planner": {
+        "adapter_success_rate": 1.0,
+        "attempts": 2,
+        "case_success_rate": 0.0,
+        "cases": 2,
+        "failure_counts": {
+          "acceptance_terms_missing": 1,
+          "forbidden_file_reference": 1,
+          "instruction_terms_missing": 2
+        },
+        "mean_completion_tokens": 993.0,
+        "mean_latency_seconds": 69.18881727849657,
+        "mean_prompt_tokens": 802.5,
+        "mean_score": 0.6666666666666666,
+        "minimum_score": 0.6666666666666666,
+        "schema_rate": 1.0,
+        "score_standard_deviation": 0.0,
+        "stable_case_success_rate": 0.0,
+        "total_latency_seconds": 138.37763455699314
+      },
+      "reviewer": {
+        "adapter_success_rate": 1.0,
+        "attempts": 2,
+        "case_success_rate": 0.5,
+        "cases": 2,
+        "failure_counts": {
+          "required_issue_path_missing": 1,
+          "verdict_mismatch": 1
+        },
+        "mean_completion_tokens": 579.5,
+        "mean_latency_seconds": 45.95338586449361,
+        "mean_prompt_tokens": 930.5,
+        "mean_score": 0.8,
+        "minimum_score": 0.6,
+        "schema_rate": 1.0,
+        "score_standard_deviation": 0.2,
+        "stable_case_success_rate": 0.5,
+        "total_latency_seconds": 91.90677172898722
+      }
+    },
+    "overall": {
+      "adapter_success_rate": 1.0,
+      "attempts": 4,
+      "case_success_rate": 0.25,
+      "cases": 4,
+      "failure_counts": {
+        "acceptance_terms_missing": 1,
+        "forbidden_file_reference": 1,
+        "instruction_terms_missing": 2,
+        "required_issue_path_missing": 1,
+        "verdict_mismatch": 1
+      },
+      "mean_completion_tokens": 786.25,
+      "mean_latency_seconds": 57.57110157149509,
+      "mean_prompt_tokens": 866.5,
+      "mean_score": 0.7333333333333333,
+      "minimum_score": 0.6,
+      "schema_rate": 1.0,
+      "score_standard_deviation": 0.15634719199411434,
+      "stable_case_success_rate": 0.25,
+      "total_latency_seconds": 230.28440628598037
+    }
+  }
+}

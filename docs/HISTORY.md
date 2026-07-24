@@ -55,3 +55,16 @@ Living documents are the README, root roadmap, architecture, pipeline, and conve
 Detailed operator references remain active only while their subsystem is supported.
 Completed programme narratives belong here or in the linked retained records and should
 not return to the active reading path.
+
+### Tracks F–G — Reasoning route qualification and bounded activation
+
+Track G froze a real-task development corpus and consumed its independent four-case holdout
+once. Under the preregistered policy, Qwythos qualified for planner and reviewer with no
+case-level regression. The result is relative and role-specific: implementation and repair
+remain on Qwen, and planner strict holdout success did not increase.
+
+Track F records the normalized reports, pins the selected planner/reviewer prompts and
+budgets, and adds synchronous serial llama.cpp switching for constrained hardware. Unknown
+live servers fail closed; failed profile loads restore the prior recognized profile. See
+[`QWYTHOS_HOLDOUT_QUALIFICATION.md`](QWYTHOS_HOLDOUT_QUALIFICATION.md) and
+[`MODEL_SWITCHING.md`](MODEL_SWITCHING.md).

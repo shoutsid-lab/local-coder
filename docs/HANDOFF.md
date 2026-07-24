@@ -23,15 +23,16 @@ training on this hardware.
 Primary actor
    ↓
 local-coder role-separated harness
-   ├── explorer and planner       → read-only evidence → local-plan
-   ├── implementer and repairer   → native exact edits → local-fast
-   └── reviewer                   → fixed read-only adapter → local-review
+   ├── explorer                   → read-only evidence → local-plan   → Qwen
+   ├── planner                    → read-only evidence → local-reason → Qwythos
+   ├── implementer and repairer   → native exact edits → local-fast   → Qwen
+   └── reviewer                   → fixed read-only adapter → local-reason → Qwythos
         ↓
 Git worktree isolation + SQLite audit
         ↓
-LiteLLM stable logical routes
+qualification-bound role activation + serial model switching
         ↓
-llama.cpp + Qwen2.5-Coder-3B Q4_K_M
+LiteLLM stable logical routes + one llama.cpp server
 ```
 
 The architecture remains local-first and hardware-adjusted. `runtime/editor.py` is the
@@ -117,8 +118,8 @@ hashes.
 
 ## Non-negotiable boundaries
 
-- Keep llama.cpp, LiteLLM, and logical routes `local-fast`, `local-plan`, and
-  `local-review`.
+- Keep llama.cpp, LiteLLM, and stable logical routes `local-fast`, `local-plan`,
+  `local-review`, and `local-reason`.
 - Keep the native atomic editor as the only agent source-editing boundary.
 - Keep Git worktrees as the isolation boundary and SQLite as the audit store.
 - Never add automatic source commit, merge, push, or destructive worktree cleanup.

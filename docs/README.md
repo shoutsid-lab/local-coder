@@ -34,6 +34,8 @@
   instruction candidates after the G3 profile ceiling, with fixed generation settings.
 - [Qwythos holdout qualification](QWYTHOS_HOLDOUT_QUALIFICATION.md) — frozen
   one-shot Qwen/Qwythos comparison, consumption receipts, and final role decisions.
+- [Qualified role activation and model switching](MODEL_SWITCHING.md) — committed G4
+  evidence, planner/reviewer promotion, serial llama.cpp switching, and rollback behavior.
 - [Real-task corpus](REAL_TASK_CORPUS.md) — Track G case format, committed development
   cases, sealed holdout index, validation, trusted holdout handling, and development
   evidence collection.

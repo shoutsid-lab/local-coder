@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from .agents import build_agent_bundle
+from .model_service import ModelServiceManager
 from .models import ModelRegistry, ModelUsageBudget
+from .role_profiles import role_route
 from .skills_loader import discover_skills
 from .state import StateStore
 from .tools import ToolContext, Worktree, command, create_worktree, current_branch
@@ -104,13 +106,16 @@ class AgentOrchestrator:
         self.config = config
         self.root = config.repository.resolve()
         self.state = StateStore(self.root / ".local-coder" / "state" / "agent.db")
+        self.model_services: ModelServiceManager | None = None
         self.models = ModelRegistry()
 
     def _service_preflight(self) -> None:
-        if not self.models.llama_available():
-            raise RuntimeError("llama-server is not healthy on port 8080.")
+        if self.model_services is None:
+            self.model_services = ModelServiceManager(self.root)
+            self.models.service_manager = self.model_services
         if not self.models.litellm_available():
             raise RuntimeError("LiteLLM is not listening on port 4000.")
+        self.models.prepare_route(role_route("orchestrator"))
 
     def _run_identity(self) -> tuple[str, str, str]:
         """Return baseline, model-route, and harness-configuration identities."""
@@ -122,8 +127,15 @@ class AgentOrchestrator:
             "requirements-agent.txt",
             "runtime/agents.py",
             "runtime/editor.py",
+            "runtime/model_service.py",
             "runtime/orchestrator.py",
+            "runtime/role_profiles.py",
             "runtime/tools.py",
+            "profiles/model-services-v1.json",
+            "profiles/qwythos-role-activation-v1.json",
+            "evidence/track-g/baseline-track-g-holdout-v1-20260724T031908Z.json",
+            "evidence/track-g/candidate-track-g-holdout-v1-20260724T032051Z.json",
+            "evidence/track-g/qwythos-holdout-qualification-v1.json",
         ):
             hasher.update(relative.encode("utf-8"))
             hasher.update((self.root / relative).read_bytes())
@@ -183,6 +195,9 @@ class AgentOrchestrator:
                     if self.config.expected_changed_paths is not None
                     else None
                 ),
+                reviewer_route=role_route("reviewer"),
+                editor_route=role_route("implementer"),
+                route_session=self.models.route_session,
             )
             skills = discover_skills(worktree.path / ".local-coder" / "skills")
             bundle = build_agent_bundle(

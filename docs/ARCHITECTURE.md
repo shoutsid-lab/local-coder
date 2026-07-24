@@ -47,15 +47,17 @@ Developer
 local-coder.py run
    ↓
 smolagents CodeAgent orchestrator
-   ├── explorer      → read-only evidence adapter → local-plan
-   ├── planner       → read-only evidence adapter → local-plan
-   ├── implementer   → code-action leaf → local-fast → validated exact edits
-   ├── repairer      → code-action leaf → local-fast → validated exact edits
-   └── reviewer      → fixed read-only review adapter → local-review
+   ├── explorer      → read-only evidence adapter → local-plan   → Qwen
+   ├── planner       → read-only evidence adapter → local-reason → Qwythos
+   ├── implementer   → code-action leaf → local-fast → Qwen → validated edits
+   ├── repairer      → code-action leaf → local-fast → Qwen → validated edits
+   └── reviewer      → fixed read-only adapter → local-reason → Qwythos
         ↓
-LiteLLM route aliases
+qualification-bound role activation
         ↓
-OpenAI-compatible local inference endpoint
+synchronous serial model-service manager
+        ↓
+LiteLLM stable aliases → one llama.cpp server on port 8080
 ```
 
 Each **code-editing run** receives an isolated Git worktree. Agents can only use the
@@ -74,9 +76,12 @@ Role procedures live in `.local-coder/skills/*/SKILL.md`. Each skill selects its
 model route, tool allowlist, and maximum steps. This keeps prompts role-specific and avoids
 exposing a large universal tool schema to a small local model.
 
-Stable LiteLLM aliases separate architecture from physical inference. Planning, editing,
-and review routes may currently resolve to one model, but a route can later point to a
-different local model or server without changing agent contracts.
+Stable LiteLLM aliases separate architecture from physical inference. The committed
+role-activation manifest binds planner and reviewer to the G4-qualified `local-reason`
+route while orchestrator, explorer, implementation, and repair remain on Qwen routes.
+Before each call, the trusted model-service manager synchronously starts or switches to
+the required physical profile and records bounded identity evidence. Task text and model
+output cannot select or expand their own route.
 
 ## Persistent state and evidence
 
@@ -227,9 +232,10 @@ while holdout schemas and provisioning rules are documented in
 
 ## Hardware adaptation
 
-The current development profile is resource constrained and may route several logical
-roles to one quantized local coding model. That is a deployment profile, not an
-architectural invariant.
+The current development profile is resource constrained and keeps only one quantized
+model resident at a time. Qwen serves orchestration, exploration, implementation, and
+repair; Qwythos is loaded serially only for qualified planner and reviewer calls. That is
+a deployment profile, not an architectural invariant.
 
 The architecture requires only:
 
@@ -241,9 +247,9 @@ The architecture requires only:
 Larger or specialized local models can replace a route when hardware permits. They do not
 change the editor, evaluator, campaign, audit, deployment, or rollback contracts.
 
-Current engineering priority is to measure whether a stronger planner/reviewer route
-improves real task outcomes. Additional optimization and deployment controls should be
-justified by that evidence rather than by control-plane completeness alone.
+The frozen Track G holdout qualified Qwythos for planner and reviewer use without a
+case-level regression. The current operational priority is to validate serial switching
+and bounded role integration on live runs before broadening deployment or optimization.
 
 ## Architectural invariants
 
@@ -260,6 +266,9 @@ justified by that evidence rather than by control-plane completeness alone.
    hash-verified trusted storage.
 9. Rejected candidates cannot alter active runtime behavior.
 10. Every persistent transition is inspectable through immutable or hash-bound evidence.
+11. Qualified planner/reviewer routes load only when committed G4 report hashes and frozen
+    prompt/generation profiles validate.
+12. Unknown or command-mismatched llama.cpp processes are never replaced automatically.
 
 The direct reviewer and native repair CLI remain available as focused debugging utilities.
 They use the same read-only review and validated native editor boundaries as the agent

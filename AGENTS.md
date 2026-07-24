@@ -63,10 +63,13 @@ Keep this file short and use deeper documents for detail.
 
 - `./local-coder.py status`
 - `./local-coder.py run "..."`
-- direct native editing, planning, repair, and semantic-review commands
+- `./local-coder.py repair ...`
+- `./local-coder.py review ...`
 
-They expect llama-server on `127.0.0.1:8080` and LiteLLM on `127.0.0.1:4000`.
-Check whether both are already running before starting anything new.
+LiteLLM must already be listening on `127.0.0.1:4000`. The trusted runtime owns the
+single llama.cpp endpoint on `127.0.0.1:8080` and synchronously starts or switches the
+qualification-bound physical model profile for each role. Do not start a competing
+llama-server process or send direct concurrent requests around the route lease.
 
 ## Roadmap work-item labels
 

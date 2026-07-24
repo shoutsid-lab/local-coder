@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .role_profiles import role_route
 from .skills_loader import SkillCatalog, SkillMetadata
 from .skills_loader import discover_skills as discover_skill_catalog
 
@@ -33,7 +34,7 @@ class Skill:
 
 _SKILL_CONFIGS = {
     "atomic-implementation": SkillRuntimeConfig(
-        model="local-fast",
+        model=role_route("implementer"),
         tools=(
             "read_file",
             "search_repository",
@@ -45,17 +46,17 @@ _SKILL_CONFIGS = {
         max_steps=7,
     ),
     "explore-repository": SkillRuntimeConfig(
-        model="local-plan",
+        model=role_route("explorer"),
         tools=("list_files", "search_repository", "read_file", "git_status"),
         max_steps=1,
     ),
     "plan-change": SkillRuntimeConfig(
-        model="local-plan",
+        model=role_route("planner"),
         tools=("list_files", "search_repository", "read_file", "git_status"),
         max_steps=1,
     ),
     "review-change": SkillRuntimeConfig(
-        model="local-review",
+        model=role_route("reviewer"),
         tools=(
             "read_file",
             "inspect_diff",
@@ -66,7 +67,7 @@ _SKILL_CONFIGS = {
         max_steps=5,
     ),
     "test-and-repair": SkillRuntimeConfig(
-        model="local-fast",
+        model=role_route("repairer"),
         tools=(
             "read_file",
             "search_repository",

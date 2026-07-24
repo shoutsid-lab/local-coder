@@ -273,10 +273,17 @@ def _run_dspy_reviewer(
     verification_output: str,
 ) -> Any:
     """Construct and invoke the DSPy reviewer behind the fixed adapter."""
-    from runtime.dspy_lm import build_dspy_lm
+    from runtime.dspy_lm import build_dspy_lm_with_profile
     from runtime.dspy_programs.reviewer import run_reviewer_program
+    from runtime.role_profiles import role_generation_profile, role_route
+    from runtime.route_profiles import get_route_profile
 
-    lm = build_dspy_lm(model)
+    profile = (
+        role_generation_profile("reviewer")
+        if model == role_route("reviewer")
+        else get_route_profile(model)
+    )
+    lm = build_dspy_lm_with_profile(model, profile)
     return run_reviewer_program(
         lm=lm,
         task=task,
@@ -377,10 +384,9 @@ def parse_args() -> argparse.Namespace:
         help="Authoritative task file for the change under review.",
     )
 
-    parser.add_argument(
-        "--model",
-        default="local-review",
-    )
+    from runtime.role_profiles import role_route
+
+    parser.add_argument("--model", default=role_route("reviewer"))
 
     parser.add_argument(
         "--output",

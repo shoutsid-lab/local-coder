@@ -5,6 +5,7 @@ from __future__ import annotations
 import dspy
 
 from runtime.prompt_activation import load_active_prompt_state
+from runtime.role_profiles import apply_qualified_instructions
 
 
 class PlannerSignature(dspy.Signature):
@@ -68,7 +69,8 @@ def run_planner_program(
 ) -> dspy.Prediction:
     """Run the planner with typed JSON decoding and per-call usage tracking."""
     program = PlannerProgram()
-    load_active_prompt_state(program, "planner")
+    if not apply_qualified_instructions(program, "planner"):
+        load_active_prompt_state(program, "planner")
     with dspy.context(
         lm=lm,
         adapter=dspy.JSONAdapter(),

@@ -8,6 +8,7 @@ PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runt
 	route-contract-diagnostic-check route-contract-diagnostic-collect \
 	route-contract-diagnostic-compare route-adapter-diagnostic-check \
 	route-adapter-diagnostic-collect route-adapter-diagnostic-compare \
+	model-service-check role-profile-check \
 	real-task-corpus-check real-task-corpus-summary real-task-development-check \
 	real-task-development-collect real-task-profile-tuning-check \
 	real-task-profile-tuning-collect real-task-profile-tuning-compare \
@@ -46,6 +47,11 @@ agent-check:
 	$(PYTHON) -m json.tool profiles/track-g-qwythos-tuning-v1.json >/dev/null
 	$(PYTHON) -m json.tool profiles/track-g-qwythos-prompt-tuning-v1.json >/dev/null
 	$(PYTHON) -m json.tool profiles/track-g-holdout-qualification-v1.json >/dev/null
+	$(PYTHON) -m json.tool profiles/qwythos-role-activation-v1.json >/dev/null
+	$(PYTHON) -m json.tool profiles/model-services-v1.json >/dev/null
+	$(PYTHON) -m json.tool evidence/track-g/baseline-track-g-holdout-v1-20260724T031908Z.json >/dev/null
+	$(PYTHON) -m json.tool evidence/track-g/candidate-track-g-holdout-v1-20260724T032051Z.json >/dev/null
+	$(PYTHON) -m json.tool evidence/track-g/qwythos-holdout-qualification-v1.json >/dev/null
 
 agent-install:
 	$(PYTHON) -m pip install -r requirements-agent.txt
@@ -58,7 +64,8 @@ handoff-check: verify agent-smoke
 		-a -f docs/ARCHITECTURE.md \
 		-a -f docs/PIPELINE.md -a -f docs/CONVENTIONS.md \
 		-a -f docs/RECURSIVE_IMPROVEMENT.md \
-		-a -f docs/PROMPT_DEPLOYMENT.md
+		-a -f docs/PROMPT_DEPLOYMENT.md \
+		-a -f docs/MODEL_SWITCHING.md
 	@test -z "$$(git status --porcelain)" || (echo "Handoff check failed: working tree is not clean."; git status --short; exit 1)
 
 test:
@@ -73,11 +80,11 @@ metrics:
 
 review:
 	@test -n "$(TASK)" || (echo "Usage: make review TASK=path/to/task.md"; exit 1)
-	$(PYTHON) review-diff.py --task "$(TASK)"
+	$(PYTHON) local-coder.py review "$(TASK)"
 
 review-cached:
 	@test -n "$(TASK)" || (echo "Usage: make review-cached TASK=path/to/task.md"; exit 1)
-	$(PYTHON) review-diff.py --cached --task "$(TASK)"
+	$(PYTHON) local-coder.py review --cached "$(TASK)"
 
 skills:
 	$(PYTHON) local-coder.py skills
@@ -106,6 +113,12 @@ route-probe-check:
 
 route-profile-check:
 	$(PYTHON) -m pytest -q --tb=short tests/test_route_profiles.py
+
+model-service-check:
+	$(PYTHON) -m pytest -q --tb=short tests/test_model_service.py
+
+role-profile-check:
+	$(PYTHON) -m pytest -q --tb=short tests/test_role_profiles.py
 
 route-qualification-check:
 	$(PYTHON) -m pytest -q --tb=short tests/test_route_qualification.py

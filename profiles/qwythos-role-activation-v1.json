@@ -1,0 +1,37 @@
+{
+  "activation_id": "qwythos-planner-reviewer-v1",
+  "automatic_switching": true,
+  "enabled": true,
+  "fallback_role_routes": {
+    "planner": "local-plan",
+    "reviewer": "local-review"
+  },
+  "model_service_config": "profiles/model-services-v1.json",
+  "model_service_config_sha256": "8465c5b65a6217cc85eba08096d62eecc074f305924166fb29a490d8e53dbb77",
+  "qualification_protocol": "profiles/track-g-holdout-qualification-v1.json",
+  "qualification_report": "evidence/track-g/qwythos-holdout-qualification-v1.json",
+  "qualification_sha256": "6ce7a71b5a36917f3f3d56051f73e1ea95e2286bfb9fa1f4ab999d5a505c27c5",
+  "qualified_roles": {
+    "planner": {
+      "prompt_profile": "evidence-completeness",
+      "route": "local-reason"
+    },
+    "reviewer": {
+      "prompt_profile": "field-checklist",
+      "route": "local-reason"
+    }
+  },
+  "role_routes": {
+    "explorer": "local-plan",
+    "implementer": "local-fast",
+    "orchestrator": "local-plan",
+    "planner": "local-reason",
+    "repairer": "local-fast",
+    "reviewer": "local-reason"
+  },
+  "schema_version": 1,
+  "supporting_reports": {
+    "baseline": "evidence/track-g/baseline-track-g-holdout-v1-20260724T031908Z.json",
+    "candidate": "evidence/track-g/candidate-track-g-holdout-v1-20260724T032051Z.json"
+  }
+}

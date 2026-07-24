@@ -1,0 +1,83 @@
+{
+  "binary": "~/llama.cpp/build/bin/llama-server",
+  "build_info": "b10075-76f46ad29",
+  "host": "127.0.0.1",
+  "port": 8080,
+  "profiles": {
+    "fast-qwen": {
+      "alias": "local-coder",
+      "arguments": [
+        "--ctx-size",
+        "32768",
+        "--parallel",
+        "1",
+        "--threads",
+        "6",
+        "--threads-batch",
+        "12",
+        "--n-gpu-layers",
+        "all",
+        "--flash-attn",
+        "on",
+        "--cache-type-k",
+        "q8_0",
+        "--cache-type-v",
+        "q8_0",
+        "--ubatch-size",
+        "256",
+        "--metrics",
+        "--cache-reuse",
+        "256",
+        "--slot-save-path",
+        "~/llama.cpp/cache/"
+      ],
+      "model": "~/models/qwen2.5-coder-3b-instruct-q4_k_m.gguf",
+      "routes": [
+        "local-fast",
+        "local-plan",
+        "local-review"
+      ]
+    },
+    "reason-qwythos": {
+      "alias": "local-reason",
+      "arguments": [
+        "--ctx-size",
+        "32768",
+        "--parallel",
+        "1",
+        "--threads",
+        "6",
+        "--threads-batch",
+        "12",
+        "--n-gpu-layers",
+        "all",
+        "--flash-attn",
+        "on",
+        "--cache-type-k",
+        "q8_0",
+        "--cache-type-v",
+        "q8_0",
+        "--ubatch-size",
+        "256",
+        "--reasoning-format",
+        "deepseek",
+        "--reasoning-budget",
+        "2048",
+        "--spec-type",
+        "draft-mtp",
+        "--spec-draft-n-max",
+        "2",
+        "--metrics",
+        "--slot-save-path",
+        "~/llama.cpp/cache/"
+      ],
+      "model": "~/models/Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_K_M.gguf",
+      "routes": [
+        "local-reason"
+      ]
+    }
+  },
+  "schema_version": 1,
+  "startup_timeout_seconds": 240,
+  "stop_timeout_seconds": 20
+}

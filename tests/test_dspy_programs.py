@@ -92,18 +92,18 @@ def test_live_e2e_requires_dspy_reviewer_backend_marker() -> None:
 
     metrics = [
         {
-            "route": "local-review",
+            "route": "local-reason",
             "metadata": '{"source":"dspy-reviewer","program":"ReviewerProgram",'
             '"adapter":"JSONAdapter"}',
         },
         {
-            "route": "local-review",
+            "route": "local-reason",
             "metadata": '{"source":"dspy-reviewer","program":"ReviewerProgram",'
             '"adapter":"JSONAdapter"}',
         },
-        {"route": "local-review", "metadata": "not-json"},
+        {"route": "local-reason", "metadata": "not-json"},
         {
-            "route": "local-plan",
+            "route": "local-review",
             "metadata": '{"source":"dspy-reviewer","program":"ReviewerProgram",'
             '"adapter":"JSONAdapter"}',
         },
@@ -201,12 +201,12 @@ def test_live_e2e_requires_all_read_only_dspy_backend_markers() -> None:
             '"ExplorerProgram","adapter":"JSONAdapter"}',
         },
         {
-            "route": "local-plan",
+            "route": "local-reason",
             "metadata": '{"source":"dspy-planner","program":'
             '"PlannerProgram","adapter":"JSONAdapter"}',
         },
         {
-            "route": "local-review",
+            "route": "local-reason",
             "metadata": '{"source":"dspy-reviewer","program":'
             '"ReviewerProgram","adapter":"JSONAdapter"}',
         },

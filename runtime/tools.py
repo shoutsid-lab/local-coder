@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -176,6 +177,9 @@ class ToolContext:
     last_review_verdict: str | None = None
     scope_violations: set[str] = field(default_factory=set)
     allowed_edit_paths: frozenset[str] | None = None
+    reviewer_route: str = "local-review"
+    editor_route: str = "local-fast"
+    route_session: Callable[[str], Any] | None = None
 
     @staticmethod
     def _normalized_path(relative: str) -> str:
@@ -360,16 +364,32 @@ class ToolContext:
             changed_before = collect_changed_paths(self.worktree.path)
             task = self.task_file.read_text(encoding="utf-8")
             task_relative = str(self.task_file.relative_to(self.worktree.path))
-            changed = request_and_apply(
-                root=self.worktree.path,
-                instruction=instruction,
-                editable_files=files,
-                task=task,
-                protected_files={task_relative},
-                metrics_callback=lambda **metrics: self.state.add_model_metrics(
-                    self.run_id, **metrics
-                ),
+            session = (
+                self.route_session(self.editor_route)
+                if self.route_session is not None
+                else nullcontext({})
             )
+            with session as service:
+                service_evidence = dict(service or {})
+
+                def record_metrics(**metrics: Any) -> None:
+                    metadata = metrics.get("metadata")
+                    bounded_metadata = (
+                        dict(metadata) if isinstance(metadata, dict) else {}
+                    )
+                    if service_evidence:
+                        bounded_metadata["model_service"] = service_evidence
+                    metrics["metadata"] = bounded_metadata
+                    self.state.add_model_metrics(self.run_id, **metrics)
+
+                changed = request_and_apply(
+                    root=self.worktree.path,
+                    instruction=instruction,
+                    editable_files=files,
+                    task=task,
+                    protected_files={task_relative},
+                    metrics_callback=record_metrics,
+                )
             return self._verify_edit_result(
                 normalized_files=normalized_files,
                 editable_paths=editable_paths,
@@ -453,10 +473,13 @@ class ToolContext:
 
         return self._recorded("run_verification", {}, operation)
 
-    def review_diff(self) -> str:
+    def review_diff(self, model_route: str | None = None) -> str:
         """Run the read-only semantic reviewer against the worktree branch."""
 
+        route = model_route or self.reviewer_route
+
         def operation() -> str:
+            service_evidence: dict[str, Any] = {}
             run_dir = self.worktree.path / ".local-coder" / "runs" / self.run_id
             run_dir.mkdir(parents=True, exist_ok=True)
             output_path = run_dir / "REVIEW.json"
@@ -467,19 +490,28 @@ class ToolContext:
                 output_path.unlink()
             if metrics_path.exists():
                 metrics_path.unlink()
-            result = command(
-                [
-                    sys.executable,
-                    "./review-diff.py",
-                    "--task",
-                    str(self.task_file),
-                    "--output",
-                    str(output_path),
-                    "--metrics-output",
-                    str(metrics_path),
-                ],
-                cwd=self.worktree.path,
+            session = (
+                self.route_session(route)
+                if self.route_session is not None
+                else nullcontext({})
             )
+            with session as service:
+                service_evidence = dict(service or {})
+                result = command(
+                    [
+                        sys.executable,
+                        "./review-diff.py",
+                        "--task",
+                        str(self.task_file),
+                        "--output",
+                        str(output_path),
+                        "--metrics-output",
+                        str(metrics_path),
+                        "--model",
+                        route,
+                    ],
+                    cwd=self.worktree.path,
+                )
             combined = "\n".join(
                 part.strip() for part in (result.stdout, result.stderr) if part.strip()
             )
@@ -503,6 +535,12 @@ class ToolContext:
             if metrics_path.exists():
                 try:
                     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+                    if service_evidence:
+                        metadata = metrics.get("metadata")
+                        if not isinstance(metadata, dict):
+                            metadata = {}
+                        metadata["model_service"] = service_evidence
+                        metrics["metadata"] = metadata
                     self.state.add_model_metrics(self.run_id, **metrics)
                 except (json.JSONDecodeError, TypeError, ValueError):
                     self.last_review_verdict = None
@@ -522,7 +560,7 @@ class ToolContext:
                     self.run_id,
                     role="reviewer",
                     program="ReviewerProgram",
-                    route="local-review",
+                    route=route,
                     inputs={
                         "task": self.task_file.read_text(encoding="utf-8"),
                         "changed_files": sorted(

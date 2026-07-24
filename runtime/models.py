@@ -7,6 +7,8 @@ import socket
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from typing import Any
 
@@ -65,12 +67,14 @@ class AuditedModel:
         state: StateStore,
         run_id: str,
         usage_budget: ModelUsageBudget | None = None,
+        route_session: Callable[[str], Any] | None = None,
     ) -> None:
         self._model = model
         self._route = route
         self._state = state
         self._run_id = run_id
         self._usage_budget = usage_budget
+        self._route_session = route_session
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._model, name)
@@ -82,7 +86,16 @@ class AuditedModel:
         if self._usage_budget is not None:
             self._usage_budget.reserve_call()
         try:
-            response = self._model.generate(*args, **kwargs)
+            session = (
+                self._route_session(self._route)
+                if self._route_session is not None
+                else nullcontext({})
+            )
+            with session as service:
+                service_metadata = dict(service or {})
+                if service_metadata:
+                    metadata["model_service"] = service_metadata
+                response = self._model.generate(*args, **kwargs)
             normalized = normalize_model_response(response)
             prompt_tokens = normalized.prompt_tokens
             completion_tokens = normalized.completion_tokens
@@ -117,10 +130,35 @@ class ModelRegistry:
         *,
         api_base: str = "http://127.0.0.1:4000/v1",
         api_key: str = "local",
+        service_manager: Any | None = None,
     ) -> None:
         self.api_base = api_base
         self.api_key = api_key
         self.routes = dict(DEFAULT_ROUTE_PROFILES)
+        self.service_manager = service_manager
+
+    def prepare_route(self, alias: str) -> Mapping[str, Any]:
+        """Ensure the physical model for one trusted logical route is live."""
+        if alias not in self.routes:
+            raise KeyError(f"Unknown model route: {alias}")
+        if self.service_manager is None:
+            return {}
+        return self.service_manager.ensure_route(alias)
+
+    @contextmanager
+    def route_session(self, alias: str) -> Iterator[Mapping[str, Any]]:
+        """Serialize one complete model call on its required physical profile."""
+        if alias not in self.routes:
+            raise KeyError(f"Unknown model route: {alias}")
+        if self.service_manager is None:
+            yield {}
+            return
+        session = getattr(self.service_manager, "route_session", None)
+        if callable(session):
+            with session(alias) as evidence:
+                yield evidence
+            return
+        yield self.service_manager.ensure_route(alias)
 
     def build(self, alias: str) -> Any:
         """Build a smolagents LiteLLMModel lazily."""

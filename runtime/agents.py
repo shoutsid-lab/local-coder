@@ -5,14 +5,16 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .dspy_lm import build_dspy_lm
+from .dspy_lm import build_dspy_lm_with_profile
 from .dspy_trace import record_dspy_trace
 from .editor import load_editable_files
 from .models import AuditedModel, ModelRegistry, ModelUsageBudget
+from .role_profiles import role_generation_profile, role_route
 from .skills import (
     Skill,
     SkillCatalog,
@@ -246,6 +248,7 @@ class ReadOnlyEvidenceAgent:
     state: StateStore | None = None
     run_id: str | None = None
     usage_budget: ModelUsageBudget | None = None
+    route_session: Callable[[str], Any] | None = None
     _lm: Any | None = field(default=None, init=False, repr=False)
 
     def _language_model(self) -> Any:
@@ -299,12 +302,21 @@ class ReadOnlyEvidenceAgent:
                 evidence.append(self.context.list_files("*"))
             if self.usage_budget is not None:
                 self.usage_budget.reserve_call()
-            prediction = self.program_runner(
-                lm=self._language_model(),
-                task=authoritative_task,
-                delegated_task=task,
-                repository_evidence=evidence,
+            session = (
+                self.route_session(self.model_route)
+                if self.route_session is not None
+                else nullcontext({})
             )
+            with session as service:
+                service_metadata = dict(service or {})
+                if service_metadata:
+                    metadata["model_service"] = service_metadata
+                prediction = self.program_runner(
+                    lm=self._language_model(),
+                    task=authoritative_task,
+                    delegated_task=task,
+                    repository_evidence=evidence,
+                )
             prompt_tokens, completion_tokens = _prediction_usage(
                 prediction, self.model_route
             )
@@ -522,6 +534,7 @@ class DSPyImplementerAgent:
     state: StateStore | None = None
     run_id: str | None = None
     usage_budget: ModelUsageBudget | None = None
+    route_session: Callable[[str], Any] | None = None
     _lm: Any | None = field(default=None, init=False, repr=False)
 
     def _language_model(self) -> Any:
@@ -576,13 +589,22 @@ class DSPyImplementerAgent:
             ]
             if self.usage_budget is not None:
                 self.usage_budget.reserve_call()
-            prediction = self.program_runner(
-                lm=self._language_model(),
-                task=authoritative_task,
-                instruction=task,
-                editable_files=editable_files,
-                file_contents=file_contents,
+            session = (
+                self.route_session(self.model_route)
+                if self.route_session is not None
+                else nullcontext({})
             )
+            with session as service:
+                service_metadata = dict(service or {})
+                if service_metadata:
+                    metadata["model_service"] = service_metadata
+                prediction = self.program_runner(
+                    lm=self._language_model(),
+                    task=authoritative_task,
+                    instruction=task,
+                    editable_files=editable_files,
+                    file_contents=file_contents,
+                )
             prompt_tokens, completion_tokens = _prediction_usage(
                 prediction, self.model_route
             )
@@ -645,6 +667,7 @@ class DSPyRepairerAgent:
     state: StateStore | None = None
     run_id: str | None = None
     usage_budget: ModelUsageBudget | None = None
+    route_session: Callable[[str], Any] | None = None
     _lm: Any | None = field(default=None, init=False, repr=False)
 
     def _language_model(self) -> Any:
@@ -706,15 +729,24 @@ class DSPyRepairerAgent:
             ]
             if self.usage_budget is not None:
                 self.usage_budget.reserve_call()
-            prediction = self.program_runner(
-                lm=self._language_model(),
-                task=authoritative_task,
-                delegated_task=task,
-                verification_output=verification_output,
-                diff=diff,
-                editable_files=editable_files,
-                file_contents=file_contents,
+            session = (
+                self.route_session(self.model_route)
+                if self.route_session is not None
+                else nullcontext({})
             )
+            with session as service:
+                service_metadata = dict(service or {})
+                if service_metadata:
+                    metadata["model_service"] = service_metadata
+                prediction = self.program_runner(
+                    lm=self._language_model(),
+                    task=authoritative_task,
+                    delegated_task=task,
+                    verification_output=verification_output,
+                    diff=diff,
+                    editable_files=editable_files,
+                    file_contents=file_contents,
+                )
             prompt_tokens, completion_tokens = _prediction_usage(
                 prediction, self.model_route
             )
@@ -791,6 +823,7 @@ class ReadOnlyReviewAgent:
     activate_skill: Callable[[], Skill] | None = None
     state: StateStore | None = None
     run_id: str | None = None
+    model_route: str = "local-review"
 
     def __call__(
         self,
@@ -891,6 +924,9 @@ def _build_agent(
         agent_role=role,
         scope_violations=context.scope_violations,
         allowed_edit_paths=context.allowed_edit_paths,
+        reviewer_route=context.reviewer_route,
+        editor_route=context.editor_route,
+        route_session=context.route_session,
     )
     state.register_agent(
         run_id,
@@ -908,9 +944,10 @@ def _build_agent(
         program_name = "ExplorerProgram" if role == "explorer" else "PlannerProgram"
 
         def lm_factory() -> Any:
-            route = models.routes[model_route]
-            return build_dspy_lm(
+            route = role_generation_profile(role)
+            return build_dspy_lm_with_profile(
                 model_route,
+                route,
                 api_base=models.api_base,
                 api_key=models.api_key,
                 max_tokens=route.max_tokens,
@@ -928,14 +965,16 @@ def _build_agent(
             state=state,
             run_id=run_id,
             usage_budget=usage_budget,
+            route_session=models.route_session,
         )
     if role == "implementer":
         from .dspy_programs.implementer import run_implementer_program
 
         def implementer_lm_factory() -> Any:
-            route = models.routes[model_route]
-            return build_dspy_lm(
+            route = role_generation_profile(role)
+            return build_dspy_lm_with_profile(
                 model_route,
+                route,
                 api_base=models.api_base,
                 api_key=models.api_key,
                 max_tokens=route.max_tokens,
@@ -953,14 +992,16 @@ def _build_agent(
             state=state,
             run_id=run_id,
             usage_budget=usage_budget,
+            route_session=models.route_session,
         )
     if role == "repairer":
         from .dspy_programs.repairer import run_repairer_program
 
         def repairer_lm_factory() -> Any:
-            route = models.routes[model_route]
-            return build_dspy_lm(
+            route = role_generation_profile(role)
+            return build_dspy_lm_with_profile(
                 model_route,
+                route,
                 api_base=models.api_base,
                 api_key=models.api_key,
                 max_tokens=route.max_tokens,
@@ -978,6 +1019,7 @@ def _build_agent(
             state=state,
             run_id=run_id,
             usage_budget=usage_budget,
+            route_session=models.route_session,
         )
     if role == "reviewer":
         return ReadOnlyReviewAgent(
@@ -987,6 +1029,7 @@ def _build_agent(
             activate_skill=activate,
             state=state,
             run_id=run_id,
+            model_route=model_route,
         )
     raise RuntimeError(f"Unsupported managed role: {role}")
 
@@ -1038,18 +1081,19 @@ def build_agent_bundle(
         run_id,
         role="orchestrator",
         skill="orchestrate",
-        model_route="local-plan",
+        model_route=role_route("orchestrator"),
     )
     manager = CodeAgent(
         tools=build_smol_tools(
             context, ("git_status", "inspect_diff", "run_verification")
         ),
         model=AuditedModel(
-            models.build("local-plan"),
-            route="local-plan",
+            models.build(role_route("orchestrator")),
+            route=role_route("orchestrator"),
             state=state,
             run_id=run_id,
             usage_budget=usage_budget,
+            route_session=models.route_session,
         ),
         managed_agents=list(managed),
         instructions=(

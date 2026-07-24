@@ -6,13 +6,14 @@ import tempfile
 from pathlib import Path
 
 from .agents import build_agent_bundle
-from .dspy_lm import build_dspy_lm
+from .dspy_lm import build_dspy_lm_with_profile
 from .dspy_programs.explorer import ExplorerProgram
 from .dspy_programs.implementer import ImplementerProgram
 from .dspy_programs.planner import PlannerProgram
 from .dspy_programs.repairer import RepairerProgram
 from .dspy_programs.reviewer import ReviewerProgram
 from .models import ModelRegistry
+from .role_profiles import role_generation_profile, role_route
 from .skills_loader import discover_skills
 from .state import StateStore
 from .tools import ToolContext, Worktree
@@ -43,11 +44,21 @@ def main() -> int:
             task_file=task_file,
             agent_role="orchestrator",
         )
-        explorer_lm = build_dspy_lm("local-plan")
-        planner_lm = build_dspy_lm("local-plan")
-        implementer_lm = build_dspy_lm("local-fast")
-        repairer_lm = build_dspy_lm("local-fast")
-        reviewer_lm = build_dspy_lm("local-review")
+        explorer_lm = build_dspy_lm_with_profile(
+            role_route("explorer"), role_generation_profile("explorer")
+        )
+        planner_lm = build_dspy_lm_with_profile(
+            role_route("planner"), role_generation_profile("planner")
+        )
+        implementer_lm = build_dspy_lm_with_profile(
+            role_route("implementer"), role_generation_profile("implementer")
+        )
+        repairer_lm = build_dspy_lm_with_profile(
+            role_route("repairer"), role_generation_profile("repairer")
+        )
+        reviewer_lm = build_dspy_lm_with_profile(
+            role_route("reviewer"), role_generation_profile("reviewer")
+        )
         explorer_program = ExplorerProgram()
         planner_program = PlannerProgram()
         implementer_program = ImplementerProgram()
@@ -65,16 +76,19 @@ def main() -> int:
     expected = ["explorer", "planner", "implementer", "repairer", "reviewer"]
     if names != expected:
         raise RuntimeError(f"Unexpected managed-agent order: {names}")
-    if explorer_lm.model != "openai/local-plan":
-        raise RuntimeError(f"Unexpected DSPy explorer route: {explorer_lm.model}")
-    if planner_lm.model != "openai/local-plan":
-        raise RuntimeError(f"Unexpected DSPy planner route: {planner_lm.model}")
-    if implementer_lm.model != "openai/local-fast":
-        raise RuntimeError(f"Unexpected DSPy implementer route: {implementer_lm.model}")
-    if repairer_lm.model != "openai/local-fast":
-        raise RuntimeError(f"Unexpected DSPy repairer route: {repairer_lm.model}")
-    if reviewer_lm.model != "openai/local-review":
-        raise RuntimeError(f"Unexpected DSPy reviewer route: {reviewer_lm.model}")
+    role_models = {
+        "explorer": explorer_lm.model,
+        "planner": planner_lm.model,
+        "implementer": implementer_lm.model,
+        "repairer": repairer_lm.model,
+        "reviewer": reviewer_lm.model,
+    }
+    for role, model in role_models.items():
+        expected_model = f"openai/{role_route(role)}"
+        if model != expected_model:
+            raise RuntimeError(
+                f"Unexpected DSPy {role} route: {model}; expected {expected_model}"
+            )
     if bundle.managed[0].program_name != "ExplorerProgram":
         raise RuntimeError("Explorer is not bound to the DSPy explorer program.")
     if bundle.managed[1].program_name != "PlannerProgram":

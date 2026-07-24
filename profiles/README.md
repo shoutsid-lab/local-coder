@@ -1,12 +1,9 @@
 # llama.cpp Profiles
 
-`llama-fast.ini` describes the current Qwen 3B worker tuned for the GTX 1660 Ti.
-`llama-deep.ini` is a disabled on-demand profile for a future 7B planner/reviewer.
-
-The INI files are documentation and launch inputs for a future profile manager; they do
-not start servers by themselves. Keep only one large model resident at a time on this
-hardware. LiteLLM aliases (`local-fast`, `local-plan`, `local-review`) remain stable even
-when their physical backend changes.
+`llama-fast.ini` documents the Qwen 3B worker. `llama-deep.ini` remains a historical
+on-demand example. The active serial launch policy is now
+`model-services-v1.json`, which binds trusted Qwen and Qwythos commands to stable LiteLLM
+routes. Keep only one model resident at a time on this hardware.
 
 `qwythos-f3-qualification-v1.json` is not a launch profile. It is the retained first
 F3 policy and historical decision contract. Its first focused collector combined structural
@@ -43,3 +40,14 @@ sealed holdout or activate a prompt.
 comparison. It binds the sealed holdout and G3.1 selection hashes, exact Qwen and selected
 Qwythos role configurations, one attempt per sealed case, and the final accuracy-first
 qualification thresholds. It does not activate routes.
+
+`qwythos-role-activation-v1.json` is the separate trusted activation decision. It validates
+the committed baseline, candidate, and final G4 reports, promotes only planner and reviewer
+to `local-reason`, retains their prior Qwen routes as explicit fallbacks, and leaves
+explorer, orchestrator, implementer, and repairer on Qwen. Its `enabled` flag provides a
+configuration-only rollback without changing the frozen qualification evidence.
+
+`model-services-v1.json` is the active serial llama.cpp service policy. It maps Qwen to
+`local-fast`, `local-plan`, and `local-review`, maps Qwythos to `local-reason`, and freezes
+the exact launch arguments used by automatic synchronous switching. Its canonical hash
+is bound by the role-activation manifest, so an alternate service policy fails closed.

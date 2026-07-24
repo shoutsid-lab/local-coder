@@ -117,6 +117,20 @@ def handle_status(_: argparse.Namespace) -> int:
     tree_clean = tree_status == 0 and not porcelain
 
     print(f"llama-server :8080  {'OK' if llama_ok else 'UNAVAILABLE'}")
+    service_ok = not llama_ok
+    try:
+        from runtime.model_service import ModelServiceManager
+
+        service_status = ModelServiceManager(ROOT).status()
+        active_profile = service_status.get("profile_id") or "none"
+        identity = service_status.get("service_identity") or {}
+        active_model = identity.get("model_file") or "none"
+        service_ok = not llama_ok or active_profile != "none"
+        print(f"Model profile         {active_profile}")
+        print(f"Active model          {active_model}")
+    except Exception as exc:
+        service_ok = False
+        print(f"Model profile         INVALID ({exc})")
     print(f"LiteLLM      :4000  {'OK' if litellm_ok else 'UNAVAILABLE'}")
     print(f"smolagents          {'OK' if smolagents_ok else 'NOT INSTALLED'}")
     print(f"DSPy                {'OK' if dspy_ok else 'NOT INSTALLED'}")
@@ -125,19 +139,35 @@ def handle_status(_: argparse.Namespace) -> int:
     print(f"Working tree        {'clean' if tree_clean else 'has changes'}")
     print(f"Run database        {STATE_PATH}")
 
-    ready = llama_ok and litellm_ok and smolagents_ok and dspy_ok and branch_status == 0
+    ready = (
+        llama_ok
+        and service_ok
+        and litellm_ok
+        and smolagents_ok
+        and dspy_ok
+        and branch_status == 0
+    )
     return 0 if ready else 1
 
 
 def handle_repair(args: argparse.Namespace) -> int:
-    return run_command(
-        [
-            sys.executable,
-            "./run-editor.py",
-            args.instruction,
-            *args.files,
-        ]
-    )
+    from runtime.model_service import ModelServiceError, ModelServiceManager
+    from runtime.role_profiles import RoleProfileError, role_route
+
+    try:
+        manager = ModelServiceManager(ROOT)
+        with manager.route_session(role_route("repairer")):
+            return run_command(
+                [
+                    sys.executable,
+                    "./run-editor.py",
+                    args.instruction,
+                    *args.files,
+                ]
+            )
+    except (ModelServiceError, RoleProfileError) as exc:
+        print(f"Model service error: {exc}", file=sys.stderr)
+        return 1
 
 
 def handle_verify(_: argparse.Namespace) -> int:
@@ -145,7 +175,61 @@ def handle_verify(_: argparse.Namespace) -> int:
 
 
 def handle_review(args: argparse.Namespace) -> int:
-    return run_command([sys.executable, "./review-diff.py", "--task", str(args.task)])
+    from runtime.model_service import ModelServiceError, ModelServiceManager
+    from runtime.role_profiles import RoleProfileError, role_route
+
+    try:
+        route = role_route("reviewer")
+        manager = ModelServiceManager(ROOT)
+        command = [sys.executable, "./review-diff.py"]
+        if args.cached:
+            command.append("--cached")
+        command.extend(["--task", str(args.task), "--model", route])
+        with manager.route_session(route):
+            return run_command(command)
+    except (ModelServiceError, RoleProfileError) as exc:
+        print(f"Model service error: {exc}", file=sys.stderr)
+        return 1
+
+
+def handle_model_service(args: argparse.Namespace) -> int:
+    """Inspect or switch the trusted serial llama.cpp service."""
+    from runtime.model_service import ModelServiceError, ModelServiceManager
+
+    try:
+        manager = ModelServiceManager(ROOT)
+        if args.action == "status":
+            result = manager.status()
+        elif args.action == "stop":
+            result = manager.stop()
+        elif args.action == "switch":
+            if not args.target:
+                raise ModelServiceError("switch requires a profile ID")
+            result = manager.switch_profile(args.target)
+        elif args.action == "ensure":
+            if not args.target:
+                raise ModelServiceError("ensure requires a logical route")
+            result = manager.ensure_route(args.target)
+        else:
+            raise ModelServiceError(f"Unsupported model-service action: {args.action}")
+    except ModelServiceError as exc:
+        print(f"Model service error: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+def handle_role_profiles(_: argparse.Namespace) -> int:
+    """Show the qualification-bound role activation summary."""
+    from runtime.role_profiles import RoleProfileError, activation_summary
+
+    try:
+        summary = activation_summary(ROOT)
+    except RoleProfileError as exc:
+        print(f"Role profile error: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(summary, indent=2, sort_keys=True))
+    return 0
 
 
 def handle_run(args: argparse.Namespace) -> int:
@@ -1393,6 +1477,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     status_parser.set_defaults(handler=handle_status)
 
+    model_service_parser = subparsers.add_parser(
+        "model-service",
+        help="Inspect or switch the serial llama.cpp model service.",
+    )
+    model_service_parser.add_argument(
+        "action",
+        choices=("status", "switch", "ensure", "stop"),
+    )
+    model_service_parser.add_argument(
+        "target",
+        nargs="?",
+        help="Profile ID for switch or logical route for ensure.",
+    )
+    model_service_parser.set_defaults(handler=handle_model_service)
+
+    role_profiles_parser = subparsers.add_parser(
+        "role-profiles",
+        help="Show qualification-bound planner and reviewer activation.",
+    )
+    role_profiles_parser.set_defaults(handler=handle_role_profiles)
+
     run_parser = subparsers.add_parser(
         "run", help="Run the role-separated agent harness in an isolated worktree."
     )
@@ -1848,6 +1953,11 @@ def build_parser() -> argparse.ArgumentParser:
         "task",
         type=Path,
         help="Authoritative task file for the diff under review.",
+    )
+    review_parser.add_argument(
+        "--cached",
+        action="store_true",
+        help="Review staged changes instead of the working tree diff.",
     )
     review_parser.set_defaults(handler=handle_review)
 

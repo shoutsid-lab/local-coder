@@ -1,5 +1,9 @@
 # Qwythos one-shot holdout qualification
 
+**Status:** Completed on 2026-07-24 at implementation commit
+`0a0825cc8ae2622d2a82f5e87088077827cd62b9`. Both frozen role gates passed;
+route activation is recorded separately.
+
 ## Purpose
 
 G4 performs the final independent Track G comparison between the incumbent Qwen
@@ -114,3 +118,23 @@ make real-task-holdout-compare \
 The comparison validates both completion receipts, requires the same implementation,
 environment, llama.cpp build, context, and slot count, and issues independent planner and
 reviewer decisions. `route_activation` remains `null` regardless of the result.
+
+## Final recorded result
+
+The committed reports are preserved under `evidence/track-g/`. Their canonical internal
+hashes are validated at runtime before the role activation manifest is accepted.
+
+| Role | Baseline mean | Qwythos mean | Gain | Strict case success | Decision |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Planner | 0.5833 | 0.6667 | +0.0833 | 0/2 → 0/2 | qualified |
+| Reviewer | 0.6000 | 0.8000 | +0.2000 | 0/2 → 1/2 | qualified |
+
+No holdout case regressed. The final report records `combined_qualified: true`, qualified
+roles `planner` and `reviewer`, and `route_activation: null`. That null is intentional: G4
+measured and decided; `profiles/qwythos-role-activation-v1.json` performs the later bounded
+activation without modifying the frozen report.
+
+This remains a relative four-case qualification under the preregistered policy, not a claim
+that every task succeeds. Planner strict case success stayed at zero and reviewer passed one
+of two cases. Runtime activation therefore remains role-bounded, serial, auditable, and
+reversible rather than replacing all Qwen routes. See [`MODEL_SWITCHING.md`](MODEL_SWITCHING.md).
