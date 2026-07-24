@@ -32,3 +32,8 @@ model identities, and their exact planner/reviewer route profiles. G2 uses only 
 experiment. It runs three role profiles twice per visible case, ranks accuracy before cost,
 and permits holdout access only after bounded per-role gains without material regressions.
 It does not change active runtime routes.
+
+`track-g-qwythos-prompt-tuning-v1.json` freezes the G3.1 development-only prompt-contract
+experiment. It holds the selected role generation settings constant, compares the
+code-defined instructions with two reusable role-level candidates, and cannot access the
+sealed holdout or activate a prompt.

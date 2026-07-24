@@ -116,16 +116,24 @@ lineage changes during the run.
 ## G3 accuracy-first profile tuning
 
 The Qwen and Qwythos G2 development reports showed a small aggregate Qwythos advantage
-with mixed per-case movement. The holdout therefore remains sealed while G3 compares three
-Qwythos profiles on development only. See [Qwythos profile tuning](QWYTHOS_PROFILE_TUNING.md).
+with mixed per-case movement. G3 then compared three Qwythos generation profiles on
+development only. Greater reasoning depth did not improve mean quality and no selected role
+cleared the frozen development gain gate. See
+[Qwythos profile tuning](QWYTHOS_PROFILE_TUNING.md).
 
-Validate the tuning controls without model services:
+## G3.1 prompt-contract tuning
+
+The repeated G3 failure classes point to instruction completeness rather than reasoning
+budget. G3.1 holds the measured role generation settings constant and compares three
+reusable prompt profiles on the same eight visible cases. See
+[Qwythos prompt tuning](QWYTHOS_PROMPT_TUNING.md).
+
+Validate both tuning controls without model services:
 
 ```bash
 make real-task-profile-tuning-check
+make real-task-prompt-tuning-check
 ```
 
-Collection uses the same eight cases, production programs, adapter, scorer, prompt lineage,
-and service identity. Each frozen profile runs every case twice. The comparison requires all
-three profile reports and selects planner and reviewer independently under an accuracy-first,
-no-material-regression policy.
+Both collectors use the production programs, JSON adapter, scorer, clean implementation
+commit, and unchanged service identity. Neither command accepts a holdout path.

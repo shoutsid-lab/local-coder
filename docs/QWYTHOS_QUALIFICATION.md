@@ -262,9 +262,9 @@ compatibility, not superior task quality.
 Track G G0/G1 now freezes the varied real-task corpus described in
 [`REAL_TASK_CORPUS.md`](REAL_TASK_CORPUS.md). The next qualification work is:
 
-1. collect and compare all three frozen G3 Qwythos development profiles documented in
-   `QWYTHOS_PROFILE_TUNING.md`;
-2. select planner and reviewer profiles independently under the accuracy-first,
+1. collect and compare the frozen G3.1 prompt-contract candidates documented in
+   `QWYTHOS_PROMPT_TUNING.md`, using the measured G3 role generation settings;
+2. select planner and reviewer prompts independently under the unchanged accuracy-first,
    no-material-regression policy;
 3. open only the role-specific independently provisioned holdout cases permitted by that
    frozen gate;

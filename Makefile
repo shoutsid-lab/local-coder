@@ -11,7 +11,8 @@ PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runt
 	real-task-corpus-check real-task-corpus-summary real-task-development-check \
 	real-task-development-collect real-task-profile-tuning-check \
 	real-task-profile-tuning-collect real-task-profile-tuning-compare \
-	route-qualification-policy-hash \
+	real-task-prompt-tuning-check real-task-prompt-tuning-collect \
+	real-task-prompt-tuning-compare route-qualification-policy-hash \
 	route-qualification-collect route-qualification route-probe runs live-e2e \
 	live-e2e-report
 
@@ -41,6 +42,7 @@ agent-check:
 	$(PYTHON) -m json.tool evaluation/real_task_cases/holdout-v1.index.json >/dev/null
 	$(PYTHON) -m json.tool profiles/track-g-development-v1.json >/dev/null
 	$(PYTHON) -m json.tool profiles/track-g-qwythos-tuning-v1.json >/dev/null
+	$(PYTHON) -m json.tool profiles/track-g-qwythos-prompt-tuning-v1.json >/dev/null
 
 agent-install:
 	$(PYTHON) -m pip install -r requirements-agent.txt
@@ -173,6 +175,22 @@ real-task-profile-tuning-collect:
 real-task-profile-tuning-compare:
 	@test -n "$(REPORTS)" || (echo "Usage: make real-task-profile-tuning-compare REPORTS='path1 path2 path3' [OUTPUT=path]"; exit 1)
 	$(PYTHON) -m evaluation.real_task_profile_tuning compare \
+		--reports $(REPORTS) \
+		$(if $(OUTPUT),--output "$(OUTPUT)",)
+
+real-task-prompt-tuning-check:
+	$(PYTHON) -m pytest -q --tb=short tests/test_real_task_prompt_tuning.py
+
+real-task-prompt-tuning-collect:
+	@test -n "$(PROMPT_PROFILE)" -a -n "$(ENVIRONMENT)" || (echo "Usage: make real-task-prompt-tuning-collect PROMPT_PROFILE=code-control|evidence-completeness|field-checklist ENVIRONMENT=machine-id [OUTPUT=path]"; exit 1)
+	$(PYTHON) -m evaluation.real_task_prompt_tuning collect \
+		--prompt-profile "$(PROMPT_PROFILE)" \
+		--environment-id "$(ENVIRONMENT)" \
+		$(if $(OUTPUT),--output "$(OUTPUT)",)
+
+real-task-prompt-tuning-compare:
+	@test -n "$(REPORTS)" || (echo "Usage: make real-task-prompt-tuning-compare REPORTS='path1 path2 path3' [OUTPUT=path]"; exit 1)
+	$(PYTHON) -m evaluation.real_task_prompt_tuning compare \
 		--reports $(REPORTS) \
 		$(if $(OUTPUT),--output "$(OUTPUT)",)
 

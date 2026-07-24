@@ -119,3 +119,18 @@ The comparator rejects missing profiles, duplicate profiles, different commits,
 environments, service identities, prompt lineage, suite hashes, or altered report contents.
 It selects planner and reviewer profiles independently and states which roles, if any, are
 ready for the sealed holdout.
+
+## Recorded G3 result
+
+The three clean development reports completed at implementation commit `6f3e473`.
+`current-control` retained the highest overall mean score (approximately 0.846) and highest
+planner mean (approximately 0.792), but one planner attempt scored 0.5 and therefore failed
+the frozen 0.6 minimum-case hard gate. Among eligible profiles, `role-depth-accuracy` won
+the planner tie only on latency, while `deterministic-accuracy` won reviewer selection by
+stable case success and won the eligible overall tie. No role gained the required 0.02 mean
+score over control, so holdout remained sealed.
+
+Increasing reasoning depth did not remove the repeated planner acceptance-criteria and
+scope-reference failures. The next experiment therefore holds generation settings fixed and
+tests reusable prompt-contract candidates described in
+[Qwythos development prompt-contract tuning](QWYTHOS_PROMPT_TUNING.md).

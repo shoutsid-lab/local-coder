@@ -1,0 +1,81 @@
+{
+  "attempts_per_case": 2,
+  "candidate_model_file": "Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_K_M.gguf",
+  "generation_profiles": {
+    "planner": {
+      "alias": "local-reason",
+      "final_answer_tokens": 1024,
+      "max_tokens": 2048,
+      "model_alias": "local-reason",
+      "preserve_reasoning": false,
+      "reasoning_mode": "on",
+      "reasoning_tokens": 1024,
+      "repetition_penalty": 1.05,
+      "requires_model_switch": true,
+      "retries": 0,
+      "temperature": 0.6,
+      "timeout_seconds": 300,
+      "top_k": 20,
+      "top_p": 0.95
+    },
+    "reviewer": {
+      "alias": "local-reason",
+      "final_answer_tokens": 1536,
+      "max_tokens": 3072,
+      "model_alias": "local-reason",
+      "preserve_reasoning": false,
+      "reasoning_mode": "on",
+      "reasoning_tokens": 1536,
+      "repetition_penalty": 1.05,
+      "requires_model_switch": true,
+      "retries": 0,
+      "temperature": 0.0,
+      "timeout_seconds": 480,
+      "top_k": null,
+      "top_p": 1.0
+    }
+  },
+  "llama_alias": "local-reason",
+  "prompt_profiles": {
+    "code-control": {
+      "planner": null,
+      "reviewer": null
+    },
+    "evidence-completeness": {
+      "planner": "Produce one implementation-ready atomic plan using only the authoritative task and supplied repository evidence. The instruction must name the exact transformation and preserve unrelated behavior. editable_files must contain only paths that may actually change; never mention an out-of-scope path anywhere in the output, including as a warning. acceptance_criteria must explicitly name every evidence-backed diagnostic code, verification command, pass count, state condition, or contract outcome needed to prove completion. Do not replace concrete checks with generic phrases such as tests pass. depends_on must contain only real earlier step identifiers.",
+      "reviewer": "Review the diff against the authoritative task, exact changed paths, and deterministic verification evidence. Name every definite defect with each affected repository path in issues. Any changed path not required by the task is a material unrelated change: name it in unrelated_changes and use fail. Use pass only when all requested behavior is satisfied, verification passed, and no unrelated change exists. Treat documentation-placement and reviewer-authority boundaries as enforceable task scope rather than optional style preferences. Never edit files."
+    },
+    "field-checklist": {
+      "planner": "Return a concise typed atomic plan after checking every output field. instruction: state the exact evidence-backed code transformation and all required behavior. editable_files: list only the one or two paths that may change and omit every out-of-scope path from all output text. acceptance_criteria: include concrete evidence-backed checks, preserving exact diagnostic identifiers, focused pass counts, commands, state invariants, and contract outcomes supplied by the task. depends_on: use an empty list unless an earlier step identifier is explicitly supplied. Do not invent files, checks, or dependencies.",
+      "reviewer": "Return a typed read-only review after checking every output field. verdict: fail for a definite defect or any changed path outside the requested scope; needs_attention only when evidence is genuinely insufficient. issues: name every affected path for each definite correctness or contract defect. unrelated_changes: name every changed path not required by the authoritative task, even when the change is technically valid. summary: tie the verdict to the requested behavior and deterministic evidence. Never grant the reviewer write authority and never edit files."
+    }
+  },
+  "protocol_id": "track-g-qwythos-prompt-tuning-v1",
+  "route": "local-reason",
+  "schema_version": 1,
+  "scoring_version": "role-oracle-v1",
+  "selection_policy": {
+    "accuracy_ranking": [
+      "mean_score",
+      "stable_case_success_rate",
+      "minimum_score",
+      "score_standard_deviation",
+      "mean_latency_seconds"
+    ],
+    "control_profile": "code-control",
+    "hard_gates": {
+      "adapter_success_rate": 1.0,
+      "minimum_case_score": 0.6,
+      "schema_rate": 1.0
+    },
+    "holdout_gate": {
+      "material_regression_delta": 0.2,
+      "maximum_material_regressions": 0,
+      "minimum_overall_mean_score": 0.85,
+      "minimum_role_mean_gain": 0.02,
+      "minimum_stable_case_success_rate": 0.5
+    }
+  },
+  "suite_id": "real-task-development-v1",
+  "suite_sha256": "1a64c0f9d4b95037fdcbc42963e3e44ecfc0731a7eef8c7382bc1c12c6877311"
+}

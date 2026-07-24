@@ -1,7 +1,7 @@
 # ROADMAP: Real-Task Capability Evidence
 
 **Target repository:** `shoutsid-lab/local-coder`
-**Status:** Active — G0–G2 complete; G3 tuning runner ready
+**Status:** Active — G0–G3 measured; G3.1 prompt tuning ready
 **Track:** G
 
 ## 0. Why this document exists
@@ -144,21 +144,34 @@ without an explicit, frozen tradeoff decision.
 - The mixed development result is not sufficient to open holdout or change a route.
   Downstream edit/repair counts remain a later end-to-end measurement.
 
-### G3. Accuracy-first Qwythos profile comparison — runner ready
+### G3. Accuracy-first Qwythos profile comparison — measured
 
-- `profiles/track-g-qwythos-tuning-v1.json` freezes `current-control`,
-  `deterministic-accuracy`, and `role-depth-accuracy`.
-- Each profile runs every visible case twice through the same production programs and
-  adapters. The control measures current-profile variance; the other profiles isolate lower
-  sampling noise and greater role-specific reasoning depth.
-- Selection is independent for planner and reviewer. Mean score, stable success, minimum
-  score, and variance outrank latency. Adapter/schema success and a minimum case score are
-  hard gates.
-- Holdout remains unavailable unless a selected role gains at least 0.02 mean score over
-  control with no regression greater than 0.2. Combined readiness also requires at least
-  0.85 overall mean score and 0.5 stable case success.
-- `evaluation/real_task_profile_tuning.py` collects, validates, compares, and hash-binds the
-  reports without retaining generated fields or exposing a holdout input.
+- `profiles/track-g-qwythos-tuning-v1.json` froze `current-control`,
+  `deterministic-accuracy`, and `role-depth-accuracy`, with two attempts per visible case.
+- `current-control` retained the highest mean planner and overall scores, but one 0.5 planner
+  attempt failed the frozen 0.6 minimum-case hard gate. The eligible planner profiles tied
+  on accuracy; `role-depth-accuracy` won only the latency tie-break.
+- All reviewer profiles tied at 0.9 mean score. `deterministic-accuracy` improved stable
+  reviewer case success to 0.75 and used fewer tokens and wall time.
+- No selected role gained 0.02 mean score over control. The combined eligible projection
+  also remained below the frozen overall threshold, so holdout stayed sealed.
+- Increasing reasoning depth did not remove the repeated planner acceptance-criteria,
+  instruction-completeness, and scope-reference failures.
+
+### G3.1. Qwythos prompt-contract comparison — runner ready
+
+- `profiles/track-g-qwythos-prompt-tuning-v1.json` freezes `code-control`,
+  `evidence-completeness`, and `field-checklist`.
+- Planner generation uses the highest-mean G3 control profile. Reviewer generation uses the
+  deterministic profile that tied the best mean with higher stability. These settings remain
+  identical across prompt candidates.
+- Candidate instructions address only measured reusable failure classes: concrete
+  evidence-backed acceptance criteria, out-of-scope path leakage, complete defect-path
+  reporting, and unrelated changed-file classification.
+- `evaluation/real_task_prompt_tuning.py` applies inert instruction overrides to the same
+  production programs and `JSONAdapter`, requires no active deployed prompt state, retains
+  no generated text, and exposes no holdout input.
+- The existing accuracy-first and no-material-regression holdout gate remains unchanged.
 
 ### G4. Decision and backlog reset
 
