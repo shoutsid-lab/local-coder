@@ -28,6 +28,8 @@
 - [Qwythos F3 qualification](QWYTHOS_QUALIFICATION.md) — retained v1 evidence,
   raw-route and shared-adapter diagnostics, resource evidence, and remaining
   planner/reviewer qualification work.
+- [Qwythos profile tuning](QWYTHOS_PROFILE_TUNING.md) — accuracy-first G3 development
+  profiles, repeated collection, selection policy, and holdout gate.
 - [Real-task corpus](REAL_TASK_CORPUS.md) — Track G case format, committed development
   cases, sealed holdout index, validation, trusted holdout handling, and development
   evidence collection.

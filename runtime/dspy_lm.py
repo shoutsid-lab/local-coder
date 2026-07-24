@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from .route_profiles import DEFAULT_ROUTE_PROFILES, get_route_profile
+from .route_profiles import DEFAULT_ROUTE_PROFILES, RouteProfile, get_route_profile
 
 LITELLM_API_BASE = "http://127.0.0.1:4000/v1"
 LITELLM_API_KEY = "local"
 DSPY_ROUTES = frozenset(DEFAULT_ROUTE_PROFILES)
 
 
-def build_dspy_lm(
+def build_dspy_lm_with_profile(
     route: str,
+    profile: RouteProfile,
     *,
     api_base: str = LITELLM_API_BASE,
     api_key: str = LITELLM_API_KEY,
@@ -20,10 +21,13 @@ def build_dspy_lm(
     timeout: int | None = None,
     dspy_module: Any | None = None,
 ) -> Any:
-    """Return a deterministic DSPy LM for one trusted LiteLLM alias."""
+    """Return a DSPy LM for one trusted route and explicit bounded profile."""
     if route not in DSPY_ROUTES:
         raise ValueError(f"Unsupported DSPy route: {route}")
-    profile = get_route_profile(route)
+    if profile.alias != route:
+        raise ValueError(
+            f"Route profile alias mismatch: expected {route}, found {profile.alias}"
+        )
     effective_max_tokens = profile.max_tokens if max_tokens is None else max_tokens
     if effective_max_tokens <= 0:
         raise ValueError("max_tokens must be positive")
@@ -50,3 +54,26 @@ def build_dspy_lm(
     if timeout is not None or effective_timeout != 180:
         options["timeout"] = effective_timeout
     return dspy_module.LM(f"openai/{route}", **options)
+
+
+def build_dspy_lm(
+    route: str,
+    *,
+    api_base: str = LITELLM_API_BASE,
+    api_key: str = LITELLM_API_KEY,
+    max_tokens: int | None = None,
+    timeout: int | None = None,
+    dspy_module: Any | None = None,
+) -> Any:
+    """Return a deterministic DSPy LM for one trusted LiteLLM alias."""
+    if route not in DSPY_ROUTES:
+        raise ValueError(f"Unsupported DSPy route: {route}")
+    return build_dspy_lm_with_profile(
+        route,
+        get_route_profile(route),
+        api_base=api_base,
+        api_key=api_key,
+        max_tokens=max_tokens,
+        timeout=timeout,
+        dspy_module=dspy_module,
+    )

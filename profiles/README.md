@@ -27,3 +27,8 @@ differ. It is focused diagnostic evidence and does not issue a qualification dec
 It binds the eight-case suite hash, one attempt per case, the role-oracle scorer, both
 model identities, and their exact planner/reviewer route profiles. G2 uses only the
 `baseline` subject; the candidate entry exists so G3 can reuse identical cases and scoring.
+
+`track-g-qwythos-tuning-v1.json` freezes the G3 development-only Qwythos profile
+experiment. It runs three role profiles twice per visible case, ranks accuracy before cost,
+and permits holdout access only after bounded per-role gains without material regressions.
+It does not change active runtime routes.

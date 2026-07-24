@@ -112,3 +112,20 @@ case hashes, bounded scoring dimensions, failure codes, latency, and available t
 counts. Generated planner/reviewer fields, final answers, prompts, and reasoning text are
 not persisted. Collection requires a clean committed tree and fails if active prompt
 lineage changes during the run.
+
+## G3 accuracy-first profile tuning
+
+The Qwen and Qwythos G2 development reports showed a small aggregate Qwythos advantage
+with mixed per-case movement. The holdout therefore remains sealed while G3 compares three
+Qwythos profiles on development only. See [Qwythos profile tuning](QWYTHOS_PROFILE_TUNING.md).
+
+Validate the tuning controls without model services:
+
+```bash
+make real-task-profile-tuning-check
+```
+
+Collection uses the same eight cases, production programs, adapter, scorer, prompt lineage,
+and service identity. Each frozen profile runs every case twice. The comparison requires all
+three profile reports and selects planner and reviewer independently under an accuracy-first,
+no-material-regression policy.

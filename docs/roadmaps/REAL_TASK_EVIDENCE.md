@@ -1,7 +1,7 @@
 # ROADMAP: Real-Task Capability Evidence
 
 **Target repository:** `shoutsid-lab/local-coder`
-**Status:** Active — G0/G1 frozen; G2 runner ready
+**Status:** Active — G0–G2 complete; G3 tuning runner ready
 **Track:** G
 
 ## 0. Why this document exists
@@ -126,7 +126,7 @@ without an explicit, frozen tradeoff decision.
 - Pattern groups are unique across development and holdout, machine-specific paths are
   rejected, and trusted holdout tampering fails closed.
 
-### G2. Current-route baseline — runner ready
+### G2. Current-route baseline — complete
 
 - `evaluation/real_task_development.py` runs the current planner/reviewer combination
   through all eight candidate-visible development cases using the production DSPy
@@ -137,16 +137,28 @@ without an explicit, frozen tradeoff decision.
   bounded failure codes, latency, and available prompt/completion tokens.
 - Reports retain no generated planner/reviewer text and expose no holdout path.
 - Active prompt lineage is sampled before and after collection; any change fails the run.
-- The remaining G2 action is to collect and retain the clean-tree Qwen baseline without
-  changing prompts. Downstream edit/repair counts remain a later end-to-end measurement;
-  this phase establishes the planner/reviewer role baseline first.
+- Clean-tree Qwen and Qwythos reports now exist for the same eight cases, implementation
+  commit, adapters, scoring, and environment. Qwythos improved overall mean score from
+  0.775 to approximately 0.821 and strict case success from two to three, but also regressed
+  on two cases and used materially more tokens and wall time.
+- The mixed development result is not sufficient to open holdout or change a route.
+  Downstream edit/repair counts remain a later end-to-end measurement.
 
-### G3. Track F comparison
+### G3. Accuracy-first Qwythos profile comparison — runner ready
 
-- Run the frozen comparison matrix with bounded route profiles.
-- Use identical task inputs and verification commands.
-- Decide planner and reviewer qualification independently.
-- Keep the final holdout unavailable during route tuning.
+- `profiles/track-g-qwythos-tuning-v1.json` freezes `current-control`,
+  `deterministic-accuracy`, and `role-depth-accuracy`.
+- Each profile runs every visible case twice through the same production programs and
+  adapters. The control measures current-profile variance; the other profiles isolate lower
+  sampling noise and greater role-specific reasoning depth.
+- Selection is independent for planner and reviewer. Mean score, stable success, minimum
+  score, and variance outrank latency. Adapter/schema success and a minimum case score are
+  hard gates.
+- Holdout remains unavailable unless a selected role gains at least 0.02 mean score over
+  control with no regression greater than 0.2. Combined readiness also requires at least
+  0.85 overall mean score and 0.5 stable case success.
+- `evaluation/real_task_profile_tuning.py` collects, validates, compares, and hash-binds the
+  reports without retaining generated fields or exposing a holdout input.
 
 ### G4. Decision and backlog reset
 

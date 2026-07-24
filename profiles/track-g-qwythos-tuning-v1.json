@@ -1,0 +1,137 @@
+{
+  "attempts_per_case": 2,
+  "candidate_model_file": "Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_K_M.gguf",
+  "llama_alias": "local-reason",
+  "profiles": {
+    "current-control": {
+      "planner": {
+        "alias": "local-reason",
+        "final_answer_tokens": 1024,
+        "max_tokens": 2048,
+        "model_alias": "local-reason",
+        "preserve_reasoning": false,
+        "reasoning_mode": "on",
+        "reasoning_tokens": 1024,
+        "repetition_penalty": 1.05,
+        "requires_model_switch": true,
+        "retries": 0,
+        "temperature": 0.6,
+        "timeout_seconds": 300,
+        "top_k": 20,
+        "top_p": 0.95
+      },
+      "reviewer": {
+        "alias": "local-reason",
+        "final_answer_tokens": 1024,
+        "max_tokens": 2048,
+        "model_alias": "local-reason",
+        "preserve_reasoning": false,
+        "reasoning_mode": "on",
+        "reasoning_tokens": 1024,
+        "repetition_penalty": 1.05,
+        "requires_model_switch": true,
+        "retries": 0,
+        "temperature": 0.6,
+        "timeout_seconds": 300,
+        "top_k": 20,
+        "top_p": 0.95
+      }
+    },
+    "deterministic-accuracy": {
+      "planner": {
+        "alias": "local-reason",
+        "final_answer_tokens": 1536,
+        "max_tokens": 3072,
+        "model_alias": "local-reason",
+        "preserve_reasoning": false,
+        "reasoning_mode": "on",
+        "reasoning_tokens": 1536,
+        "repetition_penalty": 1.05,
+        "requires_model_switch": true,
+        "retries": 0,
+        "temperature": 0.0,
+        "timeout_seconds": 480,
+        "top_k": null,
+        "top_p": 1.0
+      },
+      "reviewer": {
+        "alias": "local-reason",
+        "final_answer_tokens": 1536,
+        "max_tokens": 3072,
+        "model_alias": "local-reason",
+        "preserve_reasoning": false,
+        "reasoning_mode": "on",
+        "reasoning_tokens": 1536,
+        "repetition_penalty": 1.05,
+        "requires_model_switch": true,
+        "retries": 0,
+        "temperature": 0.0,
+        "timeout_seconds": 480,
+        "top_k": null,
+        "top_p": 1.0
+      }
+    },
+    "role-depth-accuracy": {
+      "planner": {
+        "alias": "local-reason",
+        "final_answer_tokens": 2048,
+        "max_tokens": 4096,
+        "model_alias": "local-reason",
+        "preserve_reasoning": false,
+        "reasoning_mode": "on",
+        "reasoning_tokens": 2048,
+        "repetition_penalty": 1.05,
+        "requires_model_switch": true,
+        "retries": 0,
+        "temperature": 0.2,
+        "timeout_seconds": 600,
+        "top_k": 20,
+        "top_p": 0.95
+      },
+      "reviewer": {
+        "alias": "local-reason",
+        "final_answer_tokens": 2048,
+        "max_tokens": 4096,
+        "model_alias": "local-reason",
+        "preserve_reasoning": false,
+        "reasoning_mode": "on",
+        "reasoning_tokens": 2048,
+        "repetition_penalty": 1.05,
+        "requires_model_switch": true,
+        "retries": 0,
+        "temperature": 0.2,
+        "timeout_seconds": 600,
+        "top_k": 20,
+        "top_p": 0.95
+      }
+    }
+  },
+  "protocol_id": "track-g-qwythos-tuning-v1",
+  "route": "local-reason",
+  "schema_version": 1,
+  "scoring_version": "role-oracle-v1",
+  "selection_policy": {
+    "accuracy_ranking": [
+      "mean_score",
+      "stable_case_success_rate",
+      "minimum_score",
+      "score_standard_deviation",
+      "mean_latency_seconds"
+    ],
+    "control_profile": "current-control",
+    "hard_gates": {
+      "adapter_success_rate": 1.0,
+      "minimum_case_score": 0.6,
+      "schema_rate": 1.0
+    },
+    "holdout_gate": {
+      "material_regression_delta": 0.2,
+      "maximum_material_regressions": 0,
+      "minimum_overall_mean_score": 0.85,
+      "minimum_role_mean_gain": 0.02,
+      "minimum_stable_case_success_rate": 0.5
+    }
+  },
+  "suite_id": "real-task-development-v1",
+  "suite_sha256": "1a64c0f9d4b95037fdcbc42963e3e44ecfc0731a7eef8c7382bc1c12c6877311"
+}

@@ -9,7 +9,9 @@ PYTHON_FILES := local-coder.py review-diff.py run-editor.py evaluation/*.py runt
 	route-contract-diagnostic-compare route-adapter-diagnostic-check \
 	route-adapter-diagnostic-collect route-adapter-diagnostic-compare \
 	real-task-corpus-check real-task-corpus-summary real-task-development-check \
-	real-task-development-collect route-qualification-policy-hash \
+	real-task-development-collect real-task-profile-tuning-check \
+	real-task-profile-tuning-collect real-task-profile-tuning-compare \
+	route-qualification-policy-hash \
 	route-qualification-collect route-qualification route-probe runs live-e2e \
 	live-e2e-report
 
@@ -38,6 +40,7 @@ agent-check:
 	$(PYTHON) -m json.tool evaluation/real_task_cases/development-v1.json >/dev/null
 	$(PYTHON) -m json.tool evaluation/real_task_cases/holdout-v1.index.json >/dev/null
 	$(PYTHON) -m json.tool profiles/track-g-development-v1.json >/dev/null
+	$(PYTHON) -m json.tool profiles/track-g-qwythos-tuning-v1.json >/dev/null
 
 agent-install:
 	$(PYTHON) -m pip install -r requirements-agent.txt
@@ -155,6 +158,22 @@ real-task-development-collect:
 	$(PYTHON) -m evaluation.real_task_development \
 		--subject "$(SUBJECT)" \
 		--environment-id "$(ENVIRONMENT)" \
+		$(if $(OUTPUT),--output "$(OUTPUT)",)
+
+real-task-profile-tuning-check:
+	$(PYTHON) -m pytest -q --tb=short tests/test_real_task_profile_tuning.py
+
+real-task-profile-tuning-collect:
+	@test -n "$(PROFILE)" -a -n "$(ENVIRONMENT)" || (echo "Usage: make real-task-profile-tuning-collect PROFILE=current-control|deterministic-accuracy|role-depth-accuracy ENVIRONMENT=machine-id [OUTPUT=path]"; exit 1)
+	$(PYTHON) -m evaluation.real_task_profile_tuning collect \
+		--profile "$(PROFILE)" \
+		--environment-id "$(ENVIRONMENT)" \
+		$(if $(OUTPUT),--output "$(OUTPUT)",)
+
+real-task-profile-tuning-compare:
+	@test -n "$(REPORTS)" || (echo "Usage: make real-task-profile-tuning-compare REPORTS='path1 path2 path3' [OUTPUT=path]"; exit 1)
+	$(PYTHON) -m evaluation.real_task_profile_tuning compare \
+		--reports $(REPORTS) \
 		$(if $(OUTPUT),--output "$(OUTPUT)",)
 
 route-qualification-policy-hash:

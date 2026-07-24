@@ -262,14 +262,15 @@ compatibility, not superior task quality.
 Track G G0/G1 now freezes the varied real-task corpus described in
 [`REAL_TASK_CORPUS.md`](REAL_TASK_CORPUS.md). The next qualification work is:
 
-1. use `make real-task-development-collect SUBJECT=baseline` to collect the current Qwen
-   planner/reviewer development baseline without prompt changes;
-2. use the same runner with `SUBJECT=candidate` for Qwythos and inspect per-case
-   regressions;
-3. open the independently provisioned holdout only for the final comparison;
+1. collect and compare all three frozen G3 Qwythos development profiles documented in
+   `QWYTHOS_PROFILE_TUNING.md`;
+2. select planner and reviewer profiles independently under the accuracy-first,
+   no-material-regression policy;
+3. open only the role-specific independently provisioned holdout cases permitted by that
+   frozen gate;
 4. measure cold startup and serial model-switch time; and
-5. bind adapter, resource, lifecycle, and real-task evidence into one new versioned
-   decision contract.
+5. bind adapter, resource, lifecycle, development, and holdout evidence into one new
+   versioned decision contract.
 
 The final policy must separate structural contract gates from scored task quality. It must
 also use observed hardware behavior rather than treating an arbitrary VRAM reserve as a
