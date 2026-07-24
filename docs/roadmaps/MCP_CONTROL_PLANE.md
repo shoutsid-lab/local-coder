@@ -2,11 +2,11 @@
 
 **Target repository:** `shoutsid-lab/local-coder`
 
-**Status:** Queued — optional operator transport, behind the Track F/G capability
-milestone
+**Status:** Queued — optional operator transport, behind indexed repository intelligence
+and Track F target-machine closeout
 **Track:** E
-**Priority note:** read-only groundwork may proceed opportunistically, but MCP work must
-not delay reasoning-route qualification or real-task evidence collection.
+**Priority note:** MCP should expose the improved internal search and context contracts
+after they exist; it must not delay their implementation.
 
 ## 0. Why this document exists
 
@@ -14,9 +14,9 @@ The root [`ROADMAP.md`](../../ROADMAP.md) remains the repository-wide active que
 index. This document is the detailed implementation plan for exposing the trusted
 external control-plane CLI through Model Context Protocol (MCP).
 
-MCP improves operator ergonomics but does not raise agent task capability. The programme
-is therefore queued behind Track F reasoning routes and Track G real-task evidence. E0/E1
-may proceed only when they do not displace that capability work.
+MCP improves operator ergonomics but is not the current capability bottleneck. The
+programme is queued behind indexed repository intelligence and the remaining Track F live
+closeout. E0/E1 may proceed only when they do not displace that work.
 
 The completed Agent Skills, DSPy, GEPA, paired-evaluation, and prompt-deployment work is
 part of the stable baseline recorded in [`../HANDOFF.md`](../HANDOFF.md) and

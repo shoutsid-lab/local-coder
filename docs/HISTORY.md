@@ -4,11 +4,11 @@
 routine changes.
 
 The current implementation direction lives in [`../ROADMAP.md`](../ROADMAP.md). This file
-keeps a concise map of completed programmes and the evidence they actually established.
+keeps a concise map of completed programmes and the capabilities they established.
 
 ## Completed programmes
 
-### Tracks A–B — Agent Skills and typed role programs
+### Tracks A–B — Agent Skills and typed role programmes
 
 Delivered portable skill discovery and activation, stable LiteLLM route aliases, and typed
 DSPy adapters for explorer, planner, implementer, repairer, and reviewer roles.
@@ -23,48 +23,52 @@ Detailed retained references:
 
 - [`HANDOFF.md`](HANDOFF.md) — control-plane completion record;
 - [`RECURSIVE_IMPROVEMENT.md`](RECURSIVE_IMPROVEMENT.md) — closed programme summary;
-- [`VALIDATION_HISTORY.md`](VALIDATION_HISTORY.md) — evidence and retained controls;
+- [`VALIDATION_HISTORY.md`](VALIDATION_HISTORY.md) — retained validation record;
 - [`GEPA_CAMPAIGNS.md`](GEPA_CAMPAIGNS.md) — operator campaign workflow; and
 - [`PROMPT_DEPLOYMENT.md`](PROMPT_DEPLOYMENT.md) — activation and rollback boundary.
 
-## Evidence interpretation
+### Track G — Real-task corpus and route qualification
 
-The completed work proves that local-coder can constrain edits, isolate runs, preserve
-audit lineage, reject tampered or regressing candidates, and prevent rejected prompt
-states from becoming active.
+Track G froze a versioned corpus from actual repository tasks: eight development cases and
+a separately consumed four-case holdout. Development work selected role-specific Qwythos
+prompt contracts, and the one-shot holdout qualified Qwythos for planner and reviewer with
+no case-level regression.
 
-It does **not** prove that prompt optimization improves real coding capability. The first
-live planner campaign produced a changed candidate with better aggregate scores but
-regressed three external holdout cases and was correctly rejected. The original GEPA seed
-corpus is synthetic and remains suitable for smoke coverage, not primary capability claims.
+The result is role-specific. Explorer, orchestration, implementation, and repair remain on
+Qwen. The normalized reports remain under `evidence/track-g/` and are retained rather than
+regenerated.
 
-The strategic response is to retain the control plane while freezing further hardening
-until stronger evidence exists. Active work now prioritizes reasoning-capable routes and a
-real-task benchmark corpus.
+References:
 
-## Trust-model interpretation
+- [`roadmaps/REAL_TASK_EVIDENCE.md`](roadmaps/REAL_TASK_EVIDENCE.md);
+- [`REAL_TASK_CORPUS.md`](REAL_TASK_CORPUS.md);
+- [`QWYTHOS_PROMPT_TUNING.md`](QWYTHOS_PROMPT_TUNING.md); and
+- [`QWYTHOS_HOLDOUT_QUALIFICATION.md`](QWYTHOS_HOLDOUT_QUALIFICATION.md).
 
-Candidate-neutral approvals, holdout isolation, and activation gates protect against
-accidental lineage errors, malformed outputs, external candidates, implementation bugs,
-and future stronger models. They are forward-looking integrity controls; the repository
-does not claim that the current 3B model is a sophisticated adversary.
+## Completed foundation within active Track F
+
+Reasoning-aware response normalization, route probes, qualification-bound planner/reviewer
+profiles, and synchronous serial llama.cpp switching are implemented. Unknown live servers
+fail closed, failed profile loads restore the prior recognized profile, and Qwen is restored
+after Qwythos specialist calls.
+
+Track F remains in the active roadmap only for one target-machine switch cycle and one
+bounded end-to-end run. See [`roadmaps/REASONING_MODEL_ROUTES.md`](roadmaps/REASONING_MODEL_ROUTES.md)
+and [`MODEL_SWITCHING.md`](MODEL_SWITCHING.md).
+
+## Interpretation
+
+The completed work establishes a strong local execution and control foundation. It does not
+make further capability work conditional on creating another campaign, holdout, or extensive
+comparison programme. Established infrastructure may be integrated directly with focused
+regression, resource, and operational checks.
+
+The active capability priority is indexed repository intelligence: better filename, text,
+regex, symbol, and cross-repository localisation for the existing role-separated agents.
 
 ## Documentation lifecycle
 
 Living documents are the README, root roadmap, architecture, pipeline, and conventions.
 Detailed operator references remain active only while their subsystem is supported.
-Completed programme narratives belong here or in the linked retained records and should
-not return to the active reading path.
-
-### Tracks F–G — Reasoning route qualification and bounded activation
-
-Track G froze a real-task development corpus and consumed its independent four-case holdout
-once. Under the preregistered policy, Qwythos qualified for planner and reviewer with no
-case-level regression. The result is relative and role-specific: implementation and repair
-remain on Qwen, and planner strict holdout success did not increase.
-
-Track F records the normalized reports, pins the selected planner/reviewer prompts and
-budgets, and adds synchronous serial llama.cpp switching for constrained hardware. Unknown
-live servers fail closed; failed profile loads restore the prior recognized profile. See
-[`QWYTHOS_HOLDOUT_QUALIFICATION.md`](QWYTHOS_HOLDOUT_QUALIFICATION.md) and
-[`MODEL_SWITCHING.md`](MODEL_SWITCHING.md).
+Completed programme narratives belong here or in the linked retained records and should not
+return to the active reading path.

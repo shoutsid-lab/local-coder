@@ -254,12 +254,13 @@ LIVE_E2E_KEEP_WORKTREE=1 make live-e2e
 
 | Document | Purpose |
 | --- | --- |
-| [`ROADMAP.md`](ROADMAP.md) | Active priorities, evidence gates, and deferred work. |
+| [`ROADMAP.md`](ROADMAP.md) | Active priorities and deferred work. |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Component and trust boundaries. |
 | [`docs/PIPELINE.md`](docs/PIPELINE.md) | Editing, verification, review, and approval flow. |
-| [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) | Coding, evidence, and roadmap rules. |
+| [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) | Coding, capability, and roadmap rules. |
+| [`docs/roadmaps/INDEXED_REPOSITORY_INTELLIGENCE.md`](docs/roadmaps/INDEXED_REPOSITORY_INTELLIGENCE.md) | Active indexed search and agent-context implementation plan. |
 | [`docs/README.md`](docs/README.md) | Complete operator and programme-document index. |
-| [`docs/HISTORY.md`](docs/HISTORY.md) | Concise completed-programme and evidence index. |
+| [`docs/HISTORY.md`](docs/HISTORY.md) | Concise completed-programme index. |
 
 Primary actors should read `AGENTS.md`, `ROADMAP.md`, `docs/ARCHITECTURE.md`,
 `docs/PIPELINE.md`, and `docs/CONVENTIONS.md` before changing the repository. Detailed

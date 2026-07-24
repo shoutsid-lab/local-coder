@@ -18,15 +18,18 @@
 - Record brief approvals and promotion decisions with an actor and rationale; do not
   infer authorization from the candidate model response or a decision record.
 
-## Evidence and investment conventions
+## Capability and investment conventions
 
-- Distinguish controls that prevent harm from evidence that a model or optimization
-  improves task capability.
-- Do not treat synthetic smoke fixtures as primary evidence for real coding performance.
-- Freeze acceptance criteria before comparative model or prompt experiments.
-- Preserve per-case outcomes; aggregate means must not hide material regressions.
-- Prefer measured task bottlenecks over adding another control-plane abstraction.
-- Follow the optimization and deployment evidence gate in the root roadmap.
+- Prefer direct integration of established infrastructure over building a smaller custom
+  substitute.
+- Use focused tests and operational checks to catch regressions, stale state, path escape,
+  and resource failures.
+- Do not require a new campaign, holdout, or extensive comparative programme before adding
+  an established local capability that directly addresses an active roadmap item.
+- Use comparative evaluation when choosing between uncertain model, prompt, or policy
+  candidates, not as a universal prerequisite for ordinary engineering work.
+- Do not treat synthetic smoke fixtures as primary claims about real coding performance.
+- Prefer capability improvements over another control-plane abstraction.
 
 ## Roadmap conventions
 

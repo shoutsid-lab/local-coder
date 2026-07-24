@@ -41,8 +41,8 @@ Keep this file short and use deeper documents for detail.
 - Never weaken verification, acceptance criteria, or protected tests to make a run pass.
 - Do not introduce Claude or a required cloud model dependency.
 - Do not expand GEPA, campaign, or prompt-deployment machinery merely because the change
-  is easy to formalize. Follow the evidence gate in `ROADMAP.md` and prioritize measured
-  capability bottlenecks.
+  is easy to formalize. Follow the active priorities in `ROADMAP.md` and prefer direct
+  capability work over another control-plane abstraction.
 - Do not download larger models or change hardware profiles unless the task explicitly
   requests it.
 

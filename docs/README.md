@@ -3,31 +3,32 @@
 ## Living documents
 
 - [Repository README](../README.md) — setup, commands, and current capabilities.
-- [Active roadmap](../ROADMAP.md) — current priorities, evidence gates, and deferred work.
+- [Active roadmap](../ROADMAP.md) — current priorities and deferred work.
 - [Architecture](ARCHITECTURE.md) — component and trust boundaries.
 - [Pipeline](PIPELINE.md) — editing, verification, review, approval, and route-probe behavior.
-- [Conventions](CONVENTIONS.md) — coding, evidence, documentation, and roadmap rules.
+- [Conventions](CONVENTIONS.md) — coding, capability, documentation, and roadmap rules.
 
 ## Active capability programmes
 
+- [Indexed repository intelligence](roadmaps/INDEXED_REPOSITORY_INTELLIGENCE.md) — direct
+  integration of ripgrep, Zoekt, Universal Ctags, Git-aware overlays, repository discovery,
+  and bounded agent context compilation.
 - [Reasoning-capable model routes](roadmaps/REASONING_MODEL_ROUTES.md) — Track F response
-  contracts, Qwythos qualification, and bounded planner/reviewer routing.
-- [Real-task capability evidence](roadmaps/REAL_TASK_EVIDENCE.md) — Track G corpus and
-  route-comparison programme.
+  contracts, qualified planner/reviewer activation, and remaining target-machine closeout.
 
 ## Queued programme
 
 - [MCP control-plane integration](roadmaps/MCP_CONTROL_PLANE.md) — Track E optional
-  trusted-planner transport, queued behind the Track F/G capability milestone.
+  operator transport, queued behind repository intelligence and Track F closeout.
 
 ## Runtime and operator references
 
 - [Trusted task plans](TASK_PLANS.md) — hash-approved, one-step-at-a-time decomposition.
 - [Agent Skills](AGENT_SKILLS.md) — portable role-skill discovery and activation.
 - [DSPy integration](DSPY_INTEGRATION.md) — typed role programs behind stable adapters.
-- [Qwythos F3 qualification](QWYTHOS_QUALIFICATION.md) — retained v1 evidence,
-  raw-route and shared-adapter diagnostics, resource evidence, and remaining
-  planner/reviewer qualification work.
+- [Qwythos F3 qualification](QWYTHOS_QUALIFICATION.md) — retained v1 focused collector,
+  raw-route and shared-adapter diagnostics, and resource observations that preceded the
+  completed Track G qualification.
 - [Qwythos profile tuning](QWYTHOS_PROFILE_TUNING.md) — accuracy-first G3 development
   profiles, repeated collection, selection policy, and holdout gate.
 - [Qwythos prompt tuning](QWYTHOS_PROMPT_TUNING.md) — development-only
@@ -48,8 +49,10 @@
 
 ## Historical record
 
-- [Project history](HISTORY.md) — concise index of completed programmes and evidence
+- [Project history](HISTORY.md) — concise index of completed programmes and current
   interpretation.
+- [Real-task capability evidence](roadmaps/REAL_TASK_EVIDENCE.md) — completed Track G
+  corpus, development comparison, prompt selection, and consumed holdout programme.
 - [Completed handoff](HANDOFF.md) — detailed recursive-improvement control-plane record.
 - [Closed programme summary](RECURSIVE_IMPROVEMENT.md) — retained Track C/D summary.
 - [Validation history](VALIDATION_HISTORY.md) — historical evidence behind retained
